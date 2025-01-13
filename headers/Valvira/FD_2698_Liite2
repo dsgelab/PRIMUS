@@ -1,0 +1,6 @@
+original_name,new_name
+X.U.FEFF.Syntymäaika,BIRTH_DATE
+Ammattioikeus,PROFESSION
+Valvontaratkaisutyyppi_teva,DECISION_TYPE
+Valvonta..ratkaisu..päivä,DECISION_DATE
+FD_HASH_Rekisteröinti..numero,FD_HASH_CODE
