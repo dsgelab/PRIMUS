@@ -5,6 +5,6 @@ Ammattioikeus.voimassa.alkupäivämäärä,PROFESSION_START_DATE
 Ammattioikeus.voimassa.loppupäivämäärä,PROFESSION_END_DATE
 Tutkinto_Koodi,DEGREE_CODE
 Tutkinto,DEGREE
-Suoritusmaa,PROFESSION_COUNTRY
-Suorituspvm,PROFESSION_DATE
+Suoritusmaa,DEGREE_COUNTRY
+Suorituspvm,DEGREE_DATE
 FD_HASH_Rekisteröinti..numero,FD_HASH_CODE
