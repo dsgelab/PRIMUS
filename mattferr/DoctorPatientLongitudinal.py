@@ -23,7 +23,6 @@ def remove_missing_hash(data):
     return data
 
 def process_purchases(inpath, doctor_data, outpath):
-    start_time = time.time()
     #1. read file, only required columns, and rename
     dtypes_kela = {
     'FID':'str',
@@ -43,11 +42,8 @@ def process_purchases(inpath, doctor_data, outpath):
     merged_data = merged_data[['DOCTOR_ID', 'PATIENT_ID', 'REGISTER', 'DATE', 'CODE']]
     #4. output to longitudinal file
     merged_data.to_csv(outpath, mode='a', header=False, index=False)
-    end_time = time.time()
-    print(f'Time taken to process {inpath}: {end_time - start_time} seconds')
 
 def process_prescriptions(inpath, doctor_data, outpath):
-    start_time = time.time()
     #1. read file, only required columns, and rename
     dtypes_reseptikeskus = {
     'FID': 'str',
@@ -67,11 +63,8 @@ def process_prescriptions(inpath, doctor_data, outpath):
     merged_data = merged_data[['DOCTOR_ID', 'PATIENT_ID', 'REGISTER', 'DATE', 'CODE']]
     #4. output to longitudinal file
     merged_data.to_csv(outpath, mode='a', header=False, index=False)
-    end_time = time.time()
-    print(f'Time taken to process {inpath}: {end_time - start_time} seconds')
 
 def process_diagnosis_avohilmo(inpath, doctor_data, outpath):
-    start_time = time.time()
     #1. read file, only required columns, and rename
     dtypes_avohilmo = {
     'FID': 'str',
@@ -91,11 +84,8 @@ def process_diagnosis_avohilmo(inpath, doctor_data, outpath):
     merged_data = merged_data[['DOCTOR_ID', 'PATIENT_ID', 'REGISTER', 'DATE', 'CODE']]
     #4. output to longitudinal file
     merged_data.to_csv(outpath, mode='a', header=False, index=False)
-    end_time = time.time()
-    print(f'Time taken to process {inpath}: {end_time - start_time} seconds')
 
 def process_diagnosis_hilmo(inpath, doctor_data, outpath):
-    start_time = time.time()
     #1. read file, only required columns, and rename
     dtypes_hilmo = {
     'FID': 'str',
@@ -114,8 +104,6 @@ def process_diagnosis_hilmo(inpath, doctor_data, outpath):
     merged_data = merged_data[['DOCTOR_ID', 'PATIENT_ID', 'REGISTER', 'DATE', 'CODE']]
     #4. output to longitudinal file
     merged_data.to_csv(outpath, mode='a', header=False, index=False)
-    end_time = time.time()
-    print(f'Time taken to process {inpath}: {end_time - start_time} seconds')
 
 # Arguments
 parser = argparse.ArgumentParser()
@@ -168,7 +156,10 @@ with multiprocessing.Pool(processes=N_CPUs) as pool:
     print(f'printing to {output_file}')
 
     for func, files in tasks:
+        start_time = time.time()
         for input_file in files:
             pool.apply_async(func, args=(input_file, doctor_data, output_file))
+            end_time = time.time()
+        print(f'Time taken for {func}: {end_time - start_time} seconds')
     pool.close()
     pool.join()
