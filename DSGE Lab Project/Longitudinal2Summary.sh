@@ -22,7 +22,7 @@ zcat "$INPUT_FILE" | awk -F',' '
     }
 }
 END {
-    print "DOCTOR_ID,Total Patients,Unique Patients,Purchase,Prescription,Diagnosis Avohilmo,Diagnosis Hilmo,Self Prescriptions" > "'"$OUTPUT_FILE"'"  # Header
+    print "DOCTOR_ID,TotalPatients,UniquePatients,Purchase,Prescription,DiagnosisAvohilmo,DiagnosisHilmo,SelfPrescriptions" > "'"$OUTPUT_FILE"'"  # Header
 
     for (doc in total_patients) {
         unique_count = length(unique_patients[doc])
