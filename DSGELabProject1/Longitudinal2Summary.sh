@@ -20,21 +20,27 @@ zcat "$INPUT_FILE" | awk -F',' '
     if ($1 == $2) {
         self_prescriptions[$1]++
     }
+
+    # Count visits by sector
+    private_visits[$1] += $4  # Assuming column 4 represents PRIVATE visits
+    public_visits[$1] += $5   # Assuming column 5 represents PUBLIC visits
 }
 END {
-    print "DOCTOR_ID,TotalPatients,UniquePatients,Purchase,Prescription,DiagnosisAvohilmo,DiagnosisHilmo,SelfPrescriptions" > "'"$OUTPUT_FILE"'"  # Header
+    print "DOCTOR_ID,TotalPatients,UniquePatients,Purchase,Prescription,DiagnosisAvohilmo,DiagnosisHilmo,SelfPrescriptions,TotalPrivateVisits,TotalPublicVisits" > "'"$OUTPUT_FILE"'"  # Header
 
     for (doc in total_patients) {
         unique_count = length(unique_patients[doc])
         printf "%s,%d,%d", doc, total_patients[doc], unique_count > "'"$OUTPUT_FILE"'"
 
         # Print counts for each REGISTER type (default to 0 if missing)
-        printf ",%d,%d,%d,%d,%d\n", 
+        printf ",%d,%d,%d,%d,%d,%d,%d\n", 
             register_counts[doc]["Purchase"], 
             register_counts[doc]["Prescription"], 
             register_counts[doc]["Diagnosis Avohilmo"], 
             register_counts[doc]["Diagnosis Hilmo"], 
-            self_prescriptions[doc] > "'"$OUTPUT_FILE"'"
+            self_prescriptions[doc], 
+            private_visits[doc], 
+            public_visits[doc] > "'"$OUTPUT_FILE"'"
     }
 }' 
 
