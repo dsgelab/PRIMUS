@@ -39,7 +39,9 @@ def process_purchases(inpath, doctor_data, outpath):
     merged_data['REGISTER'] = 'Purchase'
     merged_data['DATE'] = pd.to_datetime(df['TOIMITUS_PV'], format='%Y-%m-%d')
     merged_data.rename(columns={'ATC5_KOODI': 'CODE'}, inplace=True)
-    merged_data = merged_data[['DOCTOR_ID', 'PATIENT_ID', 'REGISTER', 'DATE', 'CODE']]
+    merged_data['PRIVATE']=0
+    merged_data['PUBLIC']=0
+    merged_data = merged_data[['DOCTOR_ID', 'PATIENT_ID', 'REGISTER', 'DATE', 'CODE','PRIVATE','PUBLIC']]
     #4. output to longitudinal file
     merged_data.to_csv(outpath, mode='a', header=False, index=False)
 
@@ -49,7 +51,8 @@ def process_prescriptions(inpath, doctor_data, outpath):
     'FID': 'str',
     'FD_HASH_Rekisteröinti..numero': 'str',
     'DATE_PK':'str',
-    'ATC_CODE':'str'
+    'ATC_CODE':'str',
+    'SECTOR':'int'
     }
     df = pd.read_csv(os.path.join(Reseptikeskus_path, inpath), sep=';', encoding='latin-1', usecols= dtypes_reseptikeskus.keys(), dtype=dtypes_reseptikeskus)
     df.rename(columns={'FID': 'PATIENT_ID', 'FD_HASH_Rekisteröinti..numero': 'FD_HASH_CODE'}, inplace=True)
@@ -60,7 +63,9 @@ def process_prescriptions(inpath, doctor_data, outpath):
     merged_data['REGISTER'] = 'Prescription'
     merged_data['DATE'] = pd.to_datetime(df['DATE_PK'], format='%Y%m%d')
     merged_data.rename(columns={'ATC_CODE': 'CODE'}, inplace=True)
-    merged_data = merged_data[['DOCTOR_ID', 'PATIENT_ID', 'REGISTER', 'DATE', 'CODE']]
+    merged_data['PRIVATE'] = df['SECTOR'].apply(lambda x: 1 if x == 2 else 0)
+    merged_data['PUBLIC'] = df['SECTOR'].apply(lambda x: 1 if x == 1 else 0)
+    merged_data = merged_data[['DOCTOR_ID', 'PATIENT_ID', 'REGISTER', 'DATE', 'CODE','PRIVATE','PUBLIC']]
     #4. output to longitudinal file
     merged_data.to_csv(outpath, mode='a', header=False, index=False)
 
@@ -81,7 +86,9 @@ def process_diagnosis_avohilmo(inpath, doctor_data, outpath):
     merged_data['REGISTER'] = 'Diagnosis Avohilmo'
     merged_data['DATE'] = pd.to_datetime(df['KAYNTI_ALKOI'], format='%d.%m.%Y %H:%M').dt.date
     merged_data.rename(columns={'TAPATURMATYYPPI': 'CODE'}, inplace=True)
-    merged_data = merged_data[['DOCTOR_ID', 'PATIENT_ID', 'REGISTER', 'DATE', 'CODE']]
+    merged_data['PRIVATE']=0
+    merged_data['PUBLIC']=0
+    merged_data = merged_data[['DOCTOR_ID', 'PATIENT_ID', 'REGISTER', 'DATE', 'CODE','PRIVATE','PUBLIC']]
     #4. output to longitudinal file
     merged_data.to_csv(outpath, mode='a', header=False, index=False)
 
@@ -101,7 +108,9 @@ def process_diagnosis_hilmo(inpath, doctor_data, outpath):
     merged_data['REGISTER'] = 'Diagnosis Hilmo'
     merged_data['DATE'] = pd.to_datetime(df['TUPVA'], format='%d.%m.%Y')
     merged_data['CODE'] ='-'
-    merged_data = merged_data[['DOCTOR_ID', 'PATIENT_ID', 'REGISTER', 'DATE', 'CODE']]
+    merged_data['PRIVATE']=0
+    merged_data['PUBLIC']=0
+    merged_data = merged_data[['DOCTOR_ID', 'PATIENT_ID', 'REGISTER', 'DATE', 'CODE','PRIVATE','PUBLIC']]
     #4. output to longitudinal file
     merged_data.to_csv(outpath, mode='a', header=False, index=False)
 
