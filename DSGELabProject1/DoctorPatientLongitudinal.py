@@ -1,5 +1,3 @@
-# LAST UPDATED: 2025-02-10
-# generate longitudinal view of Doctor-Patient interactions (based on their ID)
 
 import argparse
 import os
