@@ -39,7 +39,7 @@ def merge_extra_avohilmo(base_data, inpath, outpath):
     merged_data.to_csv(outpath, mode='a', header=False, index=False)
 
 def merge_extra_hilmo(base_data, inpath, outpath):
-    dtypes = {'FID': 'str','AVOHILMOID':'int','KOODI':'str','N':'int','KENTTA':str}
+    dtypes = {'FID': 'str','HILMOID':'int','KOODI':'str','N':'int','KENTTA':str}
     df = pd.read_csv(os.path.join(THL_path, inpath), sep=';', encoding='latin-1', usecols= dtypes.keys(), dtype=dtypes)
     df = df[(df.N==0) & (df.KENTTA=='PDGO')] # filter only main diagnosis 
     merged_data = pd.merge(base_data, df, on='HILMOID', how='inner')
