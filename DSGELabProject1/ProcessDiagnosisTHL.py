@@ -49,6 +49,7 @@ def merge_extra_hilmo(base_data, inpath, outpath):
 
 #### Main:
 for base_file in avohilmo_base:
+    start_time = time.time()
     # 1. open file
     dtypes_avohilmo = {
     'FID': 'str',
@@ -66,15 +67,15 @@ for base_file in avohilmo_base:
     # - append to unique output file
     pd.DataFrame(columns=['FID', 'FD_HASH_Rekisteröinti', 'AVOHILMOID', 'KAYNTI_ALKOI', 'TAPATURMATYYPPI','ULKOINEN_SYY','ICD10']).to_csv(outpath_avohilmo, index=False)
     with multiprocessing.Pool(processes=N_CPUs) as pool:
-        start_time = time.time()
         for extra in avohilmo_diagnosis:
             pool.apply_async(merge_extra_avohilmo, args=(df, extra, outpath_avohilmo))
-        end_time = time.time()
-        print(f'Time taken for {base_file}: {end_time - start_time} seconds')
     pool.close()
     pool.join()
+    end_time = time.time()
+    print(f'Time taken for {base_file}: {end_time - start_time} seconds')
 
 for base_file in hilmo_base:
+    start_time = time.time()
     # 1. open file
     dtypes_hilmo = {
     'FID': 'str',
@@ -90,10 +91,9 @@ for base_file in hilmo_base:
     # - append to unique output file
     pd.DataFrame(columns=['FID', 'FD_HASH_Rekisteröinti', 'HILMOID', 'TUPVA','KOODI']).to_csv(outpath_hilmo, index=False)
     with multiprocessing.Pool(processes=N_CPUs) as pool:
-        start_time = time.time()
         for extra in hilmo_diagnosis:
             pool.apply_async(merge_extra_hilmo, args=(df, extra, outpath_hilmo))
-        end_time = time.time()
-        print(f'Time taken for {base_file}: {end_time - start_time} seconds')
     pool.close()
     pool.join()
+    end_time = time.time()
+    print(f'Time taken for {base_file}: {end_time - start_time} seconds')
