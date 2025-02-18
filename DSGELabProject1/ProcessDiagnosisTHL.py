@@ -10,7 +10,6 @@ import os
 import re
 import pandas as pd
 import multiprocessing 
-from datetime import datetime
 
 #### Paths
 THL_path = "/media/volume/Data/Data_THL_2698_14.02.00_2023/THL/"
@@ -19,9 +18,8 @@ avohilmo_diagnosis = [file for file in os.listdir(THL_path) if re.search(r'AH_pi
 hilmo_base = [file for file in os.listdir(THL_path) if re.search(r'HILMO\d', file) and '~lock' not in file]
 hilmo_diagnosis = [file for file in os.listdir(THL_path) if re.search(r'H_ICD10_\d', file) and '~lock' not in file]
 
-today = datetime.today().strftime('%d%m%y')
-outpath_avohilmo = f'/media/volume/Projects/DSGELabProject1/processed_avohilmo_{today}.csv'
-outpath_hilmo = f'/media/volume/Projects/DSGELabProject1/processed_hilmo_{today}.csv'
+outpath_avohilmo = f'/media/volume/Projects/DSGELabProject1/processed_avohilmo_{time.strftime('%Y%m%d')}.csv'
+outpath_hilmo = f'/media/volume/Projects/DSGELabProject1/processed_hilmo_{time.strftime('%Y%m%d')}.csv'
 
 #### Global variables
 N_CPUs = 5

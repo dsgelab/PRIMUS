@@ -138,8 +138,8 @@ doctor_data.drop_duplicates(inplace=True)
 # Get list of files to process
 kela_files = [file for file in os.listdir(Kela_path) if 'LAAKEOSTOT' in file and '~lock' not in file]
 reseptikeskus_files = [file for file in os.listdir(Reseptikeskus_path) if 'Laakemaaraykset' in file and '~lock' not in file]
-avohilmo_files = ['/media/volume/Projects/DSGELabProject1/processed_avohilmo_180225.csv']
-hilmo_files = ['/media/volume/Projects/DSGELabProject1/processed_hilmo_180225.csv']
+avohilmo_files = ['/media/volume/Projects/DSGELabProject1/processed_avohilmo_20250218.csv']
+hilmo_files = ['/media/volume/Projects/DSGELabProject1/processed_hilmo_20250218.csv']
 print('Found', len(kela_files), 'purchases files')
 print('Found', len(reseptikeskus_files), 'prescription files')
 print('Found', len(avohilmo_files), 'avohilmo files')
