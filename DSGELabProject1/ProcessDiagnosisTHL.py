@@ -35,14 +35,16 @@ def remove_missing_hash(data):
 def merge_extra_avohilmo(base_data, inpath, outpath):
     dtypes = {'FID': 'str','AVOHILMOID':'int','ICD10':'str'}
     df = pd.read_csv(os.path.join(THL_path, inpath), sep=';', encoding='latin-1', usecols= dtypes.keys(), dtype=dtypes)
-    merged_data = pd.merge(base_data, df, on='AVOHILMOID', how='inner')
+    merged_data = pd.merge(base_data, df, on=['FID', 'AVOHILMOID'], how='inner')
+    merged_data = merged_data[['FID', 'FD_HASH_Rekisteröinti', 'AVOHILMOID', 'KAYNTI_ALKOI', 'TAPATURMATYYPPI','ULKOINEN_SYY','ICD10']]
     merged_data.to_csv(outpath, mode='a', header=False, index=False)
 
 def merge_extra_hilmo(base_data, inpath, outpath):
     dtypes = {'FID': 'str','HILMOID':'int','KOODI':'str','N':'int','KENTTA':str}
     df = pd.read_csv(os.path.join(THL_path, inpath), sep=';', encoding='latin-1', usecols= dtypes.keys(), dtype=dtypes)
     df = df[(df.N==0) & (df.KENTTA=='PDGO')] # filter only main diagnosis 
-    merged_data = pd.merge(base_data, df, on='HILMOID', how='inner')
+    merged_data = pd.merge(base_data, df, on=['FID', 'HILMOID'], how='inner')
+    merged_data = merged_data[['FID', 'FD_HASH_Rekisteröinti', 'HILMOID', 'TUPVA', 'KOODI']]
     merged_data.to_csv(outpath, mode='a', header=False, index=False)
 
 #### Main:
@@ -63,7 +65,7 @@ for base_file in avohilmo_base:
     # 3. merge diagnosis info (using AVOHILMOID)
     # - multiprocessing for speed 
     # - append to unique output file
-    pd.DataFrame(columns=['FID', 'FD_HASH_Rekisteröinti', 'AVOHILMOID', 'KAYNTI_ALKOI', 'TAPATURMATYYPPI','ULKOINEN_SYY','ICD10']).to_csv(outpath_avohilmo, index=False)
+    pd.DataFrame(columns=['FID', 'FD_HASH_Rekisteröinti', 'AVOHILMOID', 'KAYNTI_ALKOI', 'TAPATURMATYYPPI', 'ULKOINEN_SYY', 'ICD10']).to_csv(outpath_avohilmo, index=False)
     with multiprocessing.Pool(processes=N_CPUs) as pool:
         for extra in avohilmo_diagnosis:
             pool.apply_async(merge_extra_avohilmo, args=(df, extra, outpath_avohilmo))
@@ -87,7 +89,7 @@ for base_file in hilmo_base:
     # 3. merge diagnosis info (using HILMOID)
     # - multiprocessing for speed 
     # - append to unique output file
-    pd.DataFrame(columns=['FID', 'FD_HASH_Rekisteröinti', 'HILMOID', 'TUPVA','KOODI']).to_csv(outpath_hilmo, index=False)
+    pd.DataFrame(columns=['FID', 'FD_HASH_Rekisteröinti', 'HILMOID', 'TUPVA', 'KOODI']).to_csv(outpath_hilmo, index=False)
     with multiprocessing.Pool(processes=N_CPUs) as pool:
         for extra in hilmo_diagnosis:
             pool.apply_async(merge_extra_hilmo, args=(df, extra, outpath_hilmo))
