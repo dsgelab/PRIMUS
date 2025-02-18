@@ -10,7 +10,7 @@ import multiprocessing
 Valvira_path = "/media/volume/Data/Data_THL_2698_14.02.00_2023/Valvira/FD_2698_Liite 1 THL_2698_14.02.00_2023.csv"
 Kela_path = "/media/volume/Data/Data_THL_2698_14.02.00_2023/Kela/"
 Reseptikeskus_path = "/media/volume/Data/Data_THL_2698_14.02.00_2023/Reseptikeskus/"
-THL_path = "/media/volume/Data/Data_THL_2698_14.02.00_2023/THL/"
+processed_THL_path = "/media/volume/Projects/DSGELabProject1/"
 
 # Functions
 def remove_missing_hash(data):
@@ -39,7 +39,7 @@ def process_purchases(inpath, doctor_data, outpath):
     merged_data.rename(columns={'ATC5_KOODI': 'CODE'}, inplace=True)
     merged_data['PRIVATE']=0
     merged_data['PUBLIC']=0
-    merged_data = merged_data[['DOCTOR_ID', 'PATIENT_ID', 'REGISTER', 'DATE', 'CODE','PRIVATE','PUBLIC']]
+    merged_data = merged_data[['DOCTOR_ID', 'PATIENT_ID', 'REGISTER', 'DATE', 'CODE', 'PRIVATE', 'PUBLIC']]
     #4. output to longitudinal file
     merged_data.to_csv(outpath, mode='a', header=False, index=False)
 
@@ -63,7 +63,7 @@ def process_prescriptions(inpath, doctor_data, outpath):
     merged_data.rename(columns={'ATC_CODE': 'CODE'}, inplace=True)
     merged_data['PRIVATE'] = df['SECTOR'].apply(lambda x: 1 if x == 2 else 0)
     merged_data['PUBLIC'] = df['SECTOR'].apply(lambda x: 1 if x == 1 else 0)
-    merged_data = merged_data[['DOCTOR_ID', 'PATIENT_ID', 'REGISTER', 'DATE', 'CODE','PRIVATE','PUBLIC']]
+    merged_data = merged_data[['DOCTOR_ID', 'PATIENT_ID', 'REGISTER', 'DATE', 'CODE', 'PRIVATE', 'PUBLIC']]
     #4. output to longitudinal file
     merged_data.to_csv(outpath, mode='a', header=False, index=False)
 
@@ -73,9 +73,9 @@ def process_diagnosis_avohilmo(inpath, doctor_data, outpath):
     'FID': 'str',
     'FD_HASH_Rekisteröinti..numero': 'str',
     'KAYNTI_ALKOI':'str',
-    'TAPATURMATYYPPI':'str',
+    'ICD10':'str'
     }
-    df = pd.read_csv(os.path.join(THL_path, inpath), sep=';', encoding='latin-1', usecols= dtypes_avohilmo.keys(), dtype=dtypes_avohilmo)
+    df = pd.read_csv(os.path.join(processed_THL_path, inpath), sep=';', encoding='latin-1', usecols= dtypes_avohilmo.keys(), dtype=dtypes_avohilmo)
     df.rename(columns={'FID': 'PATIENT_ID', 'FD_HASH_Rekisteröinti..numero': 'FD_HASH_CODE'}, inplace=True)
     #2. remove missing hash keys
     df = remove_missing_hash(df)
@@ -83,10 +83,10 @@ def process_diagnosis_avohilmo(inpath, doctor_data, outpath):
     merged_data = pd.merge(doctor_data, df, on='FD_HASH_CODE', how='inner')
     merged_data['REGISTER'] = 'Diagnosis Avohilmo'
     merged_data['DATE'] = pd.to_datetime(df['KAYNTI_ALKOI'], format='%d.%m.%Y %H:%M').dt.date
-    merged_data.rename(columns={'TAPATURMATYYPPI': 'CODE'}, inplace=True)
+    merged_data.rename(columns={'ICD10': 'CODE'}, inplace=True)
     merged_data['PRIVATE']=0
     merged_data['PUBLIC']=0
-    merged_data = merged_data[['DOCTOR_ID', 'PATIENT_ID', 'REGISTER', 'DATE', 'CODE','PRIVATE','PUBLIC']]
+    merged_data = merged_data[['DOCTOR_ID', 'PATIENT_ID', 'REGISTER', 'DATE', 'CODE','PRIVATE', 'PUBLIC']]
     #4. output to longitudinal file
     merged_data.to_csv(outpath, mode='a', header=False, index=False)
 
@@ -95,9 +95,10 @@ def process_diagnosis_hilmo(inpath, doctor_data, outpath):
     dtypes_hilmo = {
     'FID': 'str',
     'FD_HASH_Rekisteröinti..numero': 'str',
-    'TUPVA':'str'
+    'TUPVA':'str',
+    'KOODI':'str'
     }
-    df = pd.read_csv(os.path.join(THL_path, inpath), sep=';', encoding='latin-1', usecols=dtypes_hilmo.keys(), dtype=dtypes_hilmo)
+    df = pd.read_csv(os.path.join(processed_THL_path, inpath), sep=';', encoding='latin-1', usecols=dtypes_hilmo.keys(), dtype=dtypes_hilmo)
     df.rename(columns={'FID': 'PATIENT_ID', 'FD_HASH_Rekisteröinti..numero': 'FD_HASH_CODE'}, inplace=True)
     #2. remove missing hash keys
     df = remove_missing_hash(df)
@@ -105,10 +106,10 @@ def process_diagnosis_hilmo(inpath, doctor_data, outpath):
     merged_data = pd.merge(doctor_data, df, on='FD_HASH_CODE', how='inner')
     merged_data['REGISTER'] = 'Diagnosis Hilmo'
     merged_data['DATE'] = pd.to_datetime(df['TUPVA'], format='%d.%m.%Y')
-    merged_data['CODE'] ='-'
+    merged_data.rename(columns={'KOODI': 'CODE'}, inplace=True)
     merged_data['PRIVATE']=0
     merged_data['PUBLIC']=0
-    merged_data = merged_data[['DOCTOR_ID', 'PATIENT_ID', 'REGISTER', 'DATE', 'CODE','PRIVATE','PUBLIC']]
+    merged_data = merged_data[['DOCTOR_ID', 'PATIENT_ID', 'REGISTER', 'DATE', 'CODE','PRIVATE', 'PUBLIC']]
     #4. output to longitudinal file
     merged_data.to_csv(outpath, mode='a', header=False, index=False)
 
@@ -137,8 +138,8 @@ doctor_data.drop_duplicates(inplace=True)
 # Get list of files to process
 kela_files = [file for file in os.listdir(Kela_path) if 'LAAKEOSTOT' in file and '~lock' not in file]
 reseptikeskus_files = [file for file in os.listdir(Reseptikeskus_path) if 'Laakemaaraykset' in file and '~lock' not in file]
-avohilmo_files = [file for file in os.listdir(THL_path) if re.search(r'AH_\d', file) and '~lock' not in file]
-hilmo_files = [file for file in os.listdir(THL_path) if re.search(r'HILMO\d', file) and '~lock' not in file]
+avohilmo_files = ['/media/volume/Projects/DSGELabProject1/processed_avohilmo_180225.csv']
+hilmo_files = ['/media/volume/Projects/DSGELabProject1/processed_hilmo_180225.csv']
 print('Found', len(kela_files), 'purchases files')
 print('Found', len(reseptikeskus_files), 'prescription files')
 print('Found', len(avohilmo_files), 'avohilmo files')
@@ -159,7 +160,7 @@ with multiprocessing.Pool(processes=N_CPUs) as pool:
 
     output_file = f"{args.outdir}doctor_patient_longitudinal_{time.strftime('%Y%m%d')}.csv"
     # Prepare the output file with required columns
-    pd.DataFrame(columns=['DOCTOR_ID', 'PATIENT_ID', 'REGISTER', 'DATE', 'CODE']).to_csv(output_file, index=False)
+    pd.DataFrame(columns=['DOCTOR_ID', 'PATIENT_ID', 'REGISTER', 'DATE', 'CODE', 'PRIVATE', 'PUBLIC']).to_csv(output_file, index=False)
     print(f'printing to {output_file}')
 
     for func, files in tasks:
