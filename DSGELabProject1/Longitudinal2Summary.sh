@@ -26,7 +26,7 @@ zcat "$INPUT_FILE" | awk -F',' '
     public_visits[$1] += $5   # Assuming column 5 represents PUBLIC visits
 }
 END {
-    print "DOCTOR_ID,TotalPatients,UniquePatients,Purchase,Prescription,DiagnosisAvohilmo,DiagnosisHilmo,SelfPrescriptions,TotalPrivateVisits,TotalPublicVisits" > "'"$OUTPUT_FILE"'"  # Header
+    print "DOCTOR_ID,TotalPatients,UniquePatients,Purchases,Prescriptions,DiagnosisAvohilmo,DiagnosisHilmo,SelfVisits,PrivatePrescriptions,PublicPrescriptions" > "'"$OUTPUT_FILE"'"  # Header
 
     for (doc in total_patients) {
         unique_count = length(unique_patients[doc])
