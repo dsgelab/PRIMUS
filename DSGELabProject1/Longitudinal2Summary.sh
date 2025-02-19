@@ -22,8 +22,8 @@ zcat "$INPUT_FILE" | awk -F',' '
     }
 
     # Count visits by sector
-    private_visits[$1] += $4  # Assuming column 4 represents PRIVATE visits
-    public_visits[$1] += $5   # Assuming column 5 represents PUBLIC visits
+    private_visits[$1] += $6
+    public_visits[$1] += $7
 }
 END {
     print "DOCTOR_ID,TotalPatients,UniquePatients,Purchases,Prescriptions,DiagnosisAvohilmo,DiagnosisHilmo,SelfVisits,PrivatePrescriptions,PublicPrescriptions" > "'"$OUTPUT_FILE"'"  # Header
