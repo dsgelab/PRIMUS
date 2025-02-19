@@ -1,4 +1,7 @@
+#### Info
+# machine stats: RAM = 125 Gb, CPU = 32 cores
 
+#### Libraries
 import argparse
 import os
 import re
@@ -6,13 +9,25 @@ import time
 import pandas as pd
 import multiprocessing 
 
-# Paths
+#### Paths
 Valvira_path = "/media/volume/Data/Data_THL_2698_14.02.00_2023/Valvira/FD_2698_Liite 1 THL_2698_14.02.00_2023.csv"
 Kela_path = "/media/volume/Data/Data_THL_2698_14.02.00_2023/Kela/"
 Reseptikeskus_path = "/media/volume/Data/Data_THL_2698_14.02.00_2023/Reseptikeskus/"
-processed_THL_path = "/media/volume/Projects/DSGELabProject1/"
+processed_THL_path = "/media/volume/Projects/DSGELabProject1/" # using the processed files from ProcessDiagnosisTHL.py
 
-# Functions
+##### Arguments
+parser = argparse.ArgumentParser()
+parser.add_argument('--outdir', type=str, default='/media/volume/Projects/DSGELabProject1/',help='directory where the results want to be saved')
+parser.add_argument('--doctor_list', type=str, default=False, help='file path to list of doctor IDs, if not provided, will use all doctors')
+args = parser.parse_args()
+
+print("using the following arguments: ")
+print(args)
+
+#### Global variables
+N_CPUs = 6
+
+##### Functions
 def remove_missing_hash(data):
     N0 = data.shape[0]
     data = data[(data['FD_HASH_CODE'].notna()) & (data['FD_HASH_CODE'] != "PUUTTUVA")]
@@ -75,7 +90,7 @@ def process_diagnosis_avohilmo(inpath, doctor_data, outpath):
     'KAYNTI_ALKOI':'str',
     'ICD10':'str'
     }
-    df = pd.read_csv(os.path.join(processed_THL_path, inpath), sep=';', encoding='latin-1', usecols= dtypes_avohilmo.keys(), dtype=dtypes_avohilmo)
+    df = pd.read_csv(os.path.join(processed_THL_path, inpath), sep=',', encoding='latin-1', usecols= dtypes_avohilmo.keys(), dtype=dtypes_avohilmo)
     df.rename(columns={'FID': 'PATIENT_ID', 'FD_HASH_Rekisteröinti..numero': 'FD_HASH_CODE'}, inplace=True)
     #2. remove missing hash keys
     df = remove_missing_hash(df)
@@ -98,7 +113,7 @@ def process_diagnosis_hilmo(inpath, doctor_data, outpath):
     'TUPVA':'str',
     'KOODI':'str'
     }
-    df = pd.read_csv(os.path.join(processed_THL_path, inpath), sep=';', encoding='latin-1', usecols=dtypes_hilmo.keys(), dtype=dtypes_hilmo)
+    df = pd.read_csv(os.path.join(processed_THL_path, inpath), sep=',', encoding='latin-1', usecols=dtypes_hilmo.keys(), dtype=dtypes_hilmo)
     df.rename(columns={'FID': 'PATIENT_ID', 'FD_HASH_Rekisteröinti..numero': 'FD_HASH_CODE'}, inplace=True)
     #2. remove missing hash keys
     df = remove_missing_hash(df)
@@ -112,15 +127,6 @@ def process_diagnosis_hilmo(inpath, doctor_data, outpath):
     merged_data = merged_data[['DOCTOR_ID', 'PATIENT_ID', 'REGISTER', 'DATE', 'CODE','PRIVATE', 'PUBLIC']]
     #4. output to longitudinal file
     merged_data.to_csv(outpath, mode='a', header=False, index=False)
-
-# Arguments
-parser = argparse.ArgumentParser()
-parser.add_argument('--outdir', type=str, default='/media/volume/Projects/mattferr/',help='directory where the results want to be saved')
-parser.add_argument('--doctor_list', type=str, default=False, help='file path to list of doctor IDs, if not provided, will use all doctors')
-args = parser.parse_args()
-
-print("using the following arguments: ")
-print(args)
 
 #### Main ####
 # Load doctor data
@@ -138,17 +144,14 @@ doctor_data.drop_duplicates(inplace=True)
 # Get list of files to process
 kela_files = [file for file in os.listdir(Kela_path) if 'LAAKEOSTOT' in file and '~lock' not in file]
 reseptikeskus_files = [file for file in os.listdir(Reseptikeskus_path) if 'Laakemaaraykset' in file and '~lock' not in file]
-avohilmo_files = ['/media/volume/Projects/DSGELabProject1/processed_avohilmo_20250218.csv']
-hilmo_files = ['/media/volume/Projects/DSGELabProject1/processed_hilmo_20250218.csv']
+avohilmo_files = ['processed_avohilmo_20250218.csv']
+hilmo_files = ['processed_hilmo_20250218.csv']
 print('Found', len(kela_files), 'purchases files')
 print('Found', len(reseptikeskus_files), 'prescription files')
 print('Found', len(avohilmo_files), 'avohilmo files')
 print('Found', len(hilmo_files), 'hilmo files')
 
 # Multiprocessing tasks for longitudinal file generation
-# RAM = 125 Gb, CPU = 32 cores
-N_CPUs = 6
-
 tasks = [
     (process_purchases, kela_files),
     (process_prescriptions, reseptikeskus_files),
