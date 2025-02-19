@@ -37,6 +37,7 @@ def remove_missing_hash(data):
 
 def process_purchases(inpath, doctor_data, outpath):
     #1. read file, only required columns, and rename
+    print('processing: ', inpath)
     dtypes_kela = {
     'FID':'str',
     'FD_HASH_Rekisteröinti..numero':'str',
@@ -60,6 +61,7 @@ def process_purchases(inpath, doctor_data, outpath):
 
 def process_prescriptions(inpath, doctor_data, outpath):
     #1. read file, only required columns, and rename
+    print('processing: ', inpath)
     dtypes_reseptikeskus = {
     'FID': 'str',
     'FD_HASH_Rekisteröinti..numero': 'str',
@@ -84,6 +86,7 @@ def process_prescriptions(inpath, doctor_data, outpath):
 
 def process_diagnosis_avohilmo(inpath, doctor_data, outpath):
     #1. read file, only required columns, and rename
+    print('processing: ', inpath)
     dtypes_avohilmo = {
     'FID': 'str',
     'FD_HASH_Rekisteröinti..numero': 'str',
@@ -107,6 +110,7 @@ def process_diagnosis_avohilmo(inpath, doctor_data, outpath):
 
 def process_diagnosis_hilmo(inpath, doctor_data, outpath):
     #1. read file, only required columns, and rename
+    print('processing: ', inpath)
     dtypes_hilmo = {
     'FID': 'str',
     'FD_HASH_Rekisteröinti..numero': 'str',
