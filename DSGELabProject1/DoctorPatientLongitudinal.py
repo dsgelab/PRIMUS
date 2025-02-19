@@ -170,7 +170,7 @@ with multiprocessing.Pool(processes=N_CPUs) as pool:
         start_time = time.time()
         for input_file in files:
             pool.apply_async(func, args=(input_file, doctor_data, output_file))
-            end_time = time.time()
+        end_time = time.time()
         print(f'Time taken for {func}: {end_time - start_time} seconds')
     pool.close()
     pool.join()
