@@ -69,7 +69,7 @@ def process_prescriptions(inpath, doctor_data, outpath):
     'ATC_CODE':'str',
     'SECTOR':'str'
     }
-    df = pd.read_csv(os.path.join(Reseptikeskus_path, inpath), sep=';', encoding='latin-1', usecols= dtypes_reseptikeskus.keys(), dtype=dtypes_reseptikeskus)
+    df = pd.read_csv(os.path.join(Reseptikeskus_path, inpath), sep=';', encoding='latin-1', quotechar='"', escapechar='\\', usecols= dtypes_reseptikeskus.keys(), dtype=dtypes_reseptikeskus)
     df.rename(columns={'FID': 'PATIENT_ID', 'FD_HASH_Rekisteröinti..numero': 'FD_HASH_CODE'}, inplace=True)
     #2. remove missing hash keys
     df = remove_missing_hash(df)
