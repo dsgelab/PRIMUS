@@ -1,6 +1,16 @@
 #### Info
 # machine stats: RAM = 125 Gb, CPU = 32 cores
 
+# This script takes as input 4 different types of files: Kela purchases, Reseptikeskus prescriptions, THL avohilmo, and THL hilmo.
+# NB: THL files have bee preprocessed using ProcessDiagnosisTHL.py
+
+# This script processes each file type separately and merges them with the doctor data to create a longitudinal file
+# which contains information about each doctor patient interaction 
+
+# The script uses multiprocessing to speed up the process.
+# The script takes around 3 hours to process all the files and create the longitudinal file.
+
+
 #### Libraries
 import argparse
 import os

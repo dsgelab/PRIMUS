@@ -1,3 +1,7 @@
+#### Info
+# This script extracts the Box-Boxerman Continuity of Care (COC) information for each available patient in the dataset,
+# starting from the output from Doctor_Patient_Longitudinal.py
+
 # Start timer
 START_TIME=$(date +%s)
 

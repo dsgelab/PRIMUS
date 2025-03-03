@@ -4,6 +4,10 @@
 # hilmo base files = 5
 # hilmo diagnosis files = 5
 
+# This script processes the THL avohilmo and hilmo files in order to add the ICD10 code of the diagnosis to the main THL files.
+# The script uses multiprocessing to speed up the process, missing hash codes are removed to reduce space/time complexity 
+# The script takes around 3 hours to process all the files.
+
 #### Libraries:
 import time
 import os
