@@ -37,8 +37,9 @@ def remove_missing_hash(data):
     return data
 
 def merge_extra_avohilmo(base_data, inpath, outpath):
-    dtypes = {'FID': 'str','AVOHILMOID':'int','ICD10':'str'}
+    dtypes = {'FID': 'str','AVOHILMOID':'int','JARJESTYS':'int','ICD10':'str'}
     df = pd.read_csv(os.path.join(THL_path, inpath), sep=';', encoding='latin-1', usecols= dtypes.keys(), dtype=dtypes)
+    df = df[df.JARJESTYS==0] # filter only main diagnosis
     merged_data = pd.merge(base_data, df, on=['FID', 'AVOHILMOID'], how='inner')
     if not merged_data.empty:
         merged_data = merged_data[['FID', 'FD_HASH_Rekisteröinti..numero', 'AVOHILMOID', 'KAYNTI_ALKOI', 'TAPATURMATYYPPI','ULKOINEN_SYY','ICD10']]
