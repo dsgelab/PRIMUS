@@ -69,11 +69,17 @@ calculate_practicing_days <- function(license_periods) {
         current_start <- license_periods$start[i]
         current_end <- license_periods$end[i]
 
-        if (!is.null(previous_end) && current_start < previous_end) {
-            current_start <- previous_end
+        if (!is.null(previous_end)) {
+            if (current_start <= previous_end) {
+                if (current_end <= previous_end) {
+                    next
+                } else {
+                    current_start <- previous_end
+                }
+            }
         }
 
-        days <- as.numeric(difftime(current_end, current_start, units = "days"))
+        days <- as.numeric(difftime(current_end, current_start, units = "days")) + 1
         days <- max(days, 0)
         total_days <- total_days + days
         previous_end <- current_end
