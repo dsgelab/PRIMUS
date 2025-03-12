@@ -1,8 +1,14 @@
 #### Info:
 # This script processes the THL avohilmo and hilmo files in order to add the ICD10 code of the diagnosis to the main THL files.
-
-# contrary to ProcessDiagnosisTHL.py, this script does not remove missing hash codes anw will be used as a reference for diagnosis info.
+# Contrary to ProcessDiagnosisTHL.py, this script does not remove missing hash codes anw will be used as a reference for diagnosis info.
 # the script uses multiprocessing to speed up the process
+
+# INPUT:
+# - id_list: file path to list of doctor IDs to be used
+# - outdir: directory where the results want to be saved
+# OUTPUT:
+# - filtered_diagnosis_avohilmo file
+# - filtered_diagnosis_hilmo file
 
 #### Libraries:
 import time
@@ -14,8 +20,8 @@ import argparse
 
 ##### Arguments
 parser = argparse.ArgumentParser()
-parser.add_argument('--id_list', type=str, default=False, help='file path to list of IDs, if not provided, will use everyone')
-parser.add_argument('--outdir', type=str, default='/media/volume/Projects/DSGELabProject1/',help='directory where the results want to be saved')
+parser.add_argument('--id_list', type=str, default=False, help='file path to list of IDs')
+parser.add_argument('--outdir', type=str, default='/media/volume/Projects/DSGELabProject1',help='directory where the results want to be saved')
 args = parser.parse_args()
 
 print("using the following arguments: ")
@@ -28,8 +34,8 @@ avohilmo_diagnosis = [file for file in os.listdir(THL_path) if re.search(r'AH_pi
 hilmo_base = [file for file in os.listdir(THL_path) if re.search(r'HILMO\d', file) and '~lock' not in file]
 hilmo_diagnosis = [file for file in os.listdir(THL_path) if re.search(r'H_ICD10_\d', file) and '~lock' not in file]
 
-outpath_avohilmo = f"{args.outdir}processed_avohilmo_v2_{time.strftime('%Y%m%d')}.csv"
-outpath_hilmo = f"{args.outdir}processed_hilmo_v2_{time.strftime('%Y%m%d')}.csv"
+outpath_avohilmo = f"{args.outdir}/filtered_diagnosis_avohilmo_{time.strftime('%Y%m%d')}.csv"
+outpath_hilmo = f"{args.outdir}/filtered_diagnosis_hilmo_{time.strftime('%Y%m%d')}.csv"
 
 #### Global variables
 N_CPUs = 5
@@ -43,6 +49,7 @@ def merge_extra_avohilmo(base_data, inpath, outpath):
     if not merged_data.empty:
         merged_data = merged_data[['FID','KAYNTI_ALKOI','ICD10']]
         merged_data.rename(columns={'FID': 'PATIENT_ID', 'KAYNTI_ALKOI': 'DATE', 'ICD10': 'CODE'}, inplace=True)
+        merged_data['DATE'] = pd.to_datetime(merged_data['DATE'], format='%d.%m.%Y', errors='coerce')
         merged_data.to_csv(outpath, mode='a', header=False, index=False)
 
 def merge_extra_hilmo(base_data, inpath, outpath):
@@ -53,6 +60,7 @@ def merge_extra_hilmo(base_data, inpath, outpath):
     if not merged_data.empty:
         merged_data = merged_data[['FID','TUPVA', 'KOODI']]
         merged_data.rename(columns={'FID': 'PATIENT_ID', 'TUPVA': 'DATE', 'KOODI': 'CODE'}, inplace=True)
+        merged_data['DATE'] = pd.to_datetime(merged_data['DATE'], format='%d.%m.%Y', errors='coerce')
         merged_data.to_csv(outpath, mode='a', header=False, index=False)
 
 #### Main:
