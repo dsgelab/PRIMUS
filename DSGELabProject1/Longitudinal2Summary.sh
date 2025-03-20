@@ -1,3 +1,7 @@
+#### Info 
+# This script extracts summary information about visits for each available doctor in the dataset,
+# starting from the output from Doctor_Patient_Longitudinal.py
+
 # Start timer
 START_TIME=$(date +%s)
 
