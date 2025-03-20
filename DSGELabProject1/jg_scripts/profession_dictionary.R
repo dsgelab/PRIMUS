@@ -12,6 +12,7 @@ library(R.utils)
 library(readxl)
 library(httr)
 library(jsonlite)
+library(openxlsx)
 
 file_path <- "C:\\Users\\Jakob German\\Downloads\\codelist_Koulutusluokitus.xlsx"
 
@@ -63,3 +64,6 @@ google_translate(sample_text)
 
 dict_df$PREFLABEL_EN <- sapply(dict_df$PREFLABEL_FI, google_translate)
 fwrite(dict_df, "C:\\Users\\Jakob German\\Downloads\\MD_profession_dictionary_EN.csv")
+# Write the dataframe to an Excel file
+write.xlsx(dict_df, "C:\\Users\\Jakob German\\Downloads\\MD_profession_dictionary_EN.xlsx")
+

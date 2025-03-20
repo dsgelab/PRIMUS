@@ -195,3 +195,39 @@ valvira_licensed_5years_active <- valvira_licensed_5years_active %>%
 # save dataset
 fwrite(valvira_licensed_5years_active, "/media/volume/Projects/DSGELabProject1/doctor_characteristics_wlongest_Specialty_20250220.csv")
 
+
+
+# with specialty dictionary
+spec_dict  <- read_excel("/media/volume/Projects/jg/condensed_specialty_dict.xlsx", sheet = 1)
+
+valvira_licensed <- valvira_licensed %>%
+    mutate(Tutkinto_Koodi = substr(Tutkinto_Koodi, 1, 5)) %>%
+    left_join(spec_dict %>% select(-COMPRISED), by = c("Tutkinto_Koodi" = "CODEVALUE"))
+
+# removing "NO SPECIALTY"
+valvira_only_special <- valvira_licensed %>%
+    mutate(LABEL_EN = ifelse(LABEL_EN %in%
+        c("LICENSED_MED", "LICENSED_DENT", "STUDENT_MED", "STUDENT_DENT"), NA, LABEL_EN)) %>% 
+    filter(!is.na(LABEL_EN))
+
+# longest specialty w/o no specialty
+last_specialty <- valvira_only_special %>%
+    arrange(FID, desc(Ammattioikeus.voimassa.alkupäivämäärä)) %>%
+    group_by(FID) %>%
+    slice(1) %>%
+    select(FID, LAST_SPECIALTY = LABEL_EN)
+
+valvira_characteristics <- valvira_licensed_5years_active %>%
+    left_join(spec_dict %>% select(-COMPRISED), by = c("SPECIALTY" = "CODEVALUE")) %>%
+    select(-SPECIALTY) %>% 
+    dplyr::rename(LONGEST_SPECIALTY = LABEL_EN) %>% 
+    mutate(LONGEST_SPECIALTY = ifelse(LONGEST_SPECIALTY %in%
+        c("LICENSED_MED", "LICENSED_DENT", "STUDENT_MED", "STUDENT_DENT"), NA, LONGEST_SPECIALTY)) %>%
+    left_join(last_specialty, by = "FID")
+
+# QC this dataset
+valvira_characteristics <- valvira_characteristics %>%
+    mutate(BIRTH_DATE = ymd(BIRTH_DATE))
+
+# save dataset
+fwrite(valvira_characteristics, "/media/volume/Projects/DSGELabProject1/doctor_characteristics_20250311.csv")
