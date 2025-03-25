@@ -8,6 +8,7 @@ library(dplyr)
 library(tidyr)
 library(lubridate)
 library(fixest)
+library(ggplot2)
 
 ##### Arguments
 args = commandArgs(trailingOnly = TRUE)
@@ -93,9 +94,19 @@ for (id_list in list(
     # DiD analysis
     model = fixest::feols(Y ~ MONTH + POST + MONTH * POST | DOCTOR_ID, data = df_merged)
     results = data.frame(summary(model)$coeftable)
-
     # Save results
     write.csv(results, file = paste0(outdir, "/DiD_results_VERSION", counter, ".csv"), row.names = FALSE)
+
+    # Plot
+    population_avg = outcomes_new %>% group_by(MONTH) %>% summarise(PopAvg = mean(Y, na.rm = TRUE))
+    p = ggplot() +
+        geom_line(data = outcomes_new, aes(x = MONTH, y = Y, group = DOCTOR_ID), color = 'black', alpha = 0.3) +
+        geom_line(data = population_avg, aes(x = MONTH, y = PopAvg), color = "red", linewidth = 1.5, linetype = "dashed") +
+        labs(x = "Month",y = "Outcome") +
+        theme_minimal() +
+        theme(legend.position = "right")
+    # save results
+    ggsave(paste0(outdir, "/DiD_plot_VERSION", counter, ".png"), plot = p, width = 14, height = 8, dpi = 300)
 
     counter = counter + 1
 }
