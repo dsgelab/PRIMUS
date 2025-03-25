@@ -20,6 +20,7 @@ events_file = args[5]
 outcomes_file = args[6]
 outdir = args[7]
 outcome_code = 'C10AA'
+TIME_UNIT = 'month' # can be 'month' or 'year'
 BASE_DATE = "2014-01-01"
 
 #### Main
@@ -73,16 +74,16 @@ for (id_list in list(
     outcomes_new = outcomes %>%
         filter(!is.na(DATE)) %>%
         mutate(
-            MONTH = floor(time_length(interval(BASE_DATE, ymd(DATE)), unit = "month")),
+            TIME = floor(time_length(interval(BASE_DATE, ymd(DATE)), unit = TIME_UNIT)),
             EVENT = ifelse(DOCTOR_ID %in% id_list[[1]], 1, 0)
         ) %>%
-        group_by(DOCTOR_ID, MONTH) %>%
+        group_by(DOCTOR_ID, TIME) %>%
         summarise(
             Ni = sum(grepl(paste0("^", outcome_code), CODE)),
             N = n(),
             .groups = "drop"
         ) %>%
-        complete(DOCTOR_ID, MONTH = full_seq(MONTH, 1), fill = list(Ni = 0, N = 0)) %>%
+        complete(DOCTOR_ID, TIME = full_seq(TIME, 1), fill = list(Ni = 0, N = 0)) %>%
         mutate(Y = ifelse(N == 0, NA, Ni / N))
 
     # Report number of doctors with outcomes
@@ -94,20 +95,20 @@ for (id_list in list(
     # Add info about events (POST=1 if outcome happened after the event)
     tmp = events[, c("PATIENT_ID", "DATE")] %>% rename("DOCTOR_ID" = "PATIENT_ID")
     df_merged = left_join(outcomes_new, tmp, by = "DOCTOR_ID")
-    df_merged$POST = if_else(is.na(df_merged$DATE) | df_merged$MONTH <=  floor(time_length(interval(BASE_DATE, ymd(df_merged$DATE)), unit = "month")), 0, 1)
+    df_merged$POST = if_else(is.na(df_merged$DATE) | df_merged$TIME <= floor(time_length(interval(BASE_DATE, ymd(df_merged$DATE)), unit = TIME_UNIT)), 0, 1)
 
     # DiD analysis
-    model = fixest::feols(Y ~ MONTH + POST + MONTH * POST | DOCTOR_ID, data = df_merged)
+    model = fixest::feols(Y ~ TIME + POST + TIME * POST | DOCTOR_ID, data = df_merged)
     results = data.frame(summary(model)$coeftable)
     # Save results
     write.csv(results, file = paste0(outdir, "/DiD_results_VERSION", counter, ".csv"), row.names = FALSE)
 
     # Plot
-    population_avg = outcomes_new %>% group_by(MONTH) %>% summarise(PopAvg = mean(Y, na.rm = TRUE))
+    population_avg = outcomes_new %>% group_by(TIME) %>% summarise(PopAvg = mean(Y, na.rm = TRUE))
     p = ggplot() +
-        geom_line(data = outcomes_new, aes(x = MONTH, y = Y, group = DOCTOR_ID), color = 'black', alpha = 0.3) +
-        geom_line(data = population_avg, aes(x = MONTH, y = PopAvg), color = "red", linewidth = 1.5, linetype = "dashed") +
-        labs(x = "Month",y = "Outcome") +
+        geom_line(data = outcomes_new, aes(x = TIME, y = Y, group = DOCTOR_ID), color = 'black', alpha = 0.3) +
+        geom_line(data = population_avg, aes(x = TIME, y = PopAvg), color = "red", linewidth = 1.5, linetype = "dashed") +
+        labs(x = "Time",y = "Outcome") +
         theme_minimal() +
         theme(legend.position = "right")
     # save results
