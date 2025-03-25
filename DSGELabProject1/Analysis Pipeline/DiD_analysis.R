@@ -19,6 +19,7 @@ id_controls = args[4]
 events_file = args[5]
 outcomes_file = args[6]
 outdir = args[7]
+outcome_code = 'C10AA'
 BASE_DATE = "2014-01-01"
 
 #### Main
@@ -76,9 +77,13 @@ for (id_list in list(
             EVENT = ifelse(DOCTOR_ID %in% id_list[[1]], 1, 0)
         ) %>%
         group_by(DOCTOR_ID, MONTH) %>%
-        summarise(Y = n(), .groups = "drop") %>%
-        complete(DOCTOR_ID, MONTH = full_seq(MONTH, 1), fill = list(Y = 0))
-
+        summarise(
+            Ni = sum(grepl(paste0("^", outcome_code), CODE)),
+            N = n(),
+            .groups = "drop"
+        ) %>%
+        complete(DOCTOR_ID, MONTH = full_seq(MONTH, 1), fill = list(Ni = 0, N = 0)) %>%
+        mutate(Y = ifelse(N == 0, NA, Ni / N))
 
     # Report number of doctors with outcomes
     N_CASES_OUT = length(intersect(id_list[[1]], unique(outcomes_new$DOCTOR_ID)))
