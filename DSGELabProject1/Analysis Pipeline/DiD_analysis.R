@@ -5,6 +5,7 @@
 #### Libraries:
 library(data.table)
 library(dplyr)
+library(tidyr)
 library(lubridate)
 library(fixest)
 
@@ -17,6 +18,7 @@ id_controls = args[4]
 events_file = args[5]
 outcomes_file = args[6]
 outdir = args[7]
+BASE_DATE = "2014-01-01"
 
 #### Main
 
@@ -67,12 +69,15 @@ for (id_list in list(
 
     # Perform DiD analysis
     outcomes_new = outcomes %>%
+        filter(!is.na(DATE)) %>%
         mutate(
-            YEAR = year(ymd(DATE)),
+            MONTH = floor(time_length(interval(BASE_DATE, ymd(DATE)), unit = "month")),
             EVENT = ifelse(DOCTOR_ID %in% id_list[[1]], 1, 0)
         ) %>%
-        group_by(DOCTOR_ID, YEAR) %>%
-        summarise(Y = n(), .groups = "drop")
+        group_by(DOCTOR_ID, MONTH) %>%
+        summarise(Y = n(), .groups = "drop") %>%
+        complete(DOCTOR_ID, MONTH = full_seq(MONTH, 1), fill = list(Y = 0))
+
 
     # Report number of doctors with outcomes
     N_CASES_OUT = length(intersect(id_list[[1]], unique(outcomes_new$DOCTOR_ID)))
@@ -83,10 +88,10 @@ for (id_list in list(
     # Add info about events (POST=1 if outcome happened after the event)
     tmp = events[, c("PATIENT_ID", "DATE")] %>% rename("DOCTOR_ID" = "PATIENT_ID")
     df_merged = left_join(outcomes_new, tmp, by = "DOCTOR_ID")
-    df_merged$POST = if_else(is.na(df_merged$DATE) | df_merged$YEAR <= year(ymd(df_merged$DATE)), 0, 1)
+    df_merged$POST = if_else(is.na(df_merged$DATE) | df_merged$MONTH <=  floor(time_length(interval(BASE_DATE, ymd(df_merged$DATE)), unit = "month")), 0, 1)
 
     # DiD analysis
-    model = fixest::feols(Y ~ YEAR + POST + YEAR * POST | DOCTOR_ID, data = df_merged)
+    model = fixest::feols(Y ~ MONTH + POST + MONTH * POST | DOCTOR_ID, data = df_merged)
     results = data.frame(summary(model)$coeftable)
 
     # Save results
