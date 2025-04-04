@@ -25,7 +25,7 @@ parser.add_argument('--id_list', type=str, help='file path to list of doctor IDs
 parser.add_argument('--long_file_path', type=str, default='/media/volume/Projects/DSGELabProject1/doctor_patient_longitudinal_20250220.csv.gz',help='path of the doctor-patient longitudinal file')
 parser.add_argument('--outdir', type=str,help='directory where the results want to be saved')
 parser.add_argument('--outcome_register', type=str, default='Prescription', help='type of register to be used')
-parser.add_argument('--outcome_code', type=str, help='ATC code of required outcome')
+parser.add_argument('--outcome_code', type=str, default=None, help='ATC code of required outcome')
 args = parser.parse_args()
 
 print("using the following arguments: ")
@@ -51,7 +51,8 @@ with open(args.outdir+'/Outcomes.csv', 'w') as out_file:
             matched_rows = chunk[chunk['DOCTOR_ID'].astype(str).isin(ID_LIST)]
             assert args.outcome_register in ['Prescription','Purchase'], "Register can be either Prescription or Purchase"
             matched_rows = matched_rows[matched_rows['REGISTER'] == args.outcome_register]
-            matched_rows = matched_rows[matched_rows['CODE'].astype(str).str.match(CODE_REGEX)]
+            if not args.outcome_code is None:
+                matched_rows = matched_rows[matched_rows['CODE'].astype(str).str.match(CODE_REGEX)]
 
             if not matched_rows.empty:
                 # Write header only for the first matching chunk
