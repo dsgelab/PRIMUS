@@ -1,9 +1,6 @@
 #### Info:
 # This script takes as input a list of doctor ids (cases) and extracts the relative rows from the doctor-patient longitudinal file.
 
-#TODO:
-# can speed up if we use a longitudinal file with only prescriptions (or purchases)
-
 # INPUT: 
 # - id_list: file path to list of doctor IDs to be used (no spouse or offspring)
 # - register: type of register to be used (e.g. Prescription)
@@ -12,7 +9,6 @@
 # - outdir: directory where the results want to be saved
 # OUTPUT:
 # - Outcomes.csv: file with the rows of the doctor-patient longitudinal file where the doctor id is in the list of ids
-
 
 #### Libraries:
 import gzip
