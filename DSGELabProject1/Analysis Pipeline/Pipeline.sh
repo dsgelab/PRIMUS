@@ -14,6 +14,7 @@ map_relatives=$base_dir/doctors_and_relative_20250305.csv
 event_register=''       # possible values: 'Diag', 'Purch'
 event_code=''           # ICD10 if register is 'Diag', ATC code if register is 'Purch'
 outcome_code=''         # ATC code
+use_relatives=''        # possible values: 'no', 'yes'
 
 # ------------------------------------------------
 # Pipeline 
@@ -43,7 +44,7 @@ echo "Step completed in $(($step_end_time - $step_start_time)) seconds"
 # Step 4: Run analysis
 echo "Running DiD analysis"
 step_start_time=$SECONDS
-Rscript --vanilla DiD_analysis.R $list_of_doctors $map_relatives $out_dir/ID_cases.csv $out_dir/ID_controls.csv $out_dir/Events.csv $outcome_code $outdir 
+Rscript --vanilla DiD_analysis.R $list_of_doctors $map_relatives $use_relatives $out_dir/ID_cases.csv $out_dir/ID_controls.csv $out_dir/Events.csv $outcome_code $out_dir
 step_end_time=$SECONDS
 echo "Step completed in $(($step_end_time - $step_start_time)) seconds"
 
