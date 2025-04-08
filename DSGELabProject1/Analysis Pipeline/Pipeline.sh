@@ -6,6 +6,7 @@ base_dir='/media/volume/Projects/DSGELabProject1'  # directory that contains the
 longitudinal_file='doctor_patient_longitudinal_20250220.csv.gz'
 filtered_THL_diagnosis="filtered_diagnosis_hilmo_20250310.csv"
 filtered_kela_purchases="filtered_purchases_kela_20250310.csv"
+filtered_outcomes="/media/volume/Projects/mattferr/TestPipeline/Outcomes_forRatio.csv"
 
 list_of_doctors=$base_dir/doctors_20250220.csv
 list_of_doctors_spouses_children=$base_dir/doctors_and_spouses+children_20250305.csv
@@ -44,7 +45,7 @@ echo "Step completed in $(($step_end_time - $step_start_time)) seconds"
 # Step 4: Run analysis
 echo "Running DiD analysis"
 step_start_time=$SECONDS
-Rscript --vanilla DiD_analysis.R $list_of_doctors $map_relatives $use_relatives $out_dir/ID_cases.csv $out_dir/ID_controls.csv $out_dir/Events.csv $outcome_code $out_dir
+Rscript --vanilla DiD_analysis.R $list_of_doctors $map_relatives $use_relatives $out_dir/ID_cases.csv $out_dir/ID_controls.csv $out_dir/Events.csv $filtered_outcomes $outcome_code $out_dir
 step_end_time=$SECONDS
 echo "Step completed in $(($step_end_time - $step_start_time)) seconds"
 

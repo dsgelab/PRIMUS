@@ -18,8 +18,9 @@ use_relatives = args[3]
 id_cases = args[4]
 id_controls = args[5]
 events_file = args[6]
-outcome_code = args[7]
-outdir = args[8]
+outcomes_file = args[7]
+outcome_code = args[8]
+outdir = args[9]
 
 # Functions
 create_pre_post_dummies = function(data) {
@@ -110,7 +111,7 @@ model = fixest::feols(model_formula, data = df_model, fixef.rm = "none")
 results = data.frame(summary(model)$coeftable)
 
 # Save model results
-write.csv(results, file = paste0(outdir, "/DiD_coefficients.csv"), row.names = FALSE)
+write.csv(results, file = paste0(outdir, "/DiD_coefficients.csv"), row.names = TRUE)
 
 # Plot distribution of events:
 tmp = tmp[tmp$DATE >= as.Date("2014-01-01"), ]
