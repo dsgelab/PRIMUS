@@ -3,6 +3,7 @@ library(ggplot2)
 library(patchwork)
 library(dplyr)
 library(lubridate)
+library(tidyr)
 
 df = fread("/media/volume/Projects/DSGELabProject1/doctor_patient_summary_20250220_v2.csv")
 df1 = fread("/media/volume/Projects/DSGELabProject1/doctor_characteristics_wlongest_Specialty_20250220.csv")
