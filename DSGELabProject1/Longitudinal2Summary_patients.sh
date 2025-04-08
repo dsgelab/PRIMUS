@@ -54,7 +54,7 @@ END {
             self_hilmo[pid] ? self_hilmo[pid] : 0,
             self_avo[pid] ? self_avo[pid] : 0
     }
-}' 
+}' > "$OUTPUT_FILE"
 
 # End timer
 END_TIME=$(date +%s)
