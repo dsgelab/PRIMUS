@@ -11,7 +11,7 @@ filtered_outcomes="/media/volume/Projects/mattferr/TestPipeline/Outcomes_forRati
 list_of_doctors=$base_dir/doctors_20250220.csv
 list_of_doctors_spouses_children=$base_dir/doctors_and_spouses+children_20250305.csv
 map_relatives=$base_dir/doctors_and_relative_20250305.csv
-covariates=$base_dir/doctor_characteristics_wlongestSpecialty_20250220.csv
+covariates=$base_dir/doctor_characteristics_wlongest_Specialty_20250220.csv
 
 event_register=''       # possible values: 'Diag', 'Purch'
 event_code=''           # ICD10 if register is 'Diag', ATC code if register is 'Purch'
