@@ -20,7 +20,8 @@ id_controls = args[5]
 events_file = args[6]
 outcomes_file = args[7]
 outcome_code = args[8]
-outdir = args[9]
+covariates_file = args[9]
+outdir = args[10]
 
 # Functions
 create_pre_post_dummies = function(data) {
@@ -45,6 +46,7 @@ map_relatives = fread(map_relatives, header = TRUE)
 events = fread(events_file)
 outcomes = fread(outcomes_file)
 outcomes = outcomes[outcomes[, .I[which.min(DATE)], by = .(DOCTOR_ID, PATIENT_ID, CODE)]$V1] # use only first date per outcome code
+covariates = fread(covariates_file)
 
 # Report number of cases and controls
 if (use_relatives == "no") {
@@ -99,14 +101,21 @@ df_merged = df_merged %>%
     filter(is.na(DATE) | as.Date(DATE) >= as.Date("2014-01-01")) %>% # select controls or cases after 2014
     select(-DATE)
 
+# Prepare and add covariates
+covariates = covariates %>%
+    rename("DOCTOR_ID" = "FID") %>%
+    select(DOCTOR_ID, BIRTH_DATE, SEX, SPECIALTY) %>%
+    mutate(BIRTH_YEAR = as.numeric(substr(BIRTH_DATE, 1, 4))) %>% # date format is YYYYMMDD
+    select(-BIRTH_DATE) 
+df_model = merge(df_merged, covariates, by = "DOCTOR_ID", how = "left") %>% as_tibble()
+
 # DiD analysis model
-df_model = create_pre_post_dummies(df_merged) %>%
-    mutate(
-        Y_missing = ifelse(is.na(Y), 1, 0),
-        Y_filled = ifelse(is.na(Y), 0, Y))
+df_model = create_pre_post_dummies(df_model) %>% mutate(
+    Y_missing = ifelse(is.na(Y), 1, 0),
+    Y_filled = ifelse(is.na(Y), 0, Y))
 dummy_vars = grep("^(PRE|POST)\\d+$", names(df_model), value = TRUE)
-interaction_terms = paste(paste0("EVENT *", dummy_vars), collapse = " + ")
-model_formula = as.formula(paste("Y_filled ~ YEAR + Y_missing + ", interaction_terms))
+interaction_terms = paste(paste0("EVENT*", dummy_vars), collapse = " + ")
+model_formula = as.formula(paste("Y_filled ~ YEAR + Y_missing + BIRTH_YEAR + SEX + factor(SPECIALTY) +", interaction_terms))
 model = fixest::feols(model_formula, data = df_model, fixef.rm = "none")
 results = data.frame(summary(model)$coeftable)
 
