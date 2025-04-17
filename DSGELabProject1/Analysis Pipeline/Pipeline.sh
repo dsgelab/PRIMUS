@@ -31,10 +31,10 @@ start_time=$SECONDS
 # Step 2: Extract desired event 
 echo "Extracting desired event"
 step_start_time=$SECONDS
-if [ "$event_register" == "Diag" ]; then
+if [[ "$event_register" == "Diag" ]]; then
     echo "ICD10 code: $event_code"
     python3 $base_dir/AnalysisPipeline/Version2/ExtractEvents.py --id_list $list_of_doctors_spouses_children --inpath $base_dir/$filtered_THL_diagnosis --outdir $out_dir --event_code $event_code
-elif [ "$event_register" == "Purch" ]; then
+elif [[ "$event_register" == "Purch" ]]; then
     echo "ATC code: $event_code"
     python3 $base_dir/AnalysisPipeline/Version2/ExtractEvents.py --id_list $list_of_doctors_spouses_children --inpath $base_dir/$filtered_kela_purchases --outdir $out_dir --event_code $event_code
 else
