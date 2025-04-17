@@ -109,6 +109,12 @@ covariates = covariates %>%
     select(-BIRTH_DATE) 
 df_model = merge(df_merged, covariates, by = "DOCTOR_ID", how = "left") %>% as_tibble()
 
+# add specialty labels
+df_spec = fread("/media/volume/Projects/DSGELabProject1/condensed_specialty_dic.csv")
+df_spec$SPECIALTY = as.character(df_spec$CODEVALUE)
+df_model = merge(df_model, df_spec, by = "SPECIALTY", how = "left")
+df_model$SPECIALTY = as.factor(df_model$INTERPRETATION)
+
 # DiD analysis model
 df_model = create_pre_post_dummies(df_model) %>% mutate(
     Y_missing = ifelse(is.na(Y), 1, 0),
