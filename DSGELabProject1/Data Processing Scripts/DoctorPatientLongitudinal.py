@@ -20,7 +20,7 @@ CHUNK_SIZE = 1_000_000
 ##### Functions
 def process_purchases(data):
     #1. remove rows with missing data
-    data = data[data.DOCTOR_ID.notna() & data.DOCTOR_ID != ""]
+    data = data[(data.DOCTOR_ID.notna()) & (data.DOCTOR_ID != "")]
     #3. prepare data for output
     data['REGISTER'] = 'Purchase'
     data.rename(columns={'PURCHASE_DATE':'DATE', 'ATC_CODE':'CODE'}, inplace=True)
@@ -33,7 +33,7 @@ def process_purchases(data):
 
 def process_prescriptions(data):
     #1. remove rows with missing data
-    data = data[data.DOCTOR_ID.notna() & data.DOCTOR_ID != ""]
+    data = data[(data.DOCTOR_ID.notna()) & (data.DOCTOR_ID != "")]
     #3. prepare data for output
     data['REGISTER'] = 'Prescription'
     data.rename(columns={'PRESCRIPTION_DATE':'DATE', 'ATC_CODE':'CODE'}, inplace=True)
@@ -45,7 +45,7 @@ def process_prescriptions(data):
 
 def process_diagnosis(data):
     #1. remove rows with missing data
-    data = data[data.DOCTOR_ID.notna() & data.DOCTOR_ID != ""]
+    data = data[(data.DOCTOR_ID.notna()) & (data.DOCTOR_ID != "")]
     #3. prepare data for output
     data.loc[data['SOURCE'] == 'Hilmo', 'REGISTER'] = 'Diagnosis Hilmo'
     data.loc[data['SOURCE'] == 'Avohilmo', 'REGISTER'] = 'Diagnosis Avohilmo'
