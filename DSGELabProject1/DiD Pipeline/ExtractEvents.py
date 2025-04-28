@@ -25,7 +25,7 @@ print("using the following arguments: ")
 print(args)
 
 #### Main
-CODE_REGEX = "^" + args.event_code # = starts with the code
+CODE_REGEX = args.event_code # regex for the event code
 with open(args.id_list, 'r') as file:
     ID_LIST = [line.strip() for line in file.readlines()]
 
