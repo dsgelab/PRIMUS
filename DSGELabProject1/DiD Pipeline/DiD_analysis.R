@@ -46,6 +46,7 @@ map_relatives = fread(map_relatives, header = TRUE)
 events = fread(events_file)
 outcomes = fread(outcomes_file)
 outcomes = outcomes[outcomes[, .I[which.min(DATE)], by = .(DOCTOR_ID, PATIENT_ID, CODE)]$V1] # use only first date per outcome code
+outcomes = outcomes[outcomes$DOCTOR_ID != outcomes$PATIENT_ID, ] # remove self-prescriptions
 covariates = fread(covariates_file)
 
 # Report number of cases and controls
