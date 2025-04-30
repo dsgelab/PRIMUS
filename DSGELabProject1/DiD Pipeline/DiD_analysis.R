@@ -111,7 +111,7 @@ covariates = covariates %>%
 df_model = merge(df_merged, covariates, by = "DOCTOR_ID", how = "left") %>% as_tibble()
 
 # add specialty labels
-df_spec = fread("/media/volume/Projects/DSGELabProject1/condensed_specialty_dic.csv")
+df_spec = fread("/media/volume/Projects/DSGELabProject1/condensed_specialty_dict.csv")
 df_spec$SPECIALTY = as.character(df_spec$CODEVALUE)
 df_model = merge(df_model, df_spec, by = "SPECIALTY", how = "left")
 df_model$SPECIALTY = as.factor(df_model$INTERPRETATION)
@@ -138,11 +138,24 @@ p2 = ggplot(tmp, aes(x = factor(YEAR))) +
     labs(x = "Year", y = "Number of Events")
 ggsave(paste0(outdir, "/EventCounts.png"), plot = p2, width = 14, height = 8, dpi = 300)
 
+# Plot outcome Y over time, group by age and sex :
+tmp = df_model
+breaks = pretty(tmp$BIRTH_YEAR, n = 4)
+labels = paste(head(breaks, -1), tail(breaks, -1), sep = "-")
+tmp = tmp %>% mutate(
+    BIRTH_BIN = cut(BIRTH_YEAR, breaks = breaks, labels = labels, include.lowest = TRUE),
+    SEX_LABEL = recode(SEX,`1`='Male',`2`='Female'))
+p3 = ggplot(tmp, aes(x=YEAR,y=Y, color=BIRTH_BIN)) +
+    geom_smooth(method = "loess", se = FALSE) +
+    facet_wrap(~SEX_LABEL) +
+    labs(x = 'Year', y = paste('Proportion of',outcome_code,'prescription over all prescriptions'),color = 'Birth Year')
+ggsave(paste0(outdir, "/OutcomeOverTime.png"), plot = p3, width = 14, height = 8, dpi = 300)
+
 # Plot DiD results
 results$time[grepl("PRE", rownames(results))] = -as.numeric(gsub("PRE", "", rownames(results)[grepl("PRE", rownames(results))]))
 results$time[grepl("POST", rownames(results))] = as.numeric(gsub("POST", "", rownames(results)[grepl("POST", rownames(results))]))
 results = results %>% filter(!is.na(time))
-p3 = ggplot(results, aes(x = time, y = Estimate)) +
+p4 = ggplot(results, aes(x = time, y = Estimate)) +
     geom_point() +
     geom_errorbar(aes(ymin = Estimate - 1.96 * Std..Error, ymax = Estimate + 1.96 * Std..Error), width = 0.2) +
     geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
@@ -150,4 +163,4 @@ p3 = ggplot(results, aes(x = time, y = Estimate)) +
     scale_x_continuous(breaks = seq(min(results$time, na.rm = TRUE), max(results$time, na.rm = TRUE), by = 1)) +
     theme_minimal() +
     labs(x = "Years from Event", y = "Coefficient")
-ggsave(paste0(outdir, "/DiD_plot.png"), plot = p3, width = 14, height = 8, dpi = 300)
+ggsave(paste0(outdir, "/DiD_plot.png"), plot = p4, width = 14, height = 8, dpi = 300)
