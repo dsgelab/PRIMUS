@@ -9,6 +9,7 @@ library(tidyr)
 library(lubridate)
 library(fixest)
 library(ggplot2)
+library(patchwork)
 
 ##### Arguments
 args = commandArgs(trailingOnly = TRUE)
@@ -25,7 +26,7 @@ outdir = args[10]
 
 # Functions
 create_pre_post_dummies = function(data) {
-    years = 2015:2021 
+    years = 1999:2021
     for (i in 1:length(years)) {
         t = i 
         pre_name = paste0("PRE", t)
@@ -73,33 +74,17 @@ outcomes_new = outcomes %>%
         N = n(),
         .groups = "drop"
     ) %>%
-    complete(DOCTOR_ID, YEAR = seq(2014, 2022, by = 1), fill = list(Ni = 0, N = 0)) %>%
-    mutate(Y = ifelse(N == 0, NA_real_, Ni / N))
-
-# Report number of doctors with outcome of interest
-doctors_with_outcomes = outcomes_new %>% group_by(DOCTOR_ID) %>% summarise(has_outcome = any(Y != 0, na.rm = TRUE)) %>% filter(has_outcome) %>% pull(DOCTOR_ID)
-N_CASES_OUT = length(intersect(id_list[[1]], doctors_with_outcomes))
-N_CONTROLS_OUT = length(intersect(id_list[[2]], doctors_with_outcomes))
-cat(paste0("cases with outcome info (%): ", N_CASES_OUT * 100 / length(id_list[[1]]), "\n"))
-cat(paste0("controls with outcome info (%): ", N_CONTROLS_OUT * 100 / length(id_list[[2]]), "\n"))
-
-# Report availability of outcomes
-outcome_availability = outcomes_new %>% group_by(YEAR) %>% summarise(available_outcomes = sum(!is.na(Y)), total_doctors = n(), frequency = available_outcomes / total_doctors) %>% complete(YEAR = 2014:2022, fill = list(available_outcomes = 0, total_doctors = 0, frequency = 0))
-p1 = ggplot(outcome_availability, aes(x = factor(YEAR), y = frequency)) +
-    geom_bar(stat = "identity") +
-    theme_minimal() +
-    labs(x = "Year", y = "Outcome info availability (%)")
-ggsave(paste0(outdir, "/OutcomeAvailability.png"), plot = p1, width = 14, height = 8, dpi = 300)
+    mutate(Y = ifelse(N == 0, NA_real_, Ni / N)) %>%
+    filter(YEAR >= 1998) #QC step to remove unexpected years
 
 # Prepare events for DiD analysis
-tmp = events[, c("PATIENT_ID", "DATE")] %>% rename("DOCTOR_ID" = "PATIENT_ID")
-df_merged = left_join(outcomes_new, tmp, by = "DOCTOR_ID")
+events_new = events[, c("PATIENT_ID", "DATE")] %>% rename("DOCTOR_ID" = "PATIENT_ID")
+df_merged = left_join(outcomes_new, events_new, by = "DOCTOR_ID")
 df_merged = df_merged %>%
     mutate(
         EVENT = if_else(!is.na(DATE), 1, 0),
         EVENT_YEAR = if_else(!is.na(DATE), as.numeric(format(DATE, "%Y")), NA_real_),
     ) %>%
-    filter(is.na(DATE) | as.Date(DATE) >= as.Date("2014-01-01")) %>% # select controls or cases after 2014
     select(-DATE)
 
 # Prepare and add covariates
@@ -107,8 +92,9 @@ covariates = covariates %>%
     rename("DOCTOR_ID" = "FID") %>%
     select(DOCTOR_ID, BIRTH_DATE, SEX, SPECIALTY) %>%
     mutate(BIRTH_YEAR = as.numeric(substr(BIRTH_DATE, 1, 4))) %>% # date format is YYYYMMDD
-    select(-BIRTH_DATE) 
+    select(-BIRTH_DATE)
 df_model = merge(df_merged, covariates, by = "DOCTOR_ID", how = "left") %>% as_tibble()
+df_model = df_model %>% filter(YEAR - BIRTH_YEAR >= 65) # remove info after doctor retirement
 
 # add specialty labels
 df_spec = fread("/media/volume/Projects/DSGELabProject1/condensed_specialty_dict.csv")
@@ -116,51 +102,50 @@ df_spec$SPECIALTY = as.character(df_spec$CODEVALUE)
 df_model = merge(df_model, df_spec, by = "SPECIALTY", how = "left")
 df_model$SPECIALTY = as.factor(df_model$INTERPRETATION)
 
+# check distribution of events over the years 
+df_model_unique = df_model %>% distinct(DOCTOR_ID, .keep_all = TRUE)
+p1_general = ggplot(df_model_unique, aes(x = factor(EVENT_YEAR))) +
+    geom_bar(aes(y = ..count..)) +
+    labs(title = "Count of Events Over the Years")
+p1_facet = ggplot(df_model_unique, aes(x = factor(EVENT_YEAR))) +
+    geom_bar(aes(y = ..count..)) +
+    facet_grid(factor(SEX, levels = c(1, 2), labels = c("Male", "Female")) ~ cut(BIRTH_YEAR, breaks = c(-Inf, 1940, 1960, 1980, 2000, Inf), labels = c("Before 1940", "1940-1960", "1960-1980", "1980-2000", "After 2000")), drop = FALSE) +
+    labs(title = "Count of Events Over the Years, by Birth Year and Sex") +
+    theme(strip.text = element_text(face = "bold"))
+combined_plot1 = p1_general / p1_facet
+ggsave(filename = file.path(outdir, "distribution_events.png"), plot = combined_plot1, width = 10, height = 12)
+
+# check distribution of statin prescription over the years
+p2_general = ggplot(df_model, aes(x = YEAR)) +
+    stat_summary(aes(y = Y), fun = mean, geom = "line", size = 1) +
+    labs(title = "Count of Outcome Y=Ni/N Over the Years")
+p2_facet = ggplot(df_model, aes(x = YEAR)) +
+    stat_summary(aes(y = Y), fun = mean, geom = "line", size = 1) +
+    facet_wrap(~ EVENT_YEAR) +
+    geom_vline(aes(xintercept = EVENT_YEAR), linetype = "dashed", color = "red") +
+    labs(title = "Count of Outcome Y=Ni/N Over the Years, by Event Year")
+combined_plot2 = p2_general / p2_facet
+ggsave(filename = file.path(outdir, "distribution_outcomes.png"), plot = combined_plot2, width = 10, height = 12)
+
 # DiD analysis model
-df_model = create_pre_post_dummies(df_model) %>% mutate(
-    Y_missing = ifelse(is.na(Y), 1, 0),
-    Y_filled = ifelse(is.na(Y), 0, Y))
+df_model = create_pre_post_dummies(df_model)
 dummy_vars = grep("^(PRE|POST)\\d+$", names(df_model), value = TRUE)
-interaction_terms = paste(paste0("EVENT*", dummy_vars), collapse = " + ")
-model_formula = as.formula(paste("Y_filled ~ YEAR + Y_missing + BIRTH_YEAR + SEX + factor(SPECIALTY) +", interaction_terms))
+interaction_terms = paste(paste0("YEAR*", dummy_vars), collapse = " + ")
+model_formula = as.formula(paste("Y ~ BIRTH_YEAR + SEX + factor(SPECIALTY) +", interaction_terms))
 model = fixest::feols(model_formula, data = df_model, fixef.rm = "none")
 results = data.frame(summary(model)$coeftable)
-
-# Save model results
 write.csv(results, file = paste0(outdir, "/DiD_coefficients.csv"), row.names = TRUE)
-
-# Plot distribution of events:
-tmp = tmp[tmp$DATE >= as.Date("2014-01-01"), ]
-tmp$YEAR = as.numeric(format(tmp$DATE, "%Y"))
-p2 = ggplot(tmp, aes(x = factor(YEAR))) +
-    geom_bar() +
-    theme_minimal() +
-    labs(x = "Year", y = "Number of Events")
-ggsave(paste0(outdir, "/EventCounts.png"), plot = p2, width = 14, height = 8, dpi = 300)
-
-# Plot outcome Y over time, group by age and sex :
-tmp = df_model
-breaks = pretty(tmp$BIRTH_YEAR, n = 4)
-labels = paste(head(breaks, -1), tail(breaks, -1), sep = "-")
-tmp = tmp %>% mutate(
-    BIRTH_BIN = cut(BIRTH_YEAR, breaks = breaks, labels = labels, include.lowest = TRUE),
-    SEX_LABEL = recode(SEX,`1`='Male',`2`='Female'))
-p3 = ggplot(tmp, aes(x=YEAR,y=Y, color=BIRTH_BIN)) +
-    geom_smooth(method = "loess", se = FALSE) +
-    facet_wrap(~SEX_LABEL) +
-    labs(x = 'Year', y = paste('Proportion of',outcome_code,'prescription over all prescriptions'),color = 'Birth Year')
-ggsave(paste0(outdir, "/OutcomeOverTime.png"), plot = p3, width = 14, height = 8, dpi = 300)
 
 # Plot DiD results
 results$time[grepl("PRE", rownames(results))] = -as.numeric(gsub("PRE", "", rownames(results)[grepl("PRE", rownames(results))]))
 results$time[grepl("POST", rownames(results))] = as.numeric(gsub("POST", "", rownames(results)[grepl("POST", rownames(results))]))
-results = results %>% filter(!is.na(time))
-p4 = ggplot(results, aes(x = time, y = Estimate)) +
+results_plot = results %>% filter(!is.na(time) & abs(time) <= 5)
+ggplot(results_plot, aes(x = time, y = Estimate)) +
     geom_point() +
     geom_errorbar(aes(ymin = Estimate - 1.96 * Std..Error, ymax = Estimate + 1.96 * Std..Error), width = 0.2) +
     geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
     geom_hline(yintercept = 0, linetype = "solid", color = "black", size = 0.1) +
-    scale_x_continuous(breaks = seq(min(results$time, na.rm = TRUE), max(results$time, na.rm = TRUE), by = 1)) +
+    scale_x_continuous(breaks = seq(min(results_plot$time, na.rm = TRUE), max(results_plot$time, na.rm = TRUE), by = 1)) +
     theme_minimal() +
     labs(x = "Years from Event", y = "Coefficient")
-ggsave(paste0(outdir, "/DiD_plot.png"), plot = p4, width = 14, height = 8, dpi = 300)
+ggsave(filename = file.path(outdir, "DiD_plot.png"), plot = last_plot(), width = 10, height = 12)
