@@ -94,7 +94,7 @@ covariates = covariates %>%
     mutate(BIRTH_YEAR = as.numeric(substr(BIRTH_DATE, 1, 4))) %>% # date format is YYYYMMDD
     select(-BIRTH_DATE)
 df_model = merge(df_merged, covariates, by = "DOCTOR_ID", how = "left") %>% as_tibble()
-df_model = df_model %>% filter(YEAR - BIRTH_YEAR >= 65) # remove info after doctor retirement
+df_model = df_model %>% mutate(AGE = YEAR - BIRTH_YEAR)
 
 # add specialty labels
 df_spec = fread("/media/volume/Projects/DSGELabProject1/condensed_specialty_dict.csv")
@@ -103,15 +103,15 @@ df_model = merge(df_model, df_spec, by = "SPECIALTY", how = "left")
 df_model$SPECIALTY = as.factor(df_model$INTERPRETATION)
 
 # check distribution of events over the years 
-df_model_unique = df_model %>% distinct(DOCTOR_ID, .keep_all = TRUE)
+df_model_unique = df_model %>% distinct(DOCTOR_ID, .keep_all = TRUE) %>% na.omit(EVENT_YEAR)
 p1_general = ggplot(df_model_unique, aes(x = factor(EVENT_YEAR))) +
     geom_bar(aes(y = ..count..)) +
-    labs(title = "Count of Events Over the Years")
-p1_facet = ggplot(df_model_unique, aes(x = factor(EVENT_YEAR))) +
-    geom_bar(aes(y = ..count..)) +
-    facet_grid(factor(SEX, levels = c(1, 2), labels = c("Male", "Female")) ~ cut(BIRTH_YEAR, breaks = c(-Inf, 1940, 1960, 1980, 2000, Inf), labels = c("Before 1940", "1940-1960", "1960-1980", "1980-2000", "After 2000")), drop = FALSE) +
-    labs(title = "Count of Events Over the Years, by Birth Year and Sex") +
-    theme(strip.text = element_text(face = "bold"))
+    labs(title = "Count of Events Over the Years", x = "Event year") 
+p1_facet = ggplot(df_model_unique, aes(x = AGE, fill = factor(SEX))) +
+    geom_density(alpha = 0.5, show.legend = FALSE) +
+    facet_grid(~ factor(SEX, levels = c(1,2), labels = c("Male", "Female")), drop = FALSE) +
+    labs(title = "Distribution of Age at First Event by Sex", x = "Age") +
+    theme_minimal()
 combined_plot1 = p1_general / p1_facet
 ggsave(filename = file.path(outdir, "distribution_events.png"), plot = combined_plot1, width = 10, height = 12)
 
@@ -128,10 +128,10 @@ combined_plot2 = p2_general / p2_facet
 ggsave(filename = file.path(outdir, "distribution_outcomes.png"), plot = combined_plot2, width = 10, height = 12)
 
 # DiD analysis model
-df_model = create_pre_post_dummies(df_model)
+df_model = create_pre_post_dummies(df_model) %>% filter(AGE <= 65) # remove info after doctor retirement
 dummy_vars = grep("^(PRE|POST)\\d+$", names(df_model), value = TRUE)
 interaction_terms = paste(paste0("YEAR*", dummy_vars), collapse = " + ")
-model_formula = as.formula(paste("Y ~ BIRTH_YEAR + SEX + factor(SPECIALTY) +", interaction_terms))
+model_formula = as.formula(paste("Y ~ AGE + SEX + factor(SPECIALTY) +", interaction_terms))
 model = fixest::feols(model_formula, data = df_model, fixef.rm = "none")
 results = data.frame(summary(model)$coeftable)
 write.csv(results, file = paste0(outdir, "/DiD_coefficients.csv"), row.names = TRUE)
