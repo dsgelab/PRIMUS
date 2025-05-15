@@ -2,9 +2,11 @@ library(data.table)
 library(dplyr)
 library(stringr)
 library(ggplot2)
+library(lubridate)
 
 diagnosis_file <- "/media/volume/Projects/DSGELabProject1/ProcessedData/AllConnectedDiagnosis_20250421.csv"
 prescription_file <- "/media/volume/Projects/DSGELabProject1/ProcessedData/AllConnectedPrescriptions_20250506.csv"
+current_date <- strftime(Sys.Date(), "%Y%m%d")
 
 diagnosis <- fread(diagnosis_file) %>% as_tibble()
 diagnosis <- diagnosis %>%
@@ -22,7 +24,7 @@ print(paste("Number of first diagnoses:", count))
 count_with_doctor <- nrow(diagnosis %>% filter(!is.na(DOCTOR_ID)))
 percentage_with_doctor <- sprintf("%.2f%%", count_with_doctor / count * 100)
 print(paste0("Number of first diagnoses connected to a doctor: ", count_with_doctor, " (", percentage_with_doctor, ")"))
-write.csv(diagnosis, "J069Diagnoses_20250507.csv", row.names = FALSE)
+write.csv(diagnosis, paste0("J069Diagnoses_", current_date, ".csv"), row.names = FALSE)
 
 codes <- unique(diagnosis$ICD10_CODE)
 print(paste("All ICD10 codes starting with J06.9:", codes))
@@ -55,7 +57,7 @@ pairs <- pairs %>%
     slice(1) %>%
     ungroup()
 print(paste("Number of doctor-patient pairs where the prescription is the first after the diagnosis", nrow(pairs)))
-write.csv(pairs, "DoctorPatientPairsWithJ069_20250507.csv", row.names = FALSE)
+write.csv(pairs, paste0("DoctorPatientPairsWithJ069_", current_date, ".csv"), row.names = FALSE)
 
 pairs <- pairs %>%
     mutate(PRES_DIAG_DIFF = as.integer(difftime(PRESCRIPTION_DATE, DIAGNOSIS_DATE, units = "days")))
@@ -76,4 +78,4 @@ diag_pres_pairs <- pairs %>%
                 (7 - lubridate::wday(DIAGNOSIS_DATE, week_start = 1)) + 7
     )
 print(paste("Number of doctor patient pairs where diagnosis (probably) led to a prescription:", nrow(diag_pres_pairs)))
-write.csv(diag_pres_pairs, "DiagnosesConnectedtoPrescriptions_J069_20250507.csv", row.names = FALSE)
+write.csv(diag_pres_pairs, paste0("DiagnosesConnectedtoPrescriptions_J069_", current_date, ".csv"), row.names = FALSE)
