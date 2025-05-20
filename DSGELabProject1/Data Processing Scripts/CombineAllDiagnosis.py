@@ -16,9 +16,7 @@ hilmo_file = InDir / "processed_hilmo_20250514.csv"
 avohilmo_file = InDir / "processed_avohilmo_20250514.csv"
 Valvira_path = "/media/volume/Data/Data_THL_2698_14.02.00_2023/Valvira/FD_2698_Liite 1 THL_2698_14.02.00_2023.csv"
 OutDir = "/media/volume/Projects/mikael/ProcessedData/"
-output_csv = os.path.join(
-    OutDir, f"AllConnectedDiagnosis_{time.strftime('%Y%m%d')}.csv"
-)
+output_csv = os.path.join(OutDir, f"AllConnectedDiagnosis_{time.strftime('%Y%m%d')}.csv")
 THL_path = Path("/media/volume/Data/Data_THL_2698_14.02.00_2023/THL/")
 
 # Global variables
@@ -65,11 +63,7 @@ doctor_data.drop_duplicates(inplace=True)
 
 
 def preprocess_procedures(procedure_regex, dtypes, procedure_column, order_column):
-    procedure_files = [
-        THL_path / file
-        for file in os.listdir(THL_path)
-        if re.search(procedure_regex, file) and "~lock" not in file
-    ]
+    procedure_files = [THL_path / file for file in os.listdir(THL_path) if re.search(procedure_regex, file) and "~lock" not in file]
     df = pd.concat(
         (
             pd.read_csv(
@@ -83,18 +77,14 @@ def preprocess_procedures(procedure_regex, dtypes, procedure_column, order_colum
         ),
         ignore_index=True,
     )
-    df = df[
-        df[procedure_column].str.match(r"^[A-Z0-9]{5}$", na=False)
-    ]  # Filter nomesco codes
+    df = df[df[procedure_column].str.match(r"^[A-Z0-9]{5}$", na=False)]  # Filter nomesco codes
     df = df[df[order_column] == 0]  # Filter only main procedure
     df = df.rename(columns={"FID": "PATIENT_ID", procedure_column: "PROCEDURE"})
     return df
 
 
 # Load procedures
-ahp_df = preprocess_procedures(
-    r"AH_TOIMENPITEET_\d", DTYPES_AVOHILMO_PROCEDURES, "TOIMENPIDE", "JARJESTYS"
-)
+ahp_df = preprocess_procedures(r"AH_TOIMENPITEET_\d", DTYPES_AVOHILMO_PROCEDURES, "TOIMENPIDE", "JARJESTYS")
 hp_df = preprocess_procedures(r"H_TOIMENP_\d", DTYPES_HILMO_PROCEDURES, "TOIMP", "N")
 
 
@@ -155,13 +145,9 @@ for dataset_idx, dataset in enumerate(datasets):
                 dataset.code_column: "VISIT_CODE",
             }
         )
-        processed_data["VISIT_DATE"] = pd.to_datetime(
-            processed_data[dataset.visit_date_column], format=dataset.date_format
-        )
+        processed_data["VISIT_DATE"] = pd.to_datetime(processed_data[dataset.visit_date_column], format=dataset.date_format)
         processed_data["SOURCE"] = dataset.label
-        processed_data = pd.merge(
-            processed_data, doctor_data, on="FD_HASH_CODE", how="left"
-        )
+        processed_data = pd.merge(processed_data, doctor_data, on="FD_HASH_CODE", how="left")
         processed_data = pd.merge(
             processed_data,
             dataset.procedure_df,
