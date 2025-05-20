@@ -79,7 +79,7 @@ def preprocess_procedures(procedure_regex, dtypes, procedure_column, order_colum
     )
     df = df[df[procedure_column].str.match(r"^[A-Z0-9]{5}$", na=False)]  # Filter nomesco codes
     df = df[df[order_column] == 0]  # Filter only main procedure
-    df = df.rename(columns={"FID": "PATIENT_ID", procedure_column: "PROCEDURE"})
+    df = df.rename(columns={"FID": "PATIENT_ID", procedure_column: "PROCEDURE_CODE"})
     return df
 
 
@@ -142,10 +142,11 @@ for dataset_idx, dataset in enumerate(datasets):
             columns={
                 "FID": "PATIENT_ID",
                 "FD_HASH_Rekisteröinti..numero": "FD_HASH_CODE",
-                dataset.code_column: "VISIT_CODE",
+                dataset.code_column: "DIAGNOSIS_CODE",
             }
         )
-        processed_data["VISIT_DATE"] = pd.to_datetime(processed_data[dataset.visit_date_column], format=dataset.date_format)
+        # Harmonize date format to YYYY-MM-DD
+        processed_data["VISIT_DATE"] = pd.to_datetime(processed_data[dataset.visit_date_column], format=dataset.date_format).dt.strftime("%Y-%m-%d")
         processed_data["SOURCE"] = dataset.label
         processed_data = pd.merge(processed_data, doctor_data, on="FD_HASH_CODE", how="left")
         processed_data = pd.merge(
@@ -158,11 +159,11 @@ for dataset_idx, dataset in enumerate(datasets):
             [
                 "PATIENT_ID",
                 "VISIT_DATE",
-                "VISIT_CODE",
+                "DIAGNOSIS_CODE",
                 "SOURCE",
                 "FD_HASH_CODE",
                 "DOCTOR_ID",
-                "PROCEDURE",
+                "PROCEDURE_CODE",
             ]
         ]
 
