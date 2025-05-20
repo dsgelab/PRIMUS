@@ -18,30 +18,12 @@ from pathlib import Path
 
 # Paths
 THL_path = Path("/media/volume/Data/Data_THL_2698_14.02.00_2023/THL/")
-avohilmo_diagnosis_path = Path(
-    "/media/volume/Data/Data_THL_2698_14.02.00_2023_pk1_kayntisyy_folk/THL/"
-)
+avohilmo_diagnosis_path = Path("/media/volume/Data/Data_THL_2698_14.02.00_2023_pk1_kayntisyy_folk/THL/")
 
-avohilmo_base = [
-    THL_path / file
-    for file in os.listdir(THL_path)
-    if re.search(r"AH_\d", file) and "~lock" not in file
-]
-avohilmo_diagnosis = [
-    avohilmo_diagnosis_path / file
-    for file in os.listdir(avohilmo_diagnosis_path)
-    if "~lock" not in file
-]
-hilmo_base = [
-    THL_path / file
-    for file in os.listdir(THL_path)
-    if re.search(r"HILMO\d", file) and "~lock" not in file
-]
-hilmo_diagnosis = [
-    THL_path / file
-    for file in os.listdir(THL_path)
-    if re.search(r"H_ICD10_\d", file) and "~lock" not in file
-]
+avohilmo_base = [THL_path / file for file in os.listdir(THL_path) if re.search(r"AH_\d", file) and "~lock" not in file]
+avohilmo_diagnosis = [avohilmo_diagnosis_path / file for file in os.listdir(avohilmo_diagnosis_path) if "~lock" not in file]
+hilmo_base = [THL_path / file for file in os.listdir(THL_path) if re.search(r"HILMO\d", file) and "~lock" not in file]
+hilmo_diagnosis = [THL_path / file for file in os.listdir(THL_path) if re.search(r"H_ICD10_\d", file) and "~lock" not in file]
 
 outdir = Path("/media/volume/Projects/mikael/ProcessedData")
 outpath_avohilmo = outdir / f"processed_avohilmo_{time.strftime('%Y%m%d')}.csv"
@@ -67,9 +49,7 @@ def merge_extra_avohilmo(base_data, inpath, outpath):
         usecols=dtypes.keys(),
         dtype=dtypes,
     )
-    df = df[
-        (df.JARJESTYS == 0) & (df.LUOKITUSLUOKKA == "icd10")
-    ]  # filter only main diagnosis
+    df = df[(df.JARJESTYS == 0) & (df.LUOKITUSLUOKKA == "icd10")]  # filter only main diagnosis
     merged_data = pd.merge(base_data, df, on=["FID", "AVOHILMOID"], how="inner")
     if not merged_data.empty:
         merged_data = merged_data[
@@ -104,9 +84,7 @@ def merge_extra_hilmo(base_data, inpath, outpath):
     df = df[(df.N == 0) & (df.KENTTA == "PDGO")]  # filter only main diagnosis
     merged_data = pd.merge(base_data, df, on=["FID", "HILMOID"], how="inner")
     if not merged_data.empty:
-        merged_data = merged_data[
-            ["FID", "FD_HASH_Rekisteröinti..numero", "HILMOID", "TUPVA", "KOODI"]
-        ]
+        merged_data = merged_data[["FID", "FD_HASH_Rekisteröinti..numero", "HILMOID", "TUPVA", "KOODI"]]
         merged_data.to_csv(outpath, mode="a", header=False, index=False)
 
 
@@ -149,9 +127,7 @@ for base_file in avohilmo_base:
     end_time = time.time()
     print(f"Time taken for {base_file.name}: {end_time - start_time} seconds")
 
-pd.DataFrame(
-    columns=["FID", "FD_HASH_Rekisteröinti..numero", "HILMOID", "TUPVA", "KOODI"]
-).to_csv(outpath_hilmo, encoding="latin-1", index=False)
+pd.DataFrame(columns=["FID", "FD_HASH_Rekisteröinti..numero", "HILMOID", "TUPVA", "KOODI"]).to_csv(outpath_hilmo, encoding="latin-1", index=False)
 for base_file in hilmo_base:
     start_time = time.time()
     # 1. open file
