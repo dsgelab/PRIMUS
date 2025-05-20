@@ -16,7 +16,7 @@ diagnosis <- fread(diagnosis_file) %>% as_tibble() %>%
     mutate(VISIT_DATE = as.IDate(VISIT_DATE))
 
 diagnosis <- diagnosis %>%
-    filter(str_starts(VISIT_CODE, "J06.9"))
+    filter(str_starts(DIAGNOSIS_CODE, "J06.9"))
 print(paste("Number of total diagnoses", nrow(diagnosis)))
 # Only select the earliest instance of diagnosis for each patient
 diagnosis <- diagnosis %>%
@@ -32,7 +32,7 @@ percentage_with_doctor <- sprintf("%.2f%%", count_with_doctor / count * 100)
 print(paste0("Number of first diagnoses connected to a doctor: ", count_with_doctor, " (", percentage_with_doctor, ")"))
 write.csv(diagnosis, paste0("J069Diagnoses_", current_date, ".csv"), row.names = FALSE)
 
-codes <- unique(diagnosis$VISIT_CODE)
+codes <- unique(diagnosis$DIAGNOSIS_CODE)
 print(paste("All ICD10 codes starting with J06.9:", codes))
 
 diagnosis %>%
