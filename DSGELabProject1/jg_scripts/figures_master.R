@@ -480,3 +480,45 @@ dp_summary %>%
         legend.position = "none",
         axis.text.x = element_text(angle = 45, hjust = 1)
     )
+
+
+
+# Relatives per doctor
+relatives <- fread("/media/volume/Projects/DSGELabProject1/doctors_and_relative_20250305.csv")
+
+relatives %>% 
+    group_by(DOCTOR_ID, RELATIVE_TYPE) %>% 
+    summarise(n_relatives = n(), .groups = "drop") %>% 
+    group_by(RELATIVE_TYPE) %>% 
+    summarise(
+        average_relatives = mean(n_relatives),
+        sd_relatives = sd(n_relatives),
+        median = median(n_relatives),
+        Q25 = quantile(n_relatives, 0.25),
+        Q75 = quantile(n_relatives, 0.75),
+        total_relatives = sum(n_relatives),
+        percentage = round((total_relatives / sum(total_relatives)) * 100, 2),
+        percentage = paste0(percentage, "%")
+    )
+
+# Do doctors prescibe to their relatives?
+relatives_prescpurch <- fread("/media/volume/Projects/jg/doctor_patient_prescpurch_relatives_20250408.csv")
+
+relatives_prescpurch_filtered <- relatives_prescpurch %>%
+    semi_join(relatives, by = c("DOCTOR_ID", "PATIENT_ID" = "RELATIVE_FID"))
+
+relatives <- relatives %>%
+    mutate(PRESCRIBED = ifelse(paste(DOCTOR_ID, RELATIVE_FID) %in% paste(relatives_prescpurch$DOCTOR_ID, relatives_prescpurch$PATIENT_ID), 1, 0))
+
+# search for a specific ID across all DF
+ relatives %>%
+    filter(if_any(everything(), ~ . == "XXXXXXXX"))
+
+relatives %>%
+    group_by(RELATIVE_TYPE) %>%
+    summarise(
+        n = n(),
+        n_prescribed = sum(PRESCRIBED),
+        percentage = round((n_prescribed / n) * 100, 2),
+    )
+

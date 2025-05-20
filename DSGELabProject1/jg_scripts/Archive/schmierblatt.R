@@ -169,3 +169,142 @@ table(dp_longitudinal$REGISTER) # only value "PURCHASE"
 any(!is.na(dp_longitudinal$DATE))
 sum(is.na(dp_longitudinal$DATE)) / nrow(dp_longitudinal) * 100  # 4.809561%
 summary(dp_longitudinal$DATE)
+
+
+
+
+# Extract rows from INPUT_FILE_1 and INPUT_FILE_2 based on PATIENT_IDs
+echo "Extracting rows based on PATIENT_IDs..."
+awk '
+BEGIN {FS=OFS="\t"}
+NR==FNR {ids[$1]; next}
+FNR==1 {
+    for (i=1; i<=NF; i++) {
+        if ($i == "PATIENT_ID") patient_id_col = i
+    }
+    print $0
+    next
+}
+$patient_id_col in ids
+' "$PATIENT_IDS_FILE" "$INPUT_FILE_1" > temp_file_1
+
+awk '
+BEGIN {FS=OFS="\t"}
+NR==FNR {ids[$1]; next}
+FNR==1 {
+    for (i=1; i<=NF; i++) {
+        if ($i == "PATIENT_ID") patient_id_col = i
+    }
+    print $0
+    next
+}
+$patient_id_col in ids
+' "$PATIENT_IDS_FILE" "$INPUT_FILE_2" > temp_file_2
+
+
+
+awk -F',' '
+BEGIN {OFS=","}
+FNR==1 {
+    if (NR == FNR) {
+        for (i=1; i<=NF; i++) header1[i] = $i
+    } else {
+        for (i=1; i<=NF; i++) header2[i] = $i
+    }
+    next
+}
+NR==FNR {
+    file1[FNR] = $0
+    next
+}
+{
+    split(file1[FNR], row1, FS)
+    output = ""
+    for (i=1; i<=length(header1); i++) {
+        output = output (output ? FS : "") (header1[i] in header2 ? $i : "NA")
+    }
+    for (i=1; i<=length(header2); i++) {
+        if (!(header2[i] in header1)) {
+            output = output FS $i
+        }
+    }
+    print output
+}' temp_file_1_with_source temp_file_2_with_source > "$OUTPUT_FILE"
+
+
+# Example usage:
+plot_patient_code(dp_prescpurch, "XXXXXXX", "A02BC01")
+
+plot_all_codes_for_patient <- function(data, patient_id) {
+    tmp_A <- data %>% 
+        filter(PATIENT_ID == patient_id) %>% 
+        arrange(CODE, DATE)
+    
+    unique_codes <- unique(tmp_A$CODE)
+    
+    plots <- map(unique_codes, function(code) {
+        plot_A <- tmp_A %>% 
+            filter(CODE == code) %>%
+            ggplot(aes(x = DATE, y = Source, color = Source)) +
+            geom_point() +
+            scale_y_discrete(limits = c("Prescription", "Purchase")) +
+            scale_x_date(limits = as.Date(c("2014-01-01", "2023-01-01"))) + # Limit x-axis
+            labs(
+                title = paste("Timeline of Prescriptions and Purchases (", patient_id, ", ATC = ", code, ")", sep = ""),
+                x = "Date",
+                y = "Register"
+            ) +
+            theme_minimal() +
+            theme(legend.position = "none")
+        
+        plot_B <- tmp_A %>%
+            filter(CODE == code & Source == "Purchase") %>%
+            ggplot(aes(x = PRESCRIPTION_DATE, y = Source)) +
+            geom_point(color = "green") +
+            scale_y_discrete(
+                limits = c("Purchase"),
+                labels = c("Purchase" = "Imputed Prescription")
+            ) +
+            scale_x_date(
+                limits = as.Date(c("2014-01-01", "2023-01-01"))
+            ) + # Limit x-axis
+            labs(
+                title = paste("Timeline of Imputed Prescriptions from Purchases (", patient_id, ", ATC = ", code, ")", sep = ""),
+                x = "Date",
+                y = "Register"
+            ) +
+            theme_minimal() +
+            theme(legend.position = "none")
+        
+        plot_A / plot_B
+    })
+    
+    wrap_plots(plots, ncol = 2)
+}
+
+# Example usage:
+plot_all_codes_for_patient(dp_prescpurch, "XXXXXXX")
+
+
+
+
+
+####### 2) GENERATE INTERMEDIATE CSV #######
+log "Generating intermediate CSV (unpipped)…"
+{
+  # 2a) Print new header
+  printf 'PATIENT_ID,DOCTOR_ID,CODE,PRESCRIPTION_DATE,PURCHASE_DATE,FD_HASH_CODE\n'
+  # 2b) Dedupe & reorder
+  tail -n +2 "$INPUT_FILE" | awk -F',' -v OFS=',' \
+      -v ip="$ip" -v did="$did" -v ic="$ic" \
+      -v ipd="$ipd" -v iup="$iup" -v ih="$ih" '
+    {
+      key = $ip FS $ic FS $ipd
+      if (!seen[key]++) {
+        print $ip, $did, $ic, $ipd, $iup, $ih
+      }
+    }
+  '
+} > "$TMP_CSV"
+
+log "Wrote intermediate CSV → $TMP_CSV"
