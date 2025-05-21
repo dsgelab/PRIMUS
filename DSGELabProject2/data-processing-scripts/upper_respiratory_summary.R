@@ -77,14 +77,16 @@ write.csv(pairs, paste0("DoctorPatientPairsWithJ069_", current_date, ".csv"), ro
 pairs <- pairs %>%
     mutate(PRES_DIAG_DIFF = as.integer(difftime(PRESCRIPTION_DATE, VISIT_DATE, units = "days")))
 
-ggplot(data.frame(x = pairs$PRES_DIAG_DIFF), aes(x)) +
-    geom_histogram(bins = 100) +
-    scale_x_continuous(n.breaks = 20) +
-    labs(title = "Histogram of Days from Diagnosis to Prescription",
-         x = "Days",
-         y = "Count") +
-    xlim(0, 30) +
-    ylim(0, 5000)
+ggplot(pairs %>% filter(PRES_DIAG_DIFF <= 30), aes(x = factor(PRES_DIAG_DIFF))) + 
+    geom_bar(fill = "Steelblue", color = "black") + 
+    labs(title = "Days from J06.9 Diagnosis to Prescription (truncated)", 
+        x = "Days", 
+        y = "Number of patients") + 
+    theme(
+        title = element_text(size = 30), 
+        axis.title = element_text(size = 26), 
+        axis.text = element_text(size = 22)
+    )
 
 # Select prescriptions that were made later the same week than the diagnosis or the next week
 diag_pres_pairs <- pairs %>%
