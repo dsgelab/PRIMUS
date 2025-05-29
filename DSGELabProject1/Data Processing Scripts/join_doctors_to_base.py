@@ -65,13 +65,15 @@ class BaseDataset(NamedTuple):
         base_chunk["VISIT_DATE"] = pd.to_datetime(base_chunk["VISIT_DATE"], format=self.date_format).dt.strftime("%Y-%m-%d")
         # Replace "PUUTTUVA" (missing) values with proper NaN
         base_chunk["FD_HASH_CODE"] = base_chunk["FD_HASH_CODE"].replace("PUUTTUVA", pd.NA)
-        # Connect visits to doctor ids
+        # Connect doctor ids to doctor visits
         merged = pd.merge(base_chunk, doctor_df, on="FD_HASH_CODE", how="left")
         merged = merged[["PATIENT_ID", self.id_column, "VISIT_DATE", "FD_HASH_CODE", "DOCTOR_ID"]]
         merged.to_csv(self.output_path, mode="a", header=not self.output_path.exists(), encoding="latin-1", index=False)
         print(f"Completed file {file_path.name} -> added to {self.output_path.name}")
 
 
+# Specifies the base datasets to be used by the script (Hilmo and Avohilmo). Base datasets represent the doctor visits. Comment out the ones
+# you don't need to include.
 base_datasets = [
     BaseDataset(
         label="Avohilmo",
@@ -107,6 +109,7 @@ if __name__ == "__main__":
         print(f"\n=== Processing {base_dataset.label} dataset ===", flush=True)
         base_dataset.output_path.unlink(missing_ok=True)  # Remove old file
 
+        # Loop over all files belonging to the base dataset, for example, FD_2698_THL2023_2698_AH_11.csv, FD_2698_THL2023_2698_AH_12.csv, etc.
         for file_path in base_dataset.file_paths:
             base_dataset.process(file_path, doctor_data)
 
