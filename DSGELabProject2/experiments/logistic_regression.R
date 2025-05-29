@@ -12,7 +12,7 @@ set.seed(123)
 
 diagnosis_file = get_latest_file("J069Diagnoses")
 prescription_file = get_latest_file("DiagnosesConnectedtoPrescriptions_J069")
-doctor_file = "/media/volume/Projects/DSGELabProject1/doctor_characteristics_wlongest_Specialty_20250220.csv"
+doctor_file = "/media/volume/Projects/DSGELabProject1/doctor_characteristics_20250520.csv"
 patient_file = "/media/volume/Data/Data_THL_2698_14.02.00_2023/DVV/FD_2698_Tulokset_2024-04-09_HY.csv"
 
 diagnosis <- fread(diagnosis_file) %>% as_tibble()
