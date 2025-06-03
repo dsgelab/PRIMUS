@@ -9,48 +9,85 @@ START_TIME=$(date +%s)
 INPUT_FILE="/media/volume/Projects/DSGELabProject1/ProcessedData/doctor_patient_longitudinal_VISIT_20250603.csv.gz"
 OUTPUT_FILE="/media/volume/Projects/DSGELabProject1/doctor_patient_summary_VISIT_20250603.csv"
 
-# Run AWK to process the file by year
-zcat "$INPUT_FILE" | awk -F',' -v OUTFILE="$OUTPUT_FILE" '
-{
-    split($4, date_parts, "-")
-    year = date_parts[1]  # Extract year from DATE (YY-mm-dd)
-    key = $1 "_" year  # Composite key: DOCTOR_ID_YEAR
+# RAM-efficient: Process one year at a time
+TEMP_DIR=$(mktemp -d)
+YEARS=$(seq 1998 2022)
 
-    total_patients[key]++
-    unique_patients[key][$2] = 1
+# Initialize output file
+echo "DOCTOR_ID,YEAR,TotalPatients,UniquePatients,TotalVisits,Prescriptions,DiagnosisAvohilmo,DiagnosisHilmo,SelfPrescription,SelfDiagnosis" > "$OUTPUT_FILE"
 
-    if ($3 == "Prescription" || $3 == "Diagnosis Avohilmo" || $3 == "Diagnosis Hilmo") {
-        register_counts[key][$3]++
+# Process each year separately
+for YEAR in $YEARS; do
+    echo "Processing year: $YEAR"
+    
+    # Extract data for this year only
+    YEAR_DATA="$TEMP_DIR/year_${YEAR}.csv"
+    zcat "$INPUT_FILE" | awk -F',' -v year="$YEAR" '
+    {
+        split($4, date_parts, "-")
+        if (date_parts[1] == year) {
+            print $0
+        }
+    }' > "$YEAR_DATA"
+    
+    # Process this year's data
+    awk -F',' -v year="$YEAR" -v OUTFILE="$OUTPUT_FILE" '
+    {
+        doctor_id = $1
+        patient_id = $2
+        record_type = $3
+        date = $4
+        
+        # Track total patients (all records)
+        total_patients[doctor_id]++
+        
+        # Track unique patients
+        unique_patients[doctor_id][patient_id] = 1
+        
+        # Track unique visits (patient + date combinations)
+        visit_key = patient_id "_" date
+        unique_visits[doctor_id][visit_key] = 1
+        
+        # Count different types of records
+        if (record_type == "Prescription" || record_type == "Diagnosis Avohilmo" || record_type == "Diagnosis Hilmo") {
+            register_counts[doctor_id][record_type]++
+        }
+        
+        # Count self-prescriptions
+        if ((doctor_id == patient_id) && (record_type == "Prescription")) {
+            self_prescriptions[doctor_id]++
+        }
+        
+        # Count self-diagnoses
+        if ((doctor_id == patient_id) && (record_type == "Diagnosis Avohilmo" || record_type == "Diagnosis Hilmo")) {
+            self_diagnosis[doctor_id]++
+        }
     }
+    END {
+        for (doctor_id in total_patients) {
+            unique_patient_count = length(unique_patients[doctor_id])
+            total_visits = length(unique_visits[doctor_id])
+            
+            printf "%s,%s,%d,%d,%d,%d,%d,%d,%d,%d\n",
+                doctor_id,
+                year,
+                total_patients[doctor_id],
+                unique_patient_count,
+                total_visits,
+                register_counts[doctor_id]["Prescription"]+0,
+                register_counts[doctor_id]["Diagnosis Avohilmo"]+0,
+                register_counts[doctor_id]["Diagnosis Hilmo"]+0,
+                self_prescriptions[doctor_id]+0,
+                self_diagnosis[doctor_id]+0 >> OUTFILE
+        }
+    }' "$YEAR_DATA"
+    
+    # Clean up year file
+    rm "$YEAR_DATA"
+done
 
-    if (($1 == $2) && ($3 == "Prescription")) {
-        self_prescriptions[key]++
-    }
-
-    if (($1 == $2) && ($3 == "Diagnosis Avohilmo" || $3 == "Diagnosis Hilmo")) {
-        self_diagnosis[key]++
-    }
-}
-END {
-    print "DOCTOR_ID,YEAR,TotalPatients,UniquePatients,Prescriptions,DiagnosisAvohilmo,DiagnosisHilmo,SelfPrescription,SelfDiagnosis" > OUTFILE
-
-    for (key in total_patients) {
-        split(key, arr, "_")
-        doc = arr[1]
-        year = arr[2]
-        unique_count = length(unique_patients[key])
-        printf "%s,%d,%d,%d,%d,%d,%d,%d,%d\n",
-            doc,
-            year,
-            total_patients[key],
-            unique_count,
-            register_counts[key]["Prescription"]+0,
-            register_counts[key]["Diagnosis Avohilmo"]+0,
-            register_counts[key]["Diagnosis Hilmo"]+0,
-            self_prescriptions[key]+0,
-            self_diagnosis[key]+0 > OUTFILE
-    }
-}'
+# Clean up temp directory
+rm -rf "$TEMP_DIR"
 
 # End timer
 END_TIME=$(date +%s)
