@@ -4,6 +4,7 @@ library(tidyr)
 library(lubridate)
 library(pROC)
 library(ggplot2)
+library(forcats)
 
 setwd("/media/volume/Projects/mikael/ProcessedData")
 source("/media/volume/Projects/mikael/utils.R")
@@ -11,7 +12,7 @@ set.seed(123)
 
 diagnosis_file = get_latest_file("J069Diagnoses")
 prescription_file = get_latest_file("DiagnosesConnectedtoPrescriptions_J069")
-doctor_file = "/media/volume/Projects/DSGELabProject1/doctor_characteristics_wlongest_Specialty_20250220.csv"
+doctor_file = "/media/volume/Projects/DSGELabProject1/doctor_characteristics_20250520.csv"
 patient_file = "/media/volume/Data/Data_THL_2698_14.02.00_2023/DVV/FD_2698_Tulokset_2024-04-09_HY.csv"
 
 diagnosis <- fread(diagnosis_file) %>% as_tibble()
@@ -25,7 +26,8 @@ df <- diagnosis %>%
   rename(D_BIRTH_DATE = BIRTH_DATE, D_SEX = SEX) %>%
   mutate(D_BIRTH_DATE = ymd(D_BIRTH_DATE)) %>%
   mutate(PRESCRIBED = as.integer(PATIENT_ID %in% prescription$PATIENT_ID)) %>%
-  mutate(D_AGE = as.numeric(difftime(VISIT_DATE, D_BIRTH_DATE, units = "days") / 365.25))
+  mutate(D_AGE = as.numeric(difftime(VISIT_DATE, D_BIRTH_DATE, units = "days") / 365.25)) %>%
+  mutate(SPECIALTY = fct_lump_min(SPECIALTY, min = 10, other_level = "other"))
 
 # Dataset with patient information
 df2 <- diagnosis %>%
@@ -88,3 +90,6 @@ weights2 <- model_weights(df2)
 model2 <- glm(PRESCRIBED ~ P_AGE + P_SEX, data = df2, family = "binomial", weights = weights2)
 summary(model2)
 regression_results(model2, df2)
+
+model3 <- glm(PRESCRIBED ~ D_AGE + D_SEX + SPECIALTY, data = df, family = "binomial", weights = weights)
+summary(model3)
