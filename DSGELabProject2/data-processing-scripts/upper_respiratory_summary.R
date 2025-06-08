@@ -3,21 +3,20 @@ library(dplyr)
 library(stringr)
 library(ggplot2)
 library(lubridate)
-library(tidyr)
 setwd("/media/volume/Projects/mikael/ProcessedData")
 source("/media/volume/Projects/mikael/utils.R")
 
-diagnosis_file <- get_latest_file("AllConnectedDiagnoses")
+diagnosis_file <- get_latest_file("AllConnectedDiagnosis")
 prescription_file <- "/media/volume/Projects/DSGELabProject1/ProcessedData/AllConnectedPrescriptions_20250506.csv"
-doctor_file <- "/media/volume/Projects/DSGELabProject1/doctor_characteristics_20250520.csv"
 current_date <- strftime(Sys.Date(), "%Y%m%d")
 
 diagnosis <- fread(diagnosis_file) %>% as_tibble() %>%
+    mutate(across(where(is.character), ~ na_if(., "PUUTTUVA"))) %>%
     mutate(across(where(is.character), ~ na_if(., ""))) %>%
-    #mutate(VISIT_DATE = as.IDate(VISIT_DATE))
+    mutate(VISIT_DATE = as.IDate(VISIT_DATE))
 
 diagnosis <- diagnosis %>%
-    filter(str_starts(ICD10_CODE, "J06.9"))
+    filter(str_starts(DIAGNOSIS_CODE, "J06.9"))
 print(paste("Number of total diagnoses", nrow(diagnosis)))
 # Only select the earliest instance of diagnosis for each patient
 diagnosis <- diagnosis %>%
@@ -33,7 +32,7 @@ percentage_with_doctor <- sprintf("%.2f%%", count_with_doctor / count * 100)
 print(paste0("Number of first diagnoses connected to a doctor: ", count_with_doctor, " (", percentage_with_doctor, ")"))
 write.csv(diagnosis, paste0("J069Diagnoses_", current_date, ".csv"), row.names = FALSE)
 
-codes <- unique(diagnosis$ICD_CODE)
+codes <- unique(diagnosis$DIAGNOSIS_CODE)
 print(paste("All ICD10 codes starting with J06.9:", codes))
 
 diagnosis %>%
@@ -57,83 +56,56 @@ diagnosis %>%
 prescription <- fread(prescription_file) %>% as_tibble() %>%
     filter(str_starts(ATC_CODE, "J01"))
 
-diag_pres <- diagnosis %>%
-    inner_join(prescription, by = "PATIENT_ID", suffix = c("_DIAG", "_PRES")) %>%
-    filter(PRESCRIPTION_DATE >= VISIT_DATE) %>%
-    group_by(PATIENT_ID) %>%
+# Pair diagnoses with prescriptions that have same (patient, doctor) pair
+pairs <- diagnosis %>%
+    filter(!is.na(DOCTOR_ID)) %>% # Just to emphasize that we are only interested in events with doctor known
+    inner_join(prescription, by = c("PATIENT_ID", "DOCTOR_ID"), suffix = c("_DIAG", "_PRES"))
+print(paste("Number of doctor patient pairs between diagnosis and prescription tables:", nrow(pairs)))
+# Only include pairs where the prescription is made after the diagnosis and
+# only the first diagnosis of each doctor-patient pair
+pairs <- pairs %>%
+    filter(PRESCRIPTION_DATE >= VISIT_DATE)
+print(paste("Number of doctor-patient pairs where prescription is after diagnosis:", nrow(pairs)))
+pairs <- pairs %>%
+    group_by(PATIENT_ID, DOCTOR_ID) %>%
     arrange(PRESCRIPTION_DATE) %>%
     slice(1) %>%
     ungroup()
-print(paste("Number of patients with prescription after diagnosis:", nrow(diag_pres)))
+print(paste("Number of doctor-patient pairs where the prescription is the first after the diagnosis", nrow(pairs)))
+write.csv(pairs, paste0("DoctorPatientPairsWithJ069_", current_date, ".csv"), row.names = FALSE)
 
-# Statistics about number of prescription. Same doctor means that the prescription and diagnosis were made by the same doctor.
-within_week <- diag_pres %>%
-    filter(as.numeric(difftime(PRESCRIPTION_DATE, VISIT_DATE, units = "days")) < 7)
-print(paste("Number of patients with prescription after diagnosis within 7 days:", nrow(diag_pres)))
-same_day <- diag_pres %>%
-    filter(PRESCRIPTION_DATE == VISIT_DATE)
-prescription_dfs <- list(same_day=same_day, within_week=within_week)
-# Prescription stats
-pstats <- expand.grid(
-    PRESCRIPTION_TIME = names(prescription_dfs),
-    DOCTOR_MATCH = c("same", "different", "missing")
-)
-for (prescription_time in names(prescription_dfs)) {
-    df = prescription_dfs[[prescription_time]]
-    pstats[pstats$PRESCRIPTION_TIME == prescription_time & pstats$DOCTOR_MATCH == "same", "COUNT"] = nrow(df %>% filter(DOCTOR_ID_DIAG == DOCTOR_ID_PRES))
-    pstats[pstats$PRESCRIPTION_TIME == prescription_time & pstats$DOCTOR_MATCH == "different", "COUNT"] = nrow(df %>% filter(DOCTOR_ID_DIAG != DOCTOR_ID_PRES))
-    pstats[pstats$PRESCRIPTION_TIME == prescription_time & pstats$DOCTOR_MATCH == "missing", "COUNT"] = nrow(df %>% filter(is.na(DOCTOR_ID_PRES)))
-}
-# nrow(within_week) == sum(pstats[pstats$PRESCRIPTION_TIME == "within_week", "COUNT"])
-# nrow(same_day) == sum(pstats[pstats$PRESCRIPTION_TIME == "same_day", "COUNT"])
-ggplot(pstats, aes(x = DOCTOR_MATCH, y = COUNT, fill = PRESCRIPTION_TIME)) +
-  geom_bar(stat = "identity", position = position_dodge()) +
-  labs(
-    title = "Prescription Timing by Doctor Match",
-    x = "Doctor Match",
-    y = "Count",
-    fill = "Prescription Time"
-  ) +
-  theme_minimal()
+pairs <- pairs %>%
+    mutate(PRES_DIAG_DIFF = as.integer(difftime(PRESCRIPTION_DATE, VISIT_DATE, units = "days")))
 
-
-doctor <- fread(doctor_file) %>% as_tibble()
-# Calculate prescription rates
-prescription_rate <- diagnosis %>%
-    left_join(doctor, by = "DOCTOR_ID") %>%
-    left_join(prescription, by = "PATIENT_ID", suffix = c("_DIAG", "_PRES")) %>%
-    mutate(PRESCRIBED = as.integer(as.numeric(difftime(PRESCRIPTION_DATE, VISIT_DATE, units = "days")) < 7))
-
-
-diagnosis_t <- data.frame(
-    VISIT_DATE = as.Date(c("2025-01-01", "2025-01-01", "2025-05-01", "2025-05-25", "2025-05-02")),
-    DOCTOR_ID = c(1, 2, 3, 4, NA),
-    PATIENT_ID = c(10, 11, 12, 13, 14)
-) %>% as_tibble()
-doctor_t <- data.frame(
-    DOCTOR_ID = c(1, 2, 4, NA),
-    INTERPRETATION = c("A", "B", "B", "D")
-)
-prescription_t <- data.frame(
-    PRESCRIPTION_DATE = as.Date(c("2025-01-01", "2025-01-07", "2025-05-08", "2025-05-24", "2025-05-02")),
-    DOCTOR_ID = c(1, 2, 3, 5, NA),
-    PATIENT_ID = c(10, 11, 12, 13, 15)
-)
-rate_t <- diagnosis_t %>%
-    left_join(doctor_t, by = "DOCTOR_ID") %>%
-    left_join(prescription_t, by = "PATIENT_ID", suffix = c("_DIAG", "_PRES")) %>%
-    mutate(
-        PRESCRIBED = as.integer(
-            !is.na(PRESCRIPTION_DATE) &
-            difftime(PRESCRIPTION_DATE, VISIT_DATE, units = "days") >= 0 &
-            difftime(PRESCRIPTION_DATE, VISIT_DATE, units = "days") < 7
-        )
-    ) %>%
-    mutate(INTERPRETATION = replace_na(INTERPRETATION, "other"))
-
-rate_t_summary <- rate_t %>%
-    group_by(INTERPRETATION) %>%
-    summarize(
-        PRESCRIBED_RATE = mean(PRESCRIBED),
-        SAMPLE_SIZE = n()
+ggplot(pairs %>% filter(PRES_DIAG_DIFF <= 30), aes(x = factor(PRES_DIAG_DIFF))) + 
+    geom_bar(fill = "Steelblue", color = "black") + 
+    labs(title = "Days from J06.9 Diagnosis to Prescription (truncated)", 
+        x = "Days", 
+        y = "Number of patients") + 
+    theme(
+        title = element_text(size = 30), 
+        axis.title = element_text(size = 26), 
+        axis.text = element_text(size = 22)
     )
+
+# Select prescriptions that were made later the same week than the diagnosis or the next week
+diag_pres_pairs <- pairs %>%
+    filter(
+        PRESCRIPTION_DATE >= VISIT_DATE &
+            as.numeric(difftime(PRESCRIPTION_DATE, VISIT_DATE, units = "days")) <=
+                (7 - lubridate::wday(VISIT_DATE, week_start = 1)) + 7
+    )
+print(paste("Number of doctor patient pairs where diagnosis (probably) led to a prescription:", nrow(diag_pres_pairs)))
+write.csv(diag_pres_pairs, paste0("DiagnosesConnectedtoPrescriptions_J069_", current_date, ".csv"), row.names = FALSE)
+
+# Include pairs where there is no doctor information but there is a visit and prescription on the same day.
+# In this case, we can impute the doctor_id from the prescription table.
+pairs2 <- diagnosis %>%
+  filter(is.na(DOCTOR_ID)) %>%
+  inner_join(prescription, by = c("PATIENT_ID", "VISIT_DATE" = "PRESCRIPTION_DATE")) %>%
+  group_by(PATIENT_ID, VISIT_DATE) %>%
+  arrange(VISIT_DATE) %>%
+  slice(1) %>%
+  ungroup()
+print(paste("Number of imputed doctor prescriptions where visit and prescription are on the same day:", nrow(pairs2)))
+write.csv(pairs2, paste0("DiagnosesConnectedtoPrescriptionsImputed_J069_", current_date, ".csv"), row.names = FALSE)
