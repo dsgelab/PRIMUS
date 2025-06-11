@@ -1,4 +1,3 @@
-
 # ------------------------------------------------
 # PATHS: Modify as needed
 # NB: some global paths/variables are used in multiple steps
@@ -6,60 +5,73 @@ base_dir='/media/volume/Projects/DSGELabProject1'  # directory that contains the
 
 #STEP 2
 list_of_doctors_spouses_children=$base_dir/doctors_and_spouses+children_20250305.csv
-# filtered files were extracted using : FilterDiagnosisTHL.py and FilterPurchasesKela.py
-filtered_THL_diagnosis=$base_dir/"ProcessedData/filtered_diagnosis_hilmo_20250310.csv"
-filtered_kela_purchases=$base_dir/"ProcessedData/filtered_purchases_kela_20250310.csv"
-
-event_register=''       # possible values: 'Diag', 'Purch'
-event_code=''           # ICD10 if register is 'Diag', ATC code if register is 'Purch'
+diagnosis_file=$base_dir/"ProcessedData/AllConnectedDiagnosis_20250528.csv"
+purchases_file=$base_dir/"ProcessedData/imputed_prescriptions_20250501152849.csv.gz"
 
 # STEP 3
-filtered_outcomes="/media/volume/Projects/mattferr/TestPipeline/Outcomes_forRatio.csv"
-
-# STEP 4
-list_of_doctors=$base_dir/doctors_20250220.csv
-map_relatives=$base_dir/doctors_and_relative_20250305.csv
+list_of_doctors=$base_dir/doctors_20250424.csv
 covariates=$base_dir/doctor_characteristics_wlongest_Specialty_20250220.csv
-outcome_code=''         # ATC code
-use_relatives=''        # possible values: 'no', 'yes'
+specialty=$base_dir/condensed_specialty_dict_csv
+outcome_file="/media/volume/Projects/mattferr/did_pipeline/Outcomes_forRatio_20250506.csv"
+
+# ------------------------------------------------
+# DEFINE PAIRS: List of (event_code, outcome_code) pairs
+pairs=(
+    "Diag CHD ^(I20.0|I21|I22) Statins C10AA" 
+)
 
 # ------------------------------------------------
 # PIPELINE 
-# STEP 1: Create experiment directory
-today=$(date '+%Y%m%d')
-out_dir="$base_dir/DiD_Experiments/Version/Experiment_$event_register-$event_code-$outcome_code-$today"
-mkdir -p $out_dir
+# Record the start time of the entire pipeline
+pipeline_start_time=$SECONDS
 
-# Record the start time of the pipeline
-start_time=$SECONDS
+# Loop through each pair
+for pair in "${pairs[@]}"; do
+    # Parse the event/outcome pair
+    event_register=$(echo $pair | cut -d' ' -f1)
+    event_code_name=$(echo $pair | cut -d' ' -f2)
+    event_code=$(echo $pair | cut -d' ' -f3)
+    outcome_code_name=$(echo $pair | cut -d' ' -f4)
+    outcome_code=$(echo $pair | cut -d' ' -f5)
+        
+    # STEP 1: Create experiment directory
+    today=$(date '+%Y%m%d')
+    out_dir="$base_dir/DiD_Experiments/Version4/Experiment_${event_code_name}_${outcome_code_name}_$today"
+    mkdir -p $out_dir
 
-# STEP2: Extract desired event 
-echo "Extracting desired event"
-step_start_time=$SECONDS
-if [[ "$event_register" == "Diag" ]]; then
-    echo "ICD10 code: $event_code"
-    python3 $base_dir/DiD_Pipeline/Version/ExtractEvents.py --id_list $list_of_doctors_spouses_children --inpath $filtered_THL_diagnosis --outdir $out_dir --event_code $event_code
-elif [[ "$event_register" == "Purch" ]]; then
-    echo "ATC code: $event_code"
-    python3 $base_dir/DiD_Pipeline/Version/ExtractEvents.py --id_list $list_of_doctors_spouses_children --inpath $filtered_kela_purchases --outdir $out_dir --event_code $event_code
-else
-    echo "Invalid event register"
-fi
-step_end_time=$SECONDS
-echo "Step completed in $(($step_end_time - $step_start_time)) seconds"
+    # Record the start time of the pipeline
+    start_time=$SECONDS
 
-# STEP 3: Prepare outcome file
-# will impute from purchases in the future, for the moment filtering all medications from longitudinal file (for study cohort)
-# filtered outcomes were extracted using: ExtractOutcomes.py with outcome_code = ''
+    # STEP2: Extract desired event 
+    echo "Extracting desired event"
+    step_start_time=$SECONDS
+    if [[ "$event_register" == "Diag" ]]; then
+        echo "ICD10 code: $event_code"
+        python3 $base_dir/DiD_Pipeline/Version4_20250611/ExtractEvents.py --id_list $list_of_doctors_spouses_children --inpath $diagnosis_file --event_register $event_register --outdir $out_dir --event_code $event_code
+    elif [[ "$event_register" == "Purch" ]]; then
+        echo "ATC code: $event_code"
+        python3 $base_dir/DiD_Pipeline/Version4_20250611/ExtractEvents.py --id_list $list_of_doctors_spouses_children --inpath $purchases_file --event_register $event_register --outdir $out_dir --event_code $event_code
+    else
+        echo "Invalid event register"
+    fi
+    step_end_time=$SECONDS
+    echo "Step completed in $(($step_end_time - $step_start_time)) seconds"
 
-# STEP 4: Run Difference-in-Difference analysis
-echo "Running DiD analysis"
-step_start_time=$SECONDS
-Rscript --vanilla DiD_analysis.R $list_of_doctors $map_relatives $use_relatives $out_dir/ID_cases.csv $out_dir/ID_controls.csv $out_dir/Events.csv $filtered_outcomes $outcome_code $covariates $out_dir
-step_end_time=$SECONDS
-echo "Step completed in $(($step_end_time - $step_start_time)) seconds"
+    # STEP 3: Run Difference-in-Difference analysis
+    echo "Running DiD analysis"
+    step_start_time=$SECONDS
+    Rscript --vanilla DiD_analysis.R $list_of_doctors $out_dir/Events.csv $event_code $outcome_file $outcome_code $covariates $specialty $out_dir
+    step_end_time=$SECONDS
+    echo "Step completed in $(($step_end_time - $step_start_time)) seconds"
 
-# Finish
-end_time=$SECONDS
-echo "Pipeline completed"
-echo "Total time taken: $(($end_time - $start_time)) seconds"
+    # Finish current pair
+    end_time=$SECONDS
+    echo "Pair ($event_code_name, $outcome_code_name) completed"
+    echo "Time taken for this pair: $(($end_time - $start_time)) seconds"
+    echo "----------------------------------------"
+done
+
+# Finish entire pipeline
+pipeline_end_time=$SECONDS
+echo "All pairs completed"
+echo "Total pipeline time: $(($pipeline_end_time - $pipeline_start_time)) seconds"
