@@ -18,6 +18,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--id_list', type=str, help='file path to list of IDs to be used')
 parser.add_argument('--inpath', type=str, help='directory where the input file is located')
 parser.add_argument('--outdir', type=str,help='directory where the results want to be saved')
+parser.add_argument('--event_register', type=str,help='code of the required event, ICD10 or ATC')
 parser.add_argument('--event_code', type=str,help='code of the required event, ICD10 or ATC')
 args = parser.parse_args()
 
@@ -40,5 +41,7 @@ pd.Series(controls).to_csv(args.outdir+"/ID_controls.csv", index=False, header=F
 df_filtered = df[df['EVENT'] == 1]
 pd.Series(df_filtered['PATIENT_ID'].unique()).to_csv(args.outdir+"/ID_cases.csv", index=False, header=False)
 # only use the first event per individual (if multiple events)
+if args.event_register == "Purch": df_filtered.rename(columns={'PURCHASE_DATE': 'DATE'}, inplace=True)
 df_filtered = df_filtered.sort_values('DATE').drop_duplicates('PATIENT_ID', keep='first')
 df_filtered.to_csv(args.outdir+"/Events.csv", index=False)
+
