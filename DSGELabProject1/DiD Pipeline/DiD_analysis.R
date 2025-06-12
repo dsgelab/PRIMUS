@@ -19,7 +19,6 @@ event_code = args[3]
 outcomes_file = args[4]
 outcome_code = args[5]
 covariates_file = args[6]
-specialty_file = args[7]
 outdir = args[8]
 
 COLOR_MALE = "blue"
@@ -38,20 +37,20 @@ create_pre_post_dummies = function(data) {
     return(data)
 }
 
-
 #### Main
 
 # Load data
 doctor_ids = fread(doctor_list, header = FALSE)$V1
 events = fread(events_file)
-cat(paste0("All cases : ", length(unique(events$DOCTOR_ID)), "\n"))
-cat(paste0("Controls : ", length(doctor_ids)-length(unique(events$DOCTOR_ID)), "\n"))
+event_ids = setdiff(unique(events$PATIENT_ID), doctor_ids)
+cat(paste0("All cases : ", length(event_ids), "\n"))
+cat(paste0("Controls : ", length(doctor_ids)-length(event_ids), "\n"))
 outcomes = fread(outcomes_file)
 covariates = fread(covariates_file)
-specialties = fread(specialty_file)
 
 # prepare outcomes for DiD analysis
 outcomes = outcomes[outcomes$DOCTOR_ID != outcomes$PATIENT_ID, ] # remove self-prescriptions
+outcomes = outcomes[DOCTOR_ID %in% doctor_ids,] #only use doctors that are in our cohort
 outcomes = outcomes[!is.na(CODE) & !is.na(DATE)]
 outcomes = outcomes[DATE >= as.Date("1998-01-01")] # QC: remove events before 1998
 outcomes[, MONTH := (as.numeric(format(DATE, "%Y")) - 1998) * 12 + as.numeric(format(DATE, "%m"))]
@@ -78,10 +77,10 @@ df_merged = df_merged %>%
 
 # Prepare  covariates and specialty + merge them in the main dataframe
 covariates_new = covariates %>%
-    rename("DOCTOR_ID" = "FID") %>%
-    select(DOCTOR_ID, BIRTH_DATE, SEX, SPECIALTY) %>%
-    mutate(BIRTH_YEAR = as.numeric(substr(BIRTH_DATE, 1, 4))) %>% # date format is YYYYMMDD
-    select(-BIRTH_DATE)
+    select(DOCTOR_ID, BIRTH_DATE, SEX, INTERPRETATION) %>%
+    mutate(SPECIALTY = as.character(INTERPRETATION)) %>% #currently using interpretation of longest specialty
+    mutate(BIRTH_YEAR = as.numeric(substr(BIRTH_DATE, 1, 4))) %>% # date format is YYYY-MM-DD
+    select(-BIRTH_DATE, -INTERPRETATION)
 df_complete = merge(df_merged, covariates_new, by = "DOCTOR_ID", how = "left") %>% as_tibble()
 df_complete = df_complete %>% 
     mutate(
@@ -92,9 +91,12 @@ events_after65 = df_complete %>% filter(AGE_AT_EVENT > 65) %>% pull(DOCTOR_ID) %
 df_complete = df_complete %>% 
     filter(!(DOCTOR_ID %in% events_after65)) %>% # remove people which experiment the event after pension (age 65)
     filter(MONTH <= 65) # remove all prescriptions done after pension (age 65)
-specialties$SPECIALTY = as.character(specialties$CODEVALUE)
-df_complete = merge(df_complete, specialties, by = "SPECIALTY", how = "left")
-df_complete$SPECIALTY = as.factor(df_complete$INTERPRETATION)
+
+# extract count of specialties 
+spec_count = df_complete %>%
+    distinct(DOCTOR_ID, SPECIALTY) %>%
+    mutate(SPECIALTY = ifelse(SPECIALTY == "", "no specialty", SPECIALTY)) %>%
+    count(SPECIALTY, name = "SPECIALTY_COUNT")
 
 # check distribution of events over the years
 df_plot = df_complete %>% distinct(DOCTOR_ID, .keep_all = TRUE) %>% na.omit(EVENT_YEAR)
@@ -102,10 +104,12 @@ p1_general = ggplot(df_plot, aes(x = factor(EVENT_YEAR))) +
     geom_bar(aes(y = ..count..)) +
     labs(title = paste0("Count of (First) Events Over the Years, N = ",length(unique(df_plot$DOCTOR_ID))), x = "Event Year") 
 p1_specialty = df_plot %>%
-    count(SPECIALTY, sort = TRUE) %>%
-    ggplot(aes(x = reorder(SPECIALTY, -n), y = n)) +
+    count(SPECIALTY, name = "event_count") %>%
+    left_join(spec_count, by = "SPECIALTY") %>%
+    mutate(rate = event_count / SPECIALTY_COUNT) %>%
+    ggplot(aes(x = SPECIALTY, y = rate)) +
     geom_bar(stat = "identity") +
-    labs(title = "Frequency of Events by Specialty", x = "Specialty", y = "Count") +
+    labs(title = "Event Rate within each Specialty", x = "Specialty", y = "Event Rate") +
     theme_minimal() +
     theme(axis.text.x = element_text(angle = 45, hjust = 1))
 p1_age = ggplot(df_plot, aes(x = AGE_AT_EVENT, fill = factor(SEX))) +

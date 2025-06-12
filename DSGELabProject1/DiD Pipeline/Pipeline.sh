@@ -5,13 +5,12 @@ base_dir='/media/volume/Projects/DSGELabProject1'  # directory that contains the
 
 #STEP 2
 list_of_doctors_spouses_children=$base_dir/doctors_and_spouses+children_20250305.csv
-diagnosis_file=$base_dir/"ProcessedData/AllConnectedDiagnosis_20250528.csv"
-purchases_file=$base_dir/"ProcessedData/imputed_prescriptions_20250501152849.csv.gz"
+diagnosis_file=$base_dir/ProcessedData/AllConnectedDiagnosis_20250528.csv
+purchases_file=$base_dir/ProcessedData/imputed_prescriptions_20250501152849.csv.gz
 
 # STEP 3
 list_of_doctors=$base_dir/doctors_20250424.csv
-covariates=$base_dir/doctor_characteristics_wlongest_Specialty_20250220.csv
-specialty=$base_dir/condensed_specialty_dict_csv
+covariates=$base_dir/doctor_characteristics_20250520.csv
 outcome_file="/media/volume/Projects/mattferr/did_pipeline/Outcomes_ForRatio_20250506.csv"
 
 # ------------------------------------------------
@@ -90,7 +89,7 @@ for pair in "${pairs[@]}"; do
     # STEP 3: Run Difference-in-Difference analysis
     echo "Running DiD analysis"
     step_start_time=$SECONDS
-    Rscript --vanilla DiD_analysis.R $list_of_doctors $out_dir/Events.csv $event_code $outcome_file $outcome_code $covariates $specialty $out_dir
+    Rscript --vanilla DiD_analysis.R $list_of_doctors $out_dir/Events.csv $event_code $outcome_file $outcome_code $covariates $out_dir
     step_end_time=$SECONDS
     echo "Step completed in $(($step_end_time - $step_start_time)) seconds"
 
