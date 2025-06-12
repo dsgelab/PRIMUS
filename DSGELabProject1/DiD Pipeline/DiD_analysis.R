@@ -19,7 +19,7 @@ event_code = args[3]
 outcomes_file = args[4]
 outcome_code = args[5]
 covariates_file = args[6]
-outdir = args[8]
+outdir = args[7]
 
 COLOR_MALE = "blue"
 COLOR_FEMALE = "orange"
