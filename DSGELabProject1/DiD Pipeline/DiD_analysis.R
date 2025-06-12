@@ -164,10 +164,10 @@ combined_plot2 = p2_general / (p2_N + p2_Y)
 ggsave(filename = file.path(outdir, "distribution_outcomes.png"), plot = combined_plot2, width = 10, height = 12)
 
 # DiD analysis model
-df_model = create_pre_post_dummies(df_model) 
+df_model = create_pre_post_dummies(df_complete) 
 dummy_vars = grep("^(PRE|POST)\\d+$", names(df_model), value = TRUE)
-interaction_terms = paste(paste0("YEAR*", dummy_vars), collapse = " + ")
-model_formula = as.formula(paste("Y ~ AGE + SEX + factor(SPECIALTY) +", interaction_terms))
+interaction_terms = paste(paste0("MONTH*", dummy_vars), collapse = " + ")
+model_formula = as.formula(paste("Y ~ AGE_AT_EVENT + SEX + factor(SPECIALTY) +", interaction_terms))
 model = fixest::feols(model_formula, data = df_model, fixef.rm = "none")
 results = data.frame(summary(model)$coeftable)
 write.csv(results, file = paste0(outdir, "/DiD_coefficients.csv"), row.names = TRUE)
@@ -175,13 +175,14 @@ write.csv(results, file = paste0(outdir, "/DiD_coefficients.csv"), row.names = T
 # Plot DiD results
 results$time[grepl("PRE", rownames(results))] = -as.numeric(gsub("PRE", "", rownames(results)[grepl("PRE", rownames(results))]))
 results$time[grepl("POST", rownames(results))] = as.numeric(gsub("POST", "", rownames(results)[grepl("POST", rownames(results))]))
-results_plot = results %>% filter(!is.na(time) & abs(time) <= 5)
-ggplot(results_plot, aes(x = time, y = Estimate)) +
+results_plot = results %>% filter(!is.na(time) & abs(time) <= 36)
+p_did = ggplot(results_plot, aes(x = time, y = Estimate)) +
     geom_point() +
     geom_errorbar(aes(ymin = Estimate - 1.96 * Std..Error, ymax = Estimate + 1.96 * Std..Error), width = 0.2) +
     geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
     geom_hline(yintercept = 0, linetype = "solid", color = "black", size = 0.1) +
     scale_x_continuous(breaks = seq(min(results_plot$time, na.rm = TRUE), max(results_plot$time, na.rm = TRUE), by = 1)) +
     theme_minimal() +
-    labs(x = "Years from Event", y = "Coefficient")
-ggsave(filename = file.path(outdir, "DiD_plot.png"), plot = last_plot(), width = 10, height = 12)
+    labs(x = "Months from Event", y = "Coefficient") +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+ggsave(filename = file.path(outdir, "DiD_plot.png"), plot = p_did, width = 10, height = 12)
