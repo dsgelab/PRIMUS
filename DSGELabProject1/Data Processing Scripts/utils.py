@@ -15,7 +15,8 @@ def format_seconds_to_hms(seconds: int) -> str:
     return f"{hours} h {minutes} min {secs} s"
 
 
-def find_latest_file_by_date(directory: Path, filename_pattern: str) -> Path | None:
+def find_latest_file_by_date(directory: str, filename_pattern: str) -> Path | None:
+    directory = Path(directory)
     pattern = re.compile(filename_pattern)
     latest_file = None
     latest_date = ""
@@ -27,4 +28,8 @@ def find_latest_file_by_date(directory: Path, filename_pattern: str) -> Path | N
             if date_str > latest_date:
                 latest_date = date_str
                 latest_file = file
-    return directory / latest_file
+
+    if latest_file is None:
+        raise FileNotFoundError(f"No files found matching pattern: {filename_pattern}.")
+
+    return latest_file
