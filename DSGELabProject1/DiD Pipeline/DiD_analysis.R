@@ -85,12 +85,13 @@ df_complete = merge(df_merged, covariates_new, by = "DOCTOR_ID", how = "left") %
 df_complete = df_complete %>% 
     mutate(
         AGE = YEAR - BIRTH_YEAR,
+        AGE_IN_2023 = 2023 - BIRTH_YEAR,
         AGE_AT_EVENT = if_else(is.na(EVENT_YEAR), NA_real_, EVENT_YEAR - BIRTH_YEAR)
     )
 events_after65 = df_complete %>% filter(AGE_AT_EVENT > 65) %>% pull(DOCTOR_ID) %>% unique()
 df_complete = df_complete %>% 
     filter(!(DOCTOR_ID %in% events_after65)) %>% # remove people which experiment the event after pension (age 65)
-    filter(MONTH <= 65) # remove all prescriptions done after pension (age 65)
+    filter(AGE <= 65) # remove all prescriptions done after pension (age 65)
 
 # extract count of specialties 
 spec_count = df_complete %>%
