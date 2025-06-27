@@ -165,25 +165,66 @@ combined_plot2 = p2_general / (p2_N + p2_Y)
 ggsave(filename = file.path(outdir, "distribution_outcomes.png"), plot = combined_plot2, width = 10, height = 12)
 
 # DiD analysis model
-df_model = create_pre_post_dummies(df_complete) 
-dummy_vars = grep("^(PRE|POST)\\d+$", names(df_model), value = TRUE)
-interaction_terms = paste(paste0("MONTH*", dummy_vars), collapse = " + ")
-model_formula = as.formula(paste("Y ~ AGE_AT_EVENT + SEX + factor(SPECIALTY) +", interaction_terms))
+
+# Model 1: Comparing prescription ratios in Events vs Non-Events
+# - adjusting analysis for age, sex and specialty
+# - adding interaction with age and year of event
+model_formula = as.formula("Y ~ AGE_IN_2023 + SEX + factor(SPECIALTY) + EVENT")
+model = fixest::feols(model_formula, data = df_complete, fixef.rm = "none")
+results = data.frame(summary(model)$coeftable)
+write.csv(results, file = paste0(outdir, "/Coef_Model1.csv"), row.names = TRUE)
+
+# Visualization: Difference in Y between EVENT and non-EVENT
+df_plot_event_year = df_complete %>%
+    mutate(EVENT = factor(EVENT, levels = c(0, 1), labels = c("No Event", "Event"))) %>%
+    group_by(EVENT, YEAR) %>%
+    summarise(mean_Y = mean(Y, na.rm = TRUE), se_Y = sd(Y, na.rm = TRUE)/sqrt(sum(!is.na(Y)))) %>%
+    ungroup()
+p_event_year = ggplot(df_plot_event_year, aes(x = YEAR, y = mean_Y, color = EVENT, fill = EVENT)) +
+    geom_line(size = 1) +
+    geom_ribbon(aes(ymin = mean_Y - 1.96 * se_Y, ymax = mean_Y + 1.96 * se_Y), alpha = 0.2, color = NA) +
+    labs(title = "Mean prescription rate (Y) given Event", x = "Year", y = "Mean Y") +
+    scale_color_manual(values = c("No Event" = "gray70", "Event" = "steelblue")) +
+    scale_fill_manual(values = c("No Event" = "gray70", "Event" = "steelblue")) +
+    theme_minimal()
+ggsave(filename = file.path(outdir, "Plot_Model1.png"), plot = p_event_year, width = 10, height = 12)
+
+# Model 2: Comparing (average) prescription ratios Before and After Event 
+# - adjusting for age in 2023, sex, specialty + age and year of event
+df_model = df_complete %>%
+    mutate(PERIOD = case_when(
+            !is.na(EVENT_MONTH) & MONTH < EVENT_MONTH ~ "BEFORE",
+            !is.na(EVENT_MONTH) & MONTH > EVENT_MONTH ~ "AFTER",
+            is.na(EVENT_MONTH) ~ NA_character_)) %>% 
+    filter(!is.na(PERIOD)) %>%
+    mutate(PERIOD = factor(PERIOD, levels = c("BEFORE", "AFTER"))) # set BEFORE as reference
+model_formula = as.formula("Y ~ AGE_IN_2023 + AGE_AT_EVENT + SEX + factor(SPECIALTY) + PERIOD")
 model = fixest::feols(model_formula, data = df_model, fixef.rm = "none")
 results = data.frame(summary(model)$coeftable)
-write.csv(results, file = paste0(outdir, "/DiD_coefficients.csv"), row.names = TRUE)
+write.csv(results, file = paste0(outdir, "/Coef_Model2.csv"), row.names = TRUE)
 
-# Plot DiD results
-results$time[grepl("PRE", rownames(results))] = -as.numeric(gsub("PRE", "", rownames(results)[grepl("PRE", rownames(results))]))
-results$time[grepl("POST", rownames(results))] = as.numeric(gsub("POST", "", rownames(results)[grepl("POST", rownames(results))]))
-results_plot = results %>% filter(!is.na(time) & abs(time) <= 36)
-p_did = ggplot(results_plot, aes(x = time, y = Estimate)) +
-    geom_point() +
-    geom_errorbar(aes(ymin = Estimate - 1.96 * Std..Error, ymax = Estimate + 1.96 * Std..Error), width = 0.2) +
+# Visualization: Average Y by PERIOD (Before vs After), centered by event month using pre/post dummies
+df_event <- df_complete %>%
+    mutate(time_from_event = MONTH - EVENT_MONTH) %>%
+    filter(time_from_event >= -36 & time_from_event <= 36)
+df_event_summary <- df_event %>%
+    group_by(time_from_event) %>%
+    summarise(mean_Y = mean(Y, na.rm = TRUE),se_Y = sd(Y, na.rm = TRUE) / sqrt(sum(!is.na(Y))),n = sum(!is.na(Y))) %>%
+    ungroup()
+
+before_lm <- lm(mean_Y ~ time_from_event, data = df_event_summary %>% filter(time_from_event < 0))
+after_lm  <- lm(mean_Y ~ time_from_event, data = df_event_summary %>% filter(time_from_event > 0))
+before_df <- df_event_summary %>% filter(time_from_event < 0)
+before_df$reg <- predict(before_lm, newdata = before_df)
+after_df <- df_event_summary %>% filter(time_from_event > 0)
+after_df$reg <- predict(after_lm, newdata = after_df)
+
+p_centered <- ggplot(df_event_summary, aes(x = time_from_event, y = mean_Y)) +
+    geom_line(size = 1, color = "steelblue") +
+    geom_ribbon(aes(ymin = mean_Y - 1.96 * se_Y, ymax = mean_Y + 1.96 * se_Y), alpha = 0.2, fill = "steelblue") +
     geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
-    geom_hline(yintercept = 0, linetype = "solid", color = "black", size = 0.1) +
-    scale_x_continuous(breaks = seq(min(results_plot$time, na.rm = TRUE), max(results_plot$time, na.rm = TRUE), by = 1)) +
-    theme_minimal() +
-    labs(x = "Months from Event", y = "Coefficient") +
-    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
-ggsave(filename = file.path(outdir, "DiD_plot.png"), plot = p_did, width = 10, height = 12)
+    geom_line(data = before_df, aes(x = time_from_event, y = reg), color = "darkorange", size = 1) +
+    geom_line(data = after_df, aes(x = time_from_event, y = reg), color = "darkgreen", size = 1) +
+    labs(title = "Average Prescription Ratio (Y) Centered on Event (Pre/Post)",x = "Months from Event", y = "Mean Y") +
+    theme_minimal()
+ggsave(filename = file.path(outdir, "Plot_Model2.png"), plot = p_centered, width = 10, height = 6)
