@@ -25,16 +25,10 @@ COLOR_MALE = "blue"
 COLOR_FEMALE = "orange"
 
 # Functions
-create_pre_post_dummies = function(data) {
-    months = 1:300
-    for (i in seq_along(months)) {
-        t = i
-        pre_name = paste0("PRE", t)
-        post_name = paste0("POST", t)
-        data[[pre_name]] = ifelse(!is.na(data$EVENT_MONTH) & data$MONTH == data$EVENT_MONTH - t, 1, 0)
-        data[[post_name]] = ifelse(!is.na(data$EVENT_MONTH) & data$MONTH == data$EVENT_MONTH + t, 1, 0)
-    }
-    return(data)
+enrichment_func_outcome <- function(s) {
+    mean_Y_s = mean_Y[SPECIALTY == s]
+    mean_Y_others = mean(mean_Y[SPECIALTY != s], na.rm = TRUE)
+    ifelse(mean_Y_others == 0, NA, mean_Y_s / mean_Y_others)
 }
 
 #### Main
@@ -93,24 +87,20 @@ df_complete = df_complete %>%
     filter(!(DOCTOR_ID %in% events_after65)) %>% # remove people which experiment the event after pension (age 65)
     filter(AGE <= 65) # remove all prescriptions done after pension (age 65)
 
-# extract count of specialties 
-spec_count = df_complete %>%
-    distinct(DOCTOR_ID, SPECIALTY) %>%
-    mutate(SPECIALTY = ifelse(SPECIALTY == "", "no specialty", SPECIALTY)) %>%
-    count(SPECIALTY, name = "SPECIALTY_COUNT")
-
 # check distribution of events over the years
 df_plot = df_complete %>% distinct(DOCTOR_ID, .keep_all = TRUE) %>% na.omit(EVENT_YEAR)
 p1_general = ggplot(df_plot, aes(x = factor(EVENT_YEAR))) +
     geom_bar(aes(y = ..count..)) +
     labs(title = paste0("Count of (First) Events Over the Years, N = ",length(unique(df_plot$DOCTOR_ID))), x = "Event Year") 
-p1_specialty = df_plot %>%
-    count(SPECIALTY, name = "event_count") %>%
-    left_join(spec_count, by = "SPECIALTY") %>%
-    mutate(rate = event_count / SPECIALTY_COUNT) %>%
-    ggplot(aes(x = SPECIALTY, y = rate)) +
+specialty_enrichment = df_complete %>%
+    group_by(DOCTOR_ID) %>% slice_tail(n = 1) %>% ungroup() %>% # use only one row per ID, last one
+    group_by(SPECIALTY) %>%
+    summarise(event_count = sum(EVENT, na.rm = TRUE),total_count = n(),freq = event_count / total_count) %>%
+    mutate(enrichment = freq / sapply(SPECIALTY, function(s) {mean(freq[SPECIALTY != s], na.rm = TRUE)}), enrichment = round(enrichment, 2)) %>%
+    arrange(desc(enrichment))
+p1_specialty = ggplot(specialty_enrichment, aes(x = SPECIALTY, y = enrichment)) +
     geom_bar(stat = "identity") +
-    labs(title = "Event Rate within each Specialty", x = "Specialty", y = "Event Rate") +
+    labs(title = "Enrichment of Event in Specialties", x = "Specialty", y = "Enrichment Ratio") +
     theme_minimal() +
     theme(axis.text.x = element_text(angle = 45, hjust = 1))
 p1_age = ggplot(df_plot, aes(x = AGE_AT_EVENT, fill = factor(SEX))) +
@@ -126,42 +116,30 @@ ggsave(filename = file.path(outdir, "distribution_events.png"), plot = combined_
 cat(paste0("Cases that prescribed at least once: ", length(unique(df_plot$DOCTOR_ID)), "\n"))
 cat(paste0("Controls : ", length(doctor_ids)-length(unique(df_plot$DOCTOR_ID)), "\n"))
 
-# check distribution of statin prescription over the years
+# check distribution of outcome prescription over the years
 p2_general = ggplot(df_complete, aes(x = YEAR)) +
     stat_summary(aes(y = Y), fun = mean, geom = "line", size = 1) +
-    labs(title = "Entire Doctor Population Prescription Ratio Y=Ni/N Over the Years")
-df_plot = df_complete %>% mutate(time = MONTH - EVENT_MONTH, Y_adj = ifelse(!is.na(N),(Ni+mean(df_complete$Y))/(N+1),Y)) %>%
-    filter(!is.na(time)) %>%
-    filter(time >= -36 & time <= 36) # filter to 3 years before and after event
-percentiles_N = df_plot %>%
-    group_by(time = factor(time)) %>%
-    summarise(
-        p25 = quantile(N, 0.25, na.rm = TRUE),
-        p50 = quantile(N, 0.5, na.rm = TRUE),
-        p75 = quantile(N, 0.75, na.rm = TRUE))
-percentiles_Y = df_plot %>%
-    group_by(time = factor(time)) %>%
-    summarise(
-        p25 = quantile(Y_adj, 0.25, na.rm = TRUE),
-        p50 = quantile(Y_adj, 0.5, na.rm = TRUE),
-        p75 = quantile(Y_adj, 0.75, na.rm = TRUE))
-p2_N = ggplot(percentiles_N, aes(x = time, group = 1)) +
-    geom_line(aes(y = p25), color = "gray40", linetype = "dashed") +
-    geom_line(aes(y = p50), color = "black", size = 1) +
-    geom_line(aes(y = p75), color = "gray40", linetype = "dashed") +
-    geom_vline(xintercept = which(levels(percentiles_N$time) == "0"), linetype = "dashed", color = "red") +
-    labs(title = paste0("Number of Prescriptions N (quartiles),\nFocus on ±3 years for cases who prescribed = ", length(unique(df_plot$DOCTOR_ID))),x = "Months from Event", y = "N") +
+    labs(title = "general Doctor Population Prescription Ratio Y=Ni/N Over the Years")
+specialty_enrichment_outcome = df_complete %>%
+    group_by(SPECIALTY) %>%
+    summarise(mean_Y = mean(Y, na.rm = TRUE),n = n()) %>%
+    ungroup() %>% mutate(enrichment = sapply(SPECIALTY, enrichment_func_outcome)) %>%
+    arrange(desc(enrichment))
+p2_specialty = ggplot(specialty_enrichment_outcome, aes(x = SPECIALTY, y = enrichment)) +
+    geom_bar(stat = "identity", fill = "steelblue") +
+    labs(title = "Enrichment of Outcome Ratio (Y) by Specialty", x = "Specialty", y = "Enrichment Ratio") +
     theme_minimal() +
-    theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 8))
-p2_Y = ggplot(percentiles_Y, aes(x = time, group = 1)) +
-    geom_line(aes(y = p25), color = "gray40", linetype = "dashed") +
-    geom_line(aes(y = p50), color = "black", size = 1) +
-    geom_line(aes(y = p75), color = "gray40", linetype = "dashed") +
-    geom_vline(xintercept = which(levels(percentiles_Y$time) == "0"), linetype = "dashed", color = "red") +
-    labs(title = paste0("Population Adjusted Prescription Ratio Y (quartiles),\nFocus on ±3 years for cases who prescribed= ", length(unique(df_plot$DOCTOR_ID))), x = "Months from Event", y = "Population Adjusted Y") +
-    theme_minimal() +
-    theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 8))
-combined_plot2 = p2_general / (p2_N + p2_Y)
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+df_birthyear_sex = df_complete %>%
+    group_by(BIRTH_YEAR, SEX) %>%
+    summarise(mean_Y = mean(Y, na.rm = TRUE)) %>%
+    ungroup()
+p2_birthyear = ggplot(df_birthyear_sex, aes(x = BIRTH_YEAR, y = mean_Y, color = factor(SEX), group = SEX)) +
+    geom_line(size = 1) +
+    scale_color_manual(values = c("1" = COLOR_MALE, "2" = COLOR_FEMALE), labels = c("Male", "Female")) +
+    labs(title = "Average Prescription Ratio (Y) by Birth Year and Sex", x = "Birth Year", y = "Mean Y", color = "Sex") +
+    theme_minimal()
+combined_plot2 = p2_general / p2_specialty / p2_birthyear
 ggsave(filename = file.path(outdir, "distribution_outcomes.png"), plot = combined_plot2, width = 10, height = 12)
 
 # DiD analysis model
