@@ -327,8 +327,8 @@ ggplot(prescription_rate %>% filter(!is.na(AGE_DOC)), aes(x = AGE_DOC, fill = fa
     ) +
     plot_theme
 
-rate_by_age <- prescription_rate %>%
-    filter(!is.na(AGE_DOC)) %>%
+rate_by_age_doc <- prescription_rate %>%
+    filter(AGE_DOC < 90 & AGE_DOC > 20) %>%
     # Discretize doctor age to bins of 5 years
     mutate(
         AGE_BIN_DOC = cut(
@@ -348,7 +348,7 @@ rate_by_age <- prescription_rate %>%
     add_binom_interval(count_col = "PRESCRIBED", n_col = "TOTAL")
 
 # Prescription rate by doctor age
-ggplot(rate_by_age, aes(x = AGE_BIN_DOC, y = PRESCRIBED_RATE)) +
+ggplot(rate_by_age_doc, aes(x = AGE_BIN_DOC, y = PRESCRIBED_RATE)) +
     geom_bar(stat = "identity") +
     geom_errorbar(aes(ymin = LOWER_BOUND, ymax = UPPER_BOUND), width = 0.2) +
     labs(
@@ -358,7 +358,8 @@ ggplot(rate_by_age, aes(x = AGE_BIN_DOC, y = PRESCRIBED_RATE)) +
     ) +
     plot_theme
 
-rate_by_sex <- prescription_rate %>%
+# Prescription rate by doctor sex
+rate_by_sex_doc <- prescription_rate %>%
     filter(!is.na(SEX_DOC)) %>%
     group_by(SEX_DOC) %>%
     summarize(
@@ -368,8 +369,7 @@ rate_by_sex <- prescription_rate %>%
     mutate(PRESCRIBED_RATE = PRESCRIBED / TOTAL * 100) %>%
     add_binom_interval(count_col = "PRESCRIBED", n_col = "TOTAL")
 
-# Prescription rate by doctor sex
-ggplot(rate_by_sex, aes(x = factor(SEX_DOC), y = PRESCRIBED_RATE, fill = factor(SEX_DOC))) +
+ggplot(rate_by_sex_doc, aes(x = factor(SEX_DOC), y = PRESCRIBED_RATE, fill = factor(SEX_DOC))) +
     geom_bar(stat = "identity") +
     geom_errorbar(aes(ymin = LOWER_BOUND, ymax = UPPER_BOUND), width = 0.2) +
     scale_fill_manual(
@@ -484,10 +484,10 @@ ggplot(rate_by_source, aes(x = factor(SOURCE), y = PRESCRIBED_RATE)) +
     ) +
     plot_theme
 
-# Prescription rate by doctor birth region and patient home region
-rate_by_doc_birth_region <- prescription_rate %>%
-    filter(!is.na(BIRTH_REGION_DOC)) %>%
-    group_by(BIRTH_REGION_DOC) %>%
+# Prescription rate by doctor and patient home region
+rate_by_doc_region <- prescription_rate %>%
+    filter(!is.na(HOME_REGION_DOC)) %>%
+    group_by(HOME_REGION_DOC) %>%
     summarize(
         PRESCRIBED = sum(PRESCRIBED),
         TOTAL = n()
@@ -503,9 +503,9 @@ rate_by_pat_region <- prescription_rate %>%
     ) %>%
     mutate(PRESCRIBED_RATE = PRESCRIBED / TOTAL * 100) %>%
     add_binom_interval(count_col = "PRESCRIBED", n_col = "TOTAL")
-rate_by_region <- rate_by_doc_birth_region %>%
-    inner_join(rate_by_pat_region, by = c("BIRTH_REGION_DOC" = "HOME_REGION_PAT"), suffix = c("_DOCTOR", "_PATIENT")) %>%
-    rename(REGION = BIRTH_REGION_DOC) %>%
+rate_by_region <- rate_by_doc_region %>%
+    inner_join(rate_by_pat_region, by = c("HOME_REGION_DOC" = "HOME_REGION_PAT"), suffix = c("_DOCTOR", "_PATIENT")) %>%
+    rename(REGION = HOME_REGION_DOC) %>%
     pivot_longer(
         cols = -REGION,
         names_to = c("measure", "PERSON_TYPE"),
@@ -521,21 +521,21 @@ rate_by_region <- rate_by_doc_birth_region %>%
 ggplot(rate_by_region, aes(x = reorder(REGION, PRESCRIBED_RATE), y = PRESCRIBED_RATE, fill = PERSON_TYPE)) +
     geom_bar(stat = "identity", position = position_dodge2(reverse = TRUE)) +
     coord_flip() +
-    geom_errorbar(aes(ymin = LOWER_BOUND, ymax = UPPER_BOUND), width = 0.2, position = position_dodge2(reverse = TRUE)) +
+    geom_errorbar(aes(ymin = LOWER_BOUND, ymax = UPPER_BOUND), width = 0.2, position = position_dodge2(width = 0.9, reverse = TRUE)) +
     labs(
-        title = "Prescription Rate by Doctor Birth Region and Patient Home Region",
+        title = "Prescription Rate by Doctor and Patient Home Region",
         x = "Region",
         y = "Prescription rate (%)",
         fill = "Person Type"
     ) +
     scale_fill_discrete(
-        labels = c("DOCTOR" = "Doctor birth region", "PATIENT" = "Patient home region")
+        labels = c("DOCTOR" = "Doctor home region", "PATIENT" = "Patient home region")
     ) +
     plot_theme
 
 rate_by_language <- prescription_rate %>%
-    filter(!is.na(LANGUAGE)) %>%
-    group_by(LANGUAGE) %>%
+    filter(!is.na(LANGUAGE_DOC)) %>%
+    group_by(LANGUAGE_DOC) %>%
     summarize(
         PRESCRIBED = sum(PRESCRIBED),
         TOTAL = n()
@@ -545,7 +545,7 @@ rate_by_language <- prescription_rate %>%
     arrange(-TOTAL)
 
 # Distribution of doctor languages
-ggplot(rate_by_language, aes(x = reorder(LANGUAGE, TOTAL), y = TOTAL)) +
+ggplot(rate_by_language, aes(x = reorder(LANGUAGE_DOC, TOTAL), y = TOTAL)) +
     geom_bar(stat = "identity") +
     coord_flip() +
     labs(
@@ -556,7 +556,7 @@ ggplot(rate_by_language, aes(x = reorder(LANGUAGE, TOTAL), y = TOTAL)) +
     plot_theme
 
 # Prescription rate by doctor language
-ggplot(rate_by_language, aes(x = reorder(LANGUAGE, PRESCRIBED_RATE), y = PRESCRIBED_RATE)) +
+ggplot(rate_by_language %>% filter(TOTAL > 10000), aes(x = reorder(LANGUAGE_DOC, PRESCRIBED_RATE), y = PRESCRIBED_RATE)) +
     geom_bar(stat = "identity") +
     geom_errorbar(aes(ymin = LOWER_BOUND, ymax = UPPER_BOUND), width = 0.2) +
     coord_flip() +
@@ -580,26 +580,76 @@ ggplot(prescription_rate %>% filter(!is.na(AGE_PAT)), aes(x = AGE_PAT)) +
     ) +
     plot_theme
 
-# Histogram of patient sexes
-ggplot(prescription_rate %>% filter(!is.na(SEX_PAT)), aes(x = factor(SEX_PAT), fill = factor(SEX_PAT))) +
-    geom_bar() +
-    scale_fill_manual(
-        values = c("1" = "#f8766d", "2" = "#619cff"),
-        labels = c("1" = "Male", "2" = "Female")
-    ) +
+# Distribution of patient sex
+prescription_rate %>% 
+  filter(!is.na(SEX_PAT)) %>% 
+  count(SEX_PAT) %>% 
+  mutate(PERCENTAGE = n / sum(n) * 100) %>%
+  ggplot(aes(x = "", y = PERCENTAGE, fill = factor(SEX_PAT))) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y", start = 0) +
+  geom_text(aes(label = paste0(round(PERCENTAGE), "%")),
+           position = position_stack(vjust = 0.5),
+           size = 10) +
+  labs(title = "Sex Distribution of Patients Diagnosed with J06.9",
+       fill = "Sex",
+       x = NULL,
+       y = NULL) +
+  scale_fill_manual(
+    values = c("1" = "#f8766d", "2" = "#619cff"),
+    labels = c("1" = "Male", "2" = "Female")
+  ) +
+  theme_void() +
+  plot_theme +
+  theme(
+    axis.ticks = element_blank(),
+    axis.text = element_blank()
+  )
+
+# Histogram of doctor ages
+ggplot(prescription_rate %>% filter(!is.na(AGE_DOC)), aes(x = AGE_DOC)) +
+    geom_histogram(binwidth = 2) +
     labs(
-        title = "Sex Distribution of Patients Diagnosed with J06.9",
-        fill = "Sex",
-        x = "Sex",
+        title = "Age Distribution of Doctors Diagnosing J06.9",
+        x = "Age",
         y = "Frequency",
     ) +
+    scale_x_continuous(
+        n.breaks = 10
+    ) +
+    plot_theme
+
+# Distribution of doctor sex
+doc_sex_freq <- prescription_rate %>%
+    filter(!is.na(SEX_DOC)) %>%
+    group_by(SEX_DOC) %>%
+    summarize(
+        COUNT = n_distinct(DOCTOR_ID_DIAG)
+    ) %>%
+    mutate(PERCENTAGE = COUNT / sum(COUNT) * 100)
+
+ggplot(doc_sex_freq, aes(x = "", y = PERCENTAGE, fill = factor(SEX_DOC))) +
+    geom_bar(stat = "identity", width = 1) +
+    coord_polar("y", start = 0) +
+    geom_text(aes(label = paste0(round(PERCENTAGE), "%")),
+            position = position_stack(vjust = 0.5),
+            size = 10) +
+    labs(title = "Sex Distribution of Doctors Diagnosing J06.9",
+        fill = "Sex",
+        x = NULL,
+        y = NULL) +
+    scale_fill_manual(
+    values = c("1" = "#f8766d", "2" = "#619cff"),
+    labels = c("1" = "Male", "2" = "Female")
+    ) +
+    theme_void() +
     plot_theme +
     theme(
-        axis.ticks.x = element_blank(),
-        axis.text.x = element_blank()
+    axis.ticks = element_blank(),
+    axis.text = element_blank()
     )
 
-# Histogram of ages given prescription status
+# Histogram of patient ages given prescription status
 ggplot(prescription_rate %>% filter(!is.na(AGE_PAT)), aes(x = AGE_PAT, fill = factor(PRESCRIBED))) +
     geom_density(
         alpha = 0.4,
@@ -615,3 +665,64 @@ ggplot(prescription_rate %>% filter(!is.na(AGE_PAT)), aes(x = AGE_PAT, fill = fa
         fill = "Prescribed"
     ) +
     plot_theme
+
+# Prescription rate by patient age
+rate_by_age_pat <- prescription_rate %>%
+    filter(!is.na(AGE_PAT) & AGE_PAT < 100) %>%
+    mutate(
+        AGE_BIN_PAT = cut(
+            AGE_PAT,
+            breaks = seq(from = floor(min(AGE_PAT) / 5) * 5, to = ceiling(max(AGE_PAT) / 5) * 5, by = 5),
+            labels = paste0(seq(floor(min(AGE_PAT) / 5) * 5, ceiling(max(AGE_PAT) / 5) * 5 - 5, by = 5), "-",
+                            seq(floor(min(AGE_PAT) / 5) * 5 + 4, ceiling(max(AGE_PAT) / 5) * 5 - 1, by = 5)),
+            right = FALSE
+        )
+    ) %>%
+    group_by(AGE_BIN_PAT) %>%
+    summarize(
+        PRESCRIBED = sum(PRESCRIBED),
+        TOTAL = n()
+    ) %>%
+    mutate(PRESCRIBED_RATE = PRESCRIBED / TOTAL * 100) %>%
+    add_binom_interval(count_col = "PRESCRIBED", n_col = "TOTAL")
+
+ggplot(rate_by_age_pat, aes(x = AGE_BIN_PAT, y = PRESCRIBED_RATE)) +
+    geom_bar(stat = "identity") +
+    geom_errorbar(aes(ymin = LOWER_BOUND, ymax = UPPER_BOUND), width = 0.2) +
+    labs(
+        title = "J06.9 Prescription Rate by Patient Age",
+        x = "Age",
+        y = "Prescription Rate (%)"
+    ) +
+    plot_theme
+
+
+# Prescription rate by patient sex
+rate_by_sex_pat <- prescription_rate %>%
+    filter(!is.na(SEX_PAT)) %>%
+    group_by(SEX_PAT) %>%
+    summarize(
+        PRESCRIBED = sum(PRESCRIBED),
+        TOTAL = n()
+    ) %>%
+    mutate(PRESCRIBED_RATE = PRESCRIBED / TOTAL * 100) %>%
+    add_binom_interval(count_col = "PRESCRIBED", n_col = "TOTAL")
+
+ggplot(rate_by_sex_pat, aes(x = factor(SEX_PAT), y = PRESCRIBED_RATE, fill = factor(SEX_PAT))) +
+    geom_bar(stat = "identity") +
+    geom_errorbar(aes(ymin = LOWER_BOUND, ymax = UPPER_BOUND), width = 0.2) +
+    scale_fill_manual(
+        values = c("1" = "#f8766d", "2" = "#619cff"),
+        labels = c("1" = "Male", "2" = "Female")
+    ) +
+    labs(
+        title = "J06.9 Prescription Rate by Patient Sex",
+        fill = "Sex",
+        x = "Sex",
+        y = "Prescription Rate (%)"
+    ) +
+    plot_theme +
+    theme(
+        axis.ticks.x = element_blank(),
+        axis.text.x = element_blank()
+    )
