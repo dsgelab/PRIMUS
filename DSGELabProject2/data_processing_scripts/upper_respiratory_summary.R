@@ -9,7 +9,7 @@ setwd("/media/volume/Projects/mikael/ProcessedData")
 source("/media/volume/Projects/mikael/utils.R")
 
 diagnosis_file <- get_latest_file("FirstConnectedJ069Diagnoses") # First diagnosis for each patient
-prescription_file <- get_latest_file("J01Prescriptions")
+prescription_file <- get_latest_file("ImputedJ01Prescriptions")
 doctor_file <- "/media/volume/Projects/DSGELabProject1/doctor_characteristics_20250520.csv"
 patient_file <- "/media/volume/Data/Data_THL_2698_14.02.00_2023/DVV/FD_2698_Tulokset_2024-04-09_HY.csv"
 city_file <- "cities.csv"
@@ -106,52 +106,44 @@ ggplot(pstats, aes(x = DOCTOR_MATCH, y = COUNT, fill = PRESCRIPTION_TIME)) +
     plot_theme
 
 city <- fread(city_file) %>% as_tibble()
-doctor <- fread(doctor_file) %>%
-    as_tibble() %>%
-    rename(SPECIALTY = INTERPRETATION) %>%
-    mutate(SPECIALTY = replace(SPECIALTY, SPECIALTY == "" | is.na(SPECIALTY), "Licensed Doctor")) %>%
-    rename(CITY = BIRTH_MUNICIP_NAME) %>% # Rename for the join to work
-    left_join(city, by = "CITY") %>%
-    rename(BIRTH_REGION_DOC = REGION) %>%
-    select(DOCTOR_ID, PRACTICING_DAYS, BIRTH_DATE, SEX, SPECIALTY, BIRTH_REGION_DOC, LANGUAGE)
+
 patient <- fread(patient_file) %>%
     as_tibble() %>%
     rename(BIRTH_DATE = "Syntymä-päivä", SEX = "Suku-.puoli", PATIENT_ID = FID) %>%
     mutate(BIRTH_DATE = ymd(BIRTH_DATE)) %>%
-    rename(CITY = "Kotikunnan.nimi") %>% # Rename for the join to work
+    rename(CITY = "Kotikunnan.nimi") %>%
     left_join(city, by = "CITY") %>%
-    rename(HOME_REGION_PAT = REGION) %>%
-    select(PATIENT_ID, BIRTH_DATE, SEX, HOME_REGION_PAT)
+    rename(HOME_REGION = REGION) %>%
+    select(PATIENT_ID, BIRTH_DATE, SEX, HOME_REGION)
 
-calc_age <- function(birth_date, current_date) {
-    as.numeric(difftime(current_date, birth_date, units = "days") / 365.25)
-}
+doctor <- fread(doctor_file) %>%
+    as_tibble() %>%
+    rename(SPECIALTY = INTERPRETATION) %>%
+    mutate(SPECIALTY = replace(SPECIALTY, SPECIALTY == "" | is.na(SPECIALTY), "No Specialty")) %>%
+    rename(LANGUAGE_DOC = LANGUAGE) %>%
+    select(DOCTOR_ID, PRACTICING_DAYS, SPECIALTY, LANGUAGE_DOC)
+
 
 # Summarizes all diagnoses and whether a prescription was made after the diagnosis. The prescription information is
 # imputed by assigning a prescription to a patient who received an antibiotic prescription from the same doctor as the
 # diagnosis on the same day. Prescriptions within a week from any doctor are classified as "unclear" (excluding same-doctor
 # same-day prescriptions).
 prescription_rate_init <- diagnosis %>%
-    left_join(doctor, by = "DOCTOR_ID") %>%
-    left_join(prescription, by = "PATIENT_ID", suffix = c("_DIAG", "_PRES")) %>%
-    left_join(patient, by = "PATIENT_ID", suffix = c("_DOC", "_PAT")) %>%
-    # Indicator for prescriptions and unclear prescriptions
-    mutate(
-        UNCLEAR_OR_PRES = !is.na(PRESCRIPTION_DATE) & (
-            (as.numeric(difftime(PRESCRIPTION_DATE, VISIT_DATE, units = "days")) < 7 &
-                 as.numeric(difftime(PRESCRIPTION_DATE, VISIT_DATE, units = "days")) >= 0)
-        )
-    ) %>%
-    mutate(AGE_DOC = calc_age(BIRTH_DATE_DOC, VISIT_DATE)) %>%
-    mutate(AGE_PAT = calc_age(BIRTH_DATE_PAT, VISIT_DATE)) %>%
-    # Select only one row per patient, preferably the most recent prescription (if any)
-    arrange(PATIENT_ID, desc(UNCLEAR_OR_PRES), PRESCRIPTION_DATE) %>%
-    group_by(PATIENT_ID) %>%
-    slice(1) %>%
-    ungroup()
+  left_join(prescription, by = "PATIENT_ID", suffix = c("_DIAG", "_PRES")) %>%
+  # Indicator for prescriptions and unclear prescriptions
+  mutate(
+    UNCLEAR_OR_PRES = !is.na(PRESCRIPTION_DATE) & 
+      (as.numeric(difftime(PRESCRIPTION_DATE, VISIT_DATE, units = "days")) < 7 & 
+       as.numeric(difftime(PRESCRIPTION_DATE, VISIT_DATE, units = "days")) >= 0)
+  ) %>%
+  # Select only one row per patient, preferably the most recent prescription (if any)
+  arrange(PATIENT_ID, desc(UNCLEAR_OR_PRES), PRESCRIPTION_DATE) %>%
+  group_by(PATIENT_ID) %>%
+  slice(1) %>%
+  ungroup()
 
 pr <- prescription_rate_init
-prescribed_condition <- !is.na(pr$DOCTOR_ID_DIAG) & !is.na(pr$DOCTOR_ID_PRES) & pr$VISIT_DATE == pr$PRESCRIPTION_DATE & pr$DOCTOR_ID_DIAG == pr$DOCTOR_ID_PRES
+prescribed_condition <- pr$VISIT_DATE == pr$PRESCRIPTION_DATE & (is.na(pr$DOCTOR_ID_DIAG) | pr$DOCTOR_ID_DIAG == pr$DOCTOR_ID_PRES)
 n_prescribed <- prescription_rate_init %>% filter(prescribed_condition) %>% nrow()
 n_not_prescribed <- prescription_rate_init %>%
     filter(
@@ -175,20 +167,60 @@ ggplot(prescription_classes, aes(x = CLASS, y = COUNT, fill = CLASS)) +
     labs(
         title = "J06.9 Patients with Prescription vs No Prescription vs Unclear status",
         y = "Frequency",
+        x = NULL,
         fill = "Label"
     ) +
     plot_theme
 
-# Filter out unclear prescriptions from further analysis
+calc_age <- function(birth_date, current_date) {
+    as.numeric(difftime(current_date, birth_date, units = "days") / 365.25)
+}
+
+# Filter out unclear prescriptions from further analysis. Impute diagnosing doctor from prescribing doctor. Add
+# doctor and patient characteristics.
 prescription_rate <- prescription_rate_init %>%
     filter(prescribed_condition | UNCLEAR_OR_PRES == 0) %>%
+    mutate(DOCTOR_ID_DIAG = DOCTOR_ID_PRES) %>%
     rename(PRESCRIBED = UNCLEAR_OR_PRES) %>%
-    mutate(PRESCRIBED = as.numeric(PRESCRIBED))
-# write.csv(prescription_rate, paste0("J069DiagnosesWithPrescriptions_", current_date, ".csv"), row.names = FALSE)
+    mutate(PRESCRIBED = as.numeric(PRESCRIBED)) %>%
+    left_join(doctor, by = c("DOCTOR_ID_DIAG" = "DOCTOR_ID")) %>%
+    left_join(patient, by = c("DOCTOR_ID_DIAG" = "PATIENT_ID")) %>%  # Doctors are also patients
+    left_join(patient, by = "PATIENT_ID", suffix = c("_DOC", "_PAT")) %>%
+    mutate(AGE_DOC = calc_age(BIRTH_DATE_DOC, VISIT_DATE)) %>%
+    mutate(AGE_PAT = calc_age(BIRTH_DATE_PAT, VISIT_DATE))
+# write.csv(prescription_rate, paste0("J069DiagnosesWithPrescriptions ", current_date, ".csv"), row.names = FALSE)
 
-n_unknown_doctor <- prescription_rate %>% filter(is.na(SPECIALTY)) %>% nrow()
-percentage_unknown_doctor <- sprintf("%.2f%%", n_unknown_doctor / nrow(prescription_rate) * 100)
-print(paste0("Number of patients with unknown doctor: ", n_unknown_doctor, " (", percentage_unknown_doctor, ")"))
+# Class imbalance plot
+class_freq <- tibble(
+    CLASS = c("Prescribed", "Not Prescribed"),
+    COUNT = c(sum(prescription_rate$PRESCRIBED), sum(prescription_rate$PRESCRIBED == 0))
+)
+
+ggplot(class_freq, aes(x = CLASS, y = COUNT, fill = CLASS)) +
+    geom_bar(stat = "identity") +
+    labs(
+    title = "J06.9 Patients with Prescription vs No Prescription",
+    y = "Frequency",
+    fill = "Label",
+    x = NULL
+    ) +
+    plot_theme
+
+# Number of prescriptions per year
+yearly_prescriptions <- prescription_rate %>%
+    filter(PRESCRIBED == 1) %>%
+    mutate(YEAR = lubridate::year(VISIT_DATE)) %>%
+    group_by(YEAR) %>%
+    summarize(PRESCRIPTION_COUNT = n())
+
+ggplot(yearly_prescriptions, aes(x = YEAR, y = PRESCRIPTION_COUNT)) +
+    geom_bar(stat = "identity") +
+    labs(
+        title = "Number of J06.9 Prescriptions per Year",
+        x = "Year",
+        y = "Prescription Count"
+    ) +
+    plot_theme
 
 # Distribution of diagnosing and prescribing doctors by specialty
 diag_freq_by_specialty <- prescription_rate %>%
@@ -300,14 +332,14 @@ yearly_rate <- prescription_rate %>%
     ) %>%
     mutate(PRESCRIBED_RATE = PRESCRIBED / TOTAL * 100)
 
-yearly_rate %>%
-    ggplot(aes(x = YEAR, y = PRESCRIBED_RATE)) +
+ggplot(yearly_rate, aes(x = YEAR, y = PRESCRIBED_RATE)) +
     geom_line() +
     labs(
         title = "J06.9 Prescription Rate over Time",
         x = "Year",
         y = "Prescription Rate (%)"
     ) +
+    scale_y_continuous(limits = c(0, NA)) +
     plot_theme
 
 # Histogram of ages
