@@ -59,6 +59,7 @@ def train():
     parser.add_argument(
         "--shapdsize", help="Proportion of the test data to be used for estimating SHAP values (default=1).", type=probability, default=1
     )
+    parser.add_argument("--fitlc", help="Whether to fit a learning curve (default=1).", type=int, choices=[1, 0], default=1)
 
     args = parser.parse_args()
     seed = 123
@@ -120,10 +121,11 @@ def train():
     default_model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
     auprc_val_default = average_precision_score(y_val, default_model.predict_proba(X_val)[:, 1])
     auprc_val_tuned = average_precision_score(y_val, tuned_model.predict_proba(X_val)[:, 1])
+    search_improvement = auprc_val_tuned - auprc_val_default
 
     print(f"\nValidation AUPRC (tuned): {auprc_val_tuned:.3f}")
     print(f"Validation AUPRC (default): {auprc_val_default:.3f}")
-    print(f"Improvement in AUPRC with tuned hyperparameters: {auprc_val_tuned - auprc_val_default:.4f}\n")
+    print(f"Improvement in AUPRC with tuned hyperparameters: {search_improvement:.4f}\n")
     print(f"Choosing {'tuned' if auprc_val_tuned > auprc_val_default else 'default'} model.")
 
     model = tuned_model if auprc_val_tuned > auprc_val_default else default_model
@@ -147,28 +149,34 @@ def train():
     print(f"Validation AUPRC: {auprc_val:.3f}\n")
 
     # Summarize statistics to a file
-    summary_df = pd.DataFrame({"statistic": ["Train_AUPRC", "Val_AUPRC"], "value": [auprc_train, auprc_val]})
+    summary_df = pd.DataFrame(
+        {
+            "statistic": ["trainfile", "dataset_size", "balanced", "dropna", "nsearch", "search_improvement", "Train_AUPRC", "Val_AUPRC"],
+            "value": [args.trainfile, args.dsize, args.balanced, args.dropna, args.nsearch, search_improvement, auprc_train, auprc_val],
+        }
+    )
 
     # Plot learning curve
-    train_sizes, train_scores, val_scores = learning_curve(
-        create_xgb_model(args, seed, df_train, **tuned_params),
-        X_train,
-        y_train,
-        cv=3,
-        scoring="average_precision",
-        n_jobs=args.nproc,
-        random_state=seed,
-        fit_params={"eval_set": [(X_val, y_val)], "verbose": False},
-        verbose=1,
-    )
-    plt.plot(train_sizes, np.mean(train_scores, axis=1), "o-", label="Train AUPRC")
-    plt.plot(train_sizes, np.mean(val_scores, axis=1), "o-", label="Val AUPRC")
-    plt.title("Learning Curve")
-    plt.xlabel("Training set size")
-    plt.ylabel("AUPRC")
-    plt.legend()
-    savefig(f"{args.outdir}/xgb_learning_curve_{current_datetime}.png")
-    print("Learning curve saved.")
+    if args.fitlc:
+        train_sizes, train_scores, val_scores = learning_curve(
+            create_xgb_model(args, seed, df_train, **tuned_params),
+            X_train,
+            y_train,
+            cv=3,
+            scoring="average_precision",
+            n_jobs=args.nproc,
+            random_state=seed,
+            fit_params={"eval_set": [(X_val, y_val)], "verbose": False},
+            verbose=2,
+        )
+        plt.plot(train_sizes, np.mean(train_scores, axis=1), "o-", label="Train AUPRC")
+        plt.plot(train_sizes, np.mean(val_scores, axis=1), "o-", label="Val AUPRC")
+        plt.title("Learning Curve")
+        plt.xlabel("Training set size")
+        plt.ylabel("AUPRC")
+        plt.legend()
+        savefig(f"{args.outdir}/xgb_learning_curve_{current_datetime}.png")
+        print("Learning curve saved.")
 
     # Generate N random samples
     num_subsamples = 10
@@ -277,14 +285,15 @@ def train():
     explainer = shap.Explainer(model, X_test, seed=seed)
     shap_values = explainer(X_test)
 
+    max_display = 25
     plt.figure()
-    shap.plots.bar(shap_values, max_display=20, show=False)
+    shap.plots.bar(shap_values, max_display=max_display, show=False)
     plt.title("Mean Absolute SHAP Values by Feature", fontsize=20)
     savefig(f"{args.outdir}/xgb_shap_bar_{current_datetime}.png")
     print("SHAP bar plot saved.")
 
     plt.figure()
-    shap.plots.beeswarm(shap_values, max_display=20, show=False)
+    shap.plots.beeswarm(shap_values, max_display=max_display, show=False)
     plt.title("SHAP Beeswarm Plot", fontsize=20)
     savefig(f"{args.outdir}/xgb_shap_beeswarm_{current_datetime}.png")
     print("SHAP beeswarm plot saved.")
