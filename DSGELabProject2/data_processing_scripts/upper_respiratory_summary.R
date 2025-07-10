@@ -1,0 +1,995 @@
+library(data.table)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(lubridate)
+library(tidyr)
+library(patchwork)
+setwd("/media/volume/Projects/mikael/ProcessedData")
+source("/media/volume/Projects/mikael/utils.R")
+
+diagnosis_file <- get_latest_file("FirstConnectedJ069Diagnoses") # First diagnosis for each patient
+prescription_file <- get_latest_file("ImputedJ01Prescriptions")
+doctor_file <- "/media/volume/Projects/DSGELabProject1/doctor_characteristics_20250520.csv"
+patient_file <- "/media/volume/Data/Data_THL_2698_14.02.00_2023/DVV/FD_2698_Tulokset_2024-04-09_HY.csv"
+city_file <- "cities.csv"
+diag_history_pat_file <- get_latest_file("J069PatientDiagnosisHistory")
+pres_history_pat_file <- get_latest_file("J069PatientPrescriptionHistory")
+diag_history_doc_file <- get_latest_file("J069DoctorDiagnosisHistory")
+pres_history_doc_file <- get_latest_file("J069DoctorPrescriptionHistory")
+
+current_date <- strftime(Sys.Date(), "%Y%m%d")
+
+# prescription <- fread(get_latest_file("imputed_prescriptions_20250501152846.csv.gz"))[startsWith(ATC_CODE, "J01")]
+# write.csv(prescription, paste0("J01Prescriptions_", current_date, ".csv"), row.names = FALSE)
+prescription <- fread(prescription_file) %>%
+    as_tibble() %>%
+    select(PATIENT_ID, PRESCRIPTION_DATE, DOCTOR_ID)
+print(paste("Number of J01 (antibiotics) prescriptions:", nrow(prescription)))
+
+# diagnosis <- fread(get_latest_file("AllConnectedDiagnoses"))[startsWith(ICD10_CODE, "J06.9") | startsWith(ICD10_CODE, "J069")]
+# # Only select the earliest instance of diagnosis for each patient
+# diagnosis <- diagnosis %>%
+#     as_tibble() %>%
+#     arrange(PATIENT_ID, VISIT_DATE) %>%
+#     group_by(PATIENT_ID) %>%
+#     slice(1) %>%
+#     ungroup()
+# write.csv(diagnosis, paste0("FirstConnectedJ069Diagnoses_", current_date, ".csv"), row.names = FALSE)
+diagnosis <- fread(diagnosis_file) %>%
+    as_tibble() %>%
+    mutate(across(where(is.character), ~ na_if(., ""))) %>%
+    select(PATIENT_ID, VISIT_DATE, ICD10_CODE, SOURCE, DOCTOR_ID) %>%
+    filter(VISIT_DATE >= min(prescription$PRESCRIPTION_DATE)) # Only include patients from the same time period as prescriptions
+
+count <- nrow(diagnosis)
+print(paste("Number of patients (first diagnoses):", count))
+count_with_doctor <- nrow(diagnosis %>% filter(!is.na(DOCTOR_ID)))
+percentage_with_doctor <- sprintf("%.2f%%", count_with_doctor / count * 100)
+print(paste0("Number of first diagnoses connected to a doctor: ", count_with_doctor, " (", percentage_with_doctor, ")"))
+
+codes <- unique(diagnosis$ICD10_CODE)
+print(paste("All ICD10 codes starting with J06.9:", paste(codes, collapse = ", ")))
+
+# all_diagnoses <- fread(get_latest_file("AllConnectedDiagnoses"))[grepl("^[A-Z]", ICD10_CODE)] # Filter out improper ICD10 codes
+# diag_history_pat <- diagnosis %>%
+#     inner_join(all_diagnoses, by = "PATIENT_ID", suffix = c("_J069", "_HIST")) %>%
+#     filter(VISIT_DATE_HIST < VISIT_DATE_J069) %>%
+#     mutate(first_letter = str_sub(ICD10_CODE_HIST, 1, 1)) %>%
+#     distinct(PATIENT_ID, first_letter) %>%
+#     mutate(present = 1) %>%
+#     pivot_wider(
+#         names_from = first_letter,
+#         values_from = present,
+#         names_prefix = "HAD_",
+#         values_fill = 0
+#     ) %>%
+#     right_join(
+#         diagnosis %>% distinct(PATIENT_ID),
+#         by = "PATIENT_ID"
+#     ) %>%
+#     mutate(across(starts_with("HAD_"), ~ replace_na(., 0)))
+# write.csv(diag_history_pat, paste0("J069PatientDiagnosisHistory_", current_date, ".csv"), row.names = FALSE)
+diag_history_pat <- fread(diag_history_pat_file)
+
+# pres_history_pat <- fread("imputed_prescriptions_20250501152849.csv")[grepl("^[A-Z]", CODE)] # Filter out improper ATC codes
+# pres_history_pat <- diagnosis %>%
+#     inner_join(pres_history_pat, by = "PATIENT_ID", suffix = c("_J069", "_PRES")) %>%
+#     filter(PRESCRIPTION_DATE < VISIT_DATE) %>%
+#     mutate(first_letter = str_sub(CODE, 1, 1)) %>%
+#     distinct(PATIENT_ID, first_letter) %>%
+#     mutate(present = 1) %>%
+#     pivot_wider(
+#         names_from = first_letter,
+#         values_from = present,
+#         names_prefix = "GOT_",
+#         values_fill = 0
+#     ) %>%
+#     right_join(
+#         diagnosis %>% distinct(PATIENT_ID),
+#         by = "PATIENT_ID"
+#     ) %>%
+#     mutate(across(starts_with("GOT_"), ~ replace_na(., 0)))
+# write.csv(pres_history_pat, paste0("J069PatientPrescriptionHistory_", current_date, ".csv"), row.names = FALSE)
+pres_history_pat <- fread(pres_history_pat_file)
+
+pres_history_doc <- fread(pres_history_doc_file)
+diag_history_doc <- fread(diag_history_doc_file)
+
+plot_theme <- theme(
+    plot.title = element_text(size = 28),
+    axis.title = element_text(size = 24),
+    axis.text = element_text(size = 20),
+    legend.title = element_text(size = 22),
+    legend.text = element_text(size = 20)
+)
+
+diagnosis %>%
+    mutate(DIAGNOSIS_YEAR = format(VISIT_DATE, "%Y")) %>%
+    count(DIAGNOSIS_YEAR, SOURCE) %>%
+    ggplot(aes(x = DIAGNOSIS_YEAR, y = n, fill = SOURCE)) +
+    geom_bar(stat = "identity") +
+    scale_x_discrete(breaks = ~ levels(factor(.x))[seq(1, nlevels(factor(.x)), by = 2)]) +
+    labs(title = "Number of J06.9 Diagnoses by Year and Source Dataset",
+         x = "Year",
+         y = "Diagnoses",
+         fill = "Source dataset") +
+    plot_theme
+
+diag_pres <- diagnosis %>%
+    inner_join(prescription, by = "PATIENT_ID", suffix = c("_DIAG", "_PRES")) %>%
+    filter(PRESCRIPTION_DATE >= VISIT_DATE) %>%
+    arrange(PATIENT_ID, PRESCRIPTION_DATE) %>%
+    group_by(PATIENT_ID) %>%
+    slice(1) %>%
+    ungroup()
+
+# Statistics about the number of prescriptions. Same doctor means that the prescription and diagnosis were made by the same doctor.
+within_week <- diag_pres %>%
+    filter(as.numeric(difftime(PRESCRIPTION_DATE, VISIT_DATE, units = "days")) < 7)
+same_day <- diag_pres %>%
+    filter(PRESCRIPTION_DATE == VISIT_DATE)
+prescription_dfs <- list(same_day = same_day, within_week = within_week)
+# Prescription stats
+pstats <- expand.grid(
+    PRESCRIPTION_TIME = names(prescription_dfs),
+    DOCTOR_MATCH = c("same", "different", "missing")
+)
+for (prescription_time in names(prescription_dfs)) {
+    df = prescription_dfs[[prescription_time]]
+    pstats[pstats$PRESCRIPTION_TIME == prescription_time & pstats$DOCTOR_MATCH == "same", "COUNT"] = nrow(df %>% filter(DOCTOR_ID_DIAG == DOCTOR_ID_PRES))
+    pstats[pstats$PRESCRIPTION_TIME == prescription_time & pstats$DOCTOR_MATCH == "different", "COUNT"] = nrow(df %>% filter(DOCTOR_ID_DIAG != DOCTOR_ID_PRES))
+    pstats[pstats$PRESCRIPTION_TIME == prescription_time & pstats$DOCTOR_MATCH == "missing", "COUNT"] = nrow(df %>% filter(is.na(DOCTOR_ID_DIAG)))
+}
+stopifnot(nrow(within_week) == sum(pstats[pstats$PRESCRIPTION_TIME == "within_week", "COUNT"]))
+stopifnot(nrow(same_day) == sum(pstats[pstats$PRESCRIPTION_TIME == "same_day", "COUNT"]))
+
+ggplot(pstats, aes(x = DOCTOR_MATCH, y = COUNT, fill = PRESCRIPTION_TIME)) +
+    geom_bar(stat = "identity", position = position_dodge()) +
+    labs(
+        title = "J06.9 Prescription Timing by Doctor Match",
+        x = "Doctor Match",
+        y = "Count",
+        fill = "Prescription Time"
+    ) +
+    plot_theme
+
+city <- fread(city_file) %>% as_tibble()
+
+patient <- fread(patient_file) %>%
+    as_tibble() %>%
+    rename(BIRTH_DATE = "Syntymä-päivä", SEX = "Suku-.puoli", PATIENT_ID = FID) %>%
+    mutate(BIRTH_DATE = ymd(BIRTH_DATE)) %>%
+    rename(CITY = "Kotikunnan.nimi") %>%
+    left_join(city, by = "CITY") %>%
+    rename(HOME_REGION = REGION) %>%
+    select(PATIENT_ID, BIRTH_DATE, SEX, HOME_REGION)
+
+doctor <- fread(doctor_file) %>%
+    as_tibble() %>%
+    rename(SPECIALTY = INTERPRETATION) %>%
+    mutate(SPECIALTY = replace(SPECIALTY, SPECIALTY == "" | is.na(SPECIALTY), "No Specialty")) %>%
+    rename(LANGUAGE_DOC = LANGUAGE) %>%
+    select(DOCTOR_ID, PRACTICING_DAYS, SPECIALTY, LANGUAGE_DOC)
+
+
+# Summarizes all diagnoses and whether a prescription was made after the diagnosis. The prescription information is
+# imputed by assigning a prescription to a patient who received an antibiotic prescription from the same doctor as the
+# diagnosis on the same day. Prescriptions within a week from any doctor are classified as "unclear" (excluding same-doctor
+# same-day prescriptions).
+prescription_rate_init <- diagnosis %>%
+  left_join(prescription, by = "PATIENT_ID", suffix = c("_DIAG", "_PRES")) %>%
+  # Indicator for prescriptions and unclear prescriptions
+  mutate(
+    UNCLEAR_OR_PRES = !is.na(PRESCRIPTION_DATE) & 
+      (as.numeric(difftime(PRESCRIPTION_DATE, VISIT_DATE, units = "days")) < 7 & 
+       as.numeric(difftime(PRESCRIPTION_DATE, VISIT_DATE, units = "days")) >= 0)
+  ) %>%
+  # Select only one row per patient, preferably the most recent prescription (if any)
+  arrange(PATIENT_ID, desc(UNCLEAR_OR_PRES), PRESCRIPTION_DATE) %>%
+  group_by(PATIENT_ID) %>%
+  slice(1) %>%
+  ungroup()
+
+pr <- prescription_rate_init
+prescribed_condition <- pr$VISIT_DATE == pr$PRESCRIPTION_DATE & (is.na(pr$DOCTOR_ID_DIAG) | pr$DOCTOR_ID_DIAG == pr$DOCTOR_ID_PRES)
+prescribed_condition_strict <- pr$VISIT_DATE == pr$PRESCRIPTION_DATE & pr$DOCTOR_ID_DIAG == pr$DOCTOR_ID_PRES
+n_prescribed <- prescription_rate_init %>% filter(prescribed_condition_strict) %>% nrow()
+n_not_prescribed <- prescription_rate_init %>%
+    filter(
+        is.na(PRESCRIPTION_DATE) |
+            as.numeric(difftime(PRESCRIPTION_DATE, VISIT_DATE, units = "days")) >= 7 |
+            PRESCRIPTION_DATE < VISIT_DATE
+    ) %>%
+    nrow()
+# Get the number of unclear prescriptions with formula sum(I(unclear or prescribed) - I(prescribed))
+n_unclear <- prescription_rate_init %>% filter(UNCLEAR_OR_PRES == 1) %>% nrow() - n_prescribed
+stopifnot(n_prescribed + n_not_prescribed + n_unclear == nrow(prescription_rate_init))
+prescription_classes <- tibble(
+    CLASS = c("Prescribed", "Not Prescribed", "Unclear"),
+    COUNT = c(n_prescribed, n_not_prescribed, n_unclear),
+) %>%
+    mutate(PERCENTAGE = COUNT / sum(COUNT) * 100)
+prescription_classes
+
+ggplot(prescription_classes, aes(x = CLASS, y = COUNT, fill = CLASS)) +
+    geom_bar(stat = "identity") +
+    labs(
+        title = "J06.9 Patients with Prescription vs No Prescription vs Unclear status",
+        y = "Frequency",
+        x = NULL,
+        fill = "Label"
+    ) +
+    plot_theme
+
+calc_age <- function(birth_date, current_date) {
+    as.numeric(difftime(current_date, birth_date, units = "days") / 365.25)
+}
+
+# Filter out unclear prescriptions from further analysis. Impute diagnosing doctor from prescribing doctor. Add
+# doctor and patient characteristics.
+prescription_rate <- prescription_rate_init %>%
+    filter(prescribed_condition | UNCLEAR_OR_PRES == 0) %>%
+    rename(PRESCRIBED = UNCLEAR_OR_PRES) %>%
+    mutate(PRESCRIBED = as.numeric(PRESCRIBED)) %>%
+    mutate(DOCTOR_ID = ifelse(PRESCRIBED == 1, DOCTOR_ID_PRES, DOCTOR_ID_DIAG)) %>%
+    left_join(doctor, by = "DOCTOR_ID") %>%
+    left_join(patient, by = c("DOCTOR_ID" = "PATIENT_ID")) %>%  # Doctors are also patients
+    left_join(patient, by = "PATIENT_ID", suffix = c("_DOC", "_PAT")) %>%
+    mutate(AGE_DOC = calc_age(BIRTH_DATE_DOC, VISIT_DATE)) %>%
+    mutate(AGE_PAT = calc_age(BIRTH_DATE_PAT, VISIT_DATE)) %>%
+    inner_join(diag_history_pat, by = "PATIENT_ID") %>%
+    inner_join(pres_history_pat, by = "PATIENT_ID") %>%
+    left_join(diag_history_doc, by = c("DOCTOR_ID", "VISIT_DATE"), suffix = c("_PAT", "_DOC")) %>%
+    left_join(pres_history_doc, by = c("DOCTOR_ID", "VISIT_DATE"), suffix = c("_PAT", "_DOC"))
+# write.csv(prescription_rate, paste0("J069DiagnosesWithPrescriptions_", current_date, ".csv"), row.names = FALSE)
+
+# Class imbalance plot
+class_freq <- tibble(
+    CLASS = c("Prescribed", "Not Prescribed"),
+    COUNT = c(sum(prescription_rate$PRESCRIBED), sum(prescription_rate$PRESCRIBED == 0))
+)
+
+ggplot(class_freq, aes(x = CLASS, y = COUNT, fill = CLASS)) +
+    geom_bar(stat = "identity") +
+    labs(
+    title = "J06.9 Patients with Prescription vs No Prescription",
+    y = "Frequency",
+    fill = "Label",
+    x = NULL
+    ) +
+    plot_theme
+
+# Number of prescriptions per year
+yearly_prescriptions <- prescription_rate %>%
+    filter(PRESCRIBED == 1) %>%
+    mutate(YEAR = lubridate::year(VISIT_DATE)) %>%
+    group_by(YEAR) %>%
+    summarize(PRESCRIPTION_COUNT = n())
+
+ggplot(yearly_prescriptions, aes(x = factor(YEAR), y = PRESCRIPTION_COUNT)) +
+    geom_bar(stat = "identity") +
+    labs(
+        title = "Number of J06.9 Prescriptions per Year",
+        x = "Year",
+        y = "Prescription Count"
+    ) +
+    plot_theme
+
+# Distribution of diagnosing and prescribing doctors by specialty
+diag_freq_by_specialty <- prescription_rate %>%
+    filter(!is.na(SPECIALTY)) %>%
+    group_by(SPECIALTY) %>%
+    summarize(
+        DIAGNOSIS_FREQ = n(),
+    ) %>%
+    mutate(DIAGNOSIS_FREQ = DIAGNOSIS_FREQ / sum(DIAGNOSIS_FREQ) * 100)
+pres_freq_by_specialty <- prescription_rate %>%
+    filter(!is.na(SPECIALTY)) %>%
+    filter(PRESCRIBED == 1) %>%
+    group_by(SPECIALTY) %>%
+    summarize(
+        PRESCRIPTION_FREQ = n(),
+    ) %>%
+    mutate(PRESCRIPTION_FREQ = PRESCRIPTION_FREQ / sum(PRESCRIPTION_FREQ) * 100)
+freq_by_specialty <- diag_freq_by_specialty %>%
+    inner_join(pres_freq_by_specialty, by = "SPECIALTY") %>%
+    # Filter out specialties with frequency lower than 0.5%
+    filter(DIAGNOSIS_FREQ > 0.5 | PRESCRIPTION_FREQ > 0.5) %>%
+    # Convert to long format. That is, one row for each frequency.
+    pivot_longer(
+        cols = c(DIAGNOSIS_FREQ, PRESCRIPTION_FREQ),
+        names_to = "FREQUENCY_TYPE",
+        values_to = "FREQUENCY"
+    ) %>%
+    mutate(FREQUENCY_TYPE = gsub("_FREQ", "", FREQUENCY_TYPE)) %>%
+    arrange(desc(FREQUENCY))
+
+diagnosis_sum <- sum(freq_by_specialty %>% filter(FREQUENCY_TYPE == "DIAGNOSIS") %>% pull(FREQUENCY))
+prescription_sum <- sum(freq_by_specialty %>% filter(FREQUENCY_TYPE == "PRESCRIPTION") %>% pull(FREQUENCY))
+stopifnot(diagnosis_sum > 95 & diagnosis_sum < 100)
+stopifnot(prescription_sum > 95 & prescription_sum < 100)
+
+ggplot(freq_by_specialty, aes(x = reorder(SPECIALTY, FREQUENCY), y = FREQUENCY, fill = FREQUENCY_TYPE)) +
+    geom_bar(stat = "identity", position = position_dodge2(reverse = TRUE)) +
+    coord_flip() +
+    labs(
+        title = "Distribution of J06.9 Prescriptions and Diagnoses by Specialty",
+        x = "Specialty",
+        y = "Relative Frequency (%)",
+        fill = "Frequency Type"
+    ) +
+    scale_fill_discrete(
+        labels = c("DIAGNOSIS" = "Diagnosis", "PRESCRIPTION" = "Prescription")
+    ) +
+    plot_theme
+
+add_binom_interval <- function(df, count_col, n_col, conf_level = 0.95) {
+  z <- qnorm((1 + conf_level) / 2)
+  df %>%
+    mutate(
+      p = .data[[count_col]] / .data[[n_col]],
+      margin = z * sqrt(p * (1 - p) / .data[[n_col]]),
+      LOWER_BOUND = pmax(p - margin, 0) * 100,
+      UPPER_BOUND = pmin(p + margin, 1) * 100,
+    ) %>%
+    select(-p, -margin)  # Remove temporary columns
+}
+
+rate_by_specialty <- prescription_rate %>%
+    filter(!is.na(SPECIALTY)) %>%
+    group_by(SPECIALTY) %>%
+    summarize(
+        PRESCRIBED = sum(PRESCRIBED),
+        TOTAL = n()
+    ) %>%
+    mutate(PRESCRIBED_RATE = PRESCRIBED / TOTAL * 100) %>%
+    mutate(RELATIVE_FREQ = TOTAL / sum(TOTAL) * 100) %>%
+    # Filter out specialties with relative frequency lower than 0.5%
+    filter(RELATIVE_FREQ > 0.5) %>%
+    add_binom_interval(count_col = "PRESCRIBED", n_col = "TOTAL") %>%
+    arrange(-TOTAL)
+mean_prescription_rate <- mean(prescription_rate %>% filter(!is.na(SPECIALTY)) %>% pull(PRESCRIBED)) * 100
+
+ggplot(rate_by_specialty, aes(x = reorder(SPECIALTY, PRESCRIBED_RATE), y = PRESCRIBED_RATE)) +
+    geom_bar(stat = "identity") +
+    coord_flip() +
+    geom_hline(
+        yintercept = mean_prescription_rate,
+        linetype = "dashed",
+        color = "red"
+    ) +
+    geom_errorbar(aes(ymin = LOWER_BOUND, ymax = UPPER_BOUND), width = 0.2) +
+    annotate("text",
+        x = 0.3,
+        y = mean_prescription_rate,
+        label = "Mean Prescription Rate",
+        color = "red",
+        size = 7
+    ) +
+    scale_x_discrete(
+        expand = expansion(mult = c(0.1, 0))
+    ) +
+    labs(
+        title = "J06.9 Prescription Rate by Specialty",
+        x = "Specialty",
+        y = "Prescription Rate (%)"
+    ) +
+    plot_theme
+
+yearly_rate <- prescription_rate %>%
+    mutate(YEAR = lubridate::year(VISIT_DATE)) %>%
+    group_by(YEAR) %>%
+    summarize(
+        PRESCRIBED = sum(PRESCRIBED),
+        TOTAL = n()
+    ) %>%
+    mutate(PRESCRIBED_RATE = PRESCRIBED / TOTAL * 100)
+
+ggplot(yearly_rate, aes(x = YEAR, y = PRESCRIBED_RATE)) +
+    geom_line() +
+    labs(
+        title = "J06.9 Prescription Rate over Time",
+        x = "Year",
+        y = "Prescription Rate (%)"
+    ) +
+    scale_y_continuous(limits = c(0, NA)) +
+    plot_theme
+
+# Histogram of ages
+ggplot(prescription_rate %>% filter(!is.na(AGE_DOC)), aes(x = AGE_DOC, fill = factor(PRESCRIBED))) +
+    geom_density(
+        alpha = 0.4,
+    ) +
+    scale_fill_manual(
+        values = c("0" = "#f4c0bd", "1" = "#91dddf"),
+        labels = c("0" = "Did not presribe", "1" = "Prescribed")
+    ) +
+    labs(
+        title = "Age Distribution of Doctors Prescribing and not Prescribing to J06.9 Patients",
+        x = "Age",
+        y = "Probability density",
+        fill = "Prescribed"
+    ) +
+    plot_theme
+
+rate_by_age_doc <- prescription_rate %>%
+    filter(AGE_DOC < 90 & AGE_DOC > 20) %>%
+    # Discretize doctor age to bins of 5 years
+    mutate(
+        AGE_BIN_DOC = cut(
+            AGE_DOC,
+            breaks = seq(from = floor(min(AGE_DOC) / 5) * 5, to = ceiling(max(AGE_DOC) / 5) * 5, by = 5),
+            labels = paste0(seq(floor(min(AGE_DOC) / 5) * 5, ceiling(max(AGE_DOC) / 5) * 5 - 5, by = 5), "-",
+                            seq(floor(min(AGE_DOC) / 5) * 5 + 4, ceiling(max(AGE_DOC) / 5) * 5 - 1, by = 5)),
+            right = FALSE
+        )
+    ) %>%
+    group_by(AGE_BIN_DOC) %>%
+    summarize(
+        PRESCRIBED = sum(PRESCRIBED),
+        TOTAL = n()
+    ) %>%
+    mutate(PRESCRIBED_RATE = PRESCRIBED / TOTAL * 100) %>%
+    add_binom_interval(count_col = "PRESCRIBED", n_col = "TOTAL")
+
+# Prescription rate by doctor age
+ggplot(rate_by_age_doc, aes(x = AGE_BIN_DOC, y = PRESCRIBED_RATE)) +
+    geom_bar(stat = "identity") +
+    geom_errorbar(aes(ymin = LOWER_BOUND, ymax = UPPER_BOUND), width = 0.2) +
+    labs(
+        title = "J06.9 Prescription Rate by Doctor Age",
+        x = "Age",
+        y = "Prescription Rate (%)"
+    ) +
+    plot_theme
+
+# Prescription rate by doctor sex
+rate_by_sex_doc <- prescription_rate %>%
+    filter(!is.na(SEX_DOC)) %>%
+    group_by(SEX_DOC) %>%
+    summarize(
+        PRESCRIBED = sum(PRESCRIBED),
+        TOTAL = n()
+    ) %>%
+    mutate(PRESCRIBED_RATE = PRESCRIBED / TOTAL * 100) %>%
+    add_binom_interval(count_col = "PRESCRIBED", n_col = "TOTAL")
+
+ggplot(rate_by_sex_doc, aes(x = factor(SEX_DOC), y = PRESCRIBED_RATE, fill = factor(SEX_DOC))) +
+    geom_bar(stat = "identity") +
+    geom_errorbar(aes(ymin = LOWER_BOUND, ymax = UPPER_BOUND), width = 0.2) +
+    scale_fill_manual(
+        values = c("1" = "#f8766d", "2" = "#619cff"),
+        labels = c("1" = "Male", "2" = "Female")
+    ) +
+    labs(
+        title = "J06.9 Prescription Rate by Doctor Sex",
+        fill = "Sex",
+        x = "Sex",
+        y = "Prescription Rate (%)"
+    ) +
+    plot_theme +
+    theme(
+        axis.ticks.x = element_blank(),
+        axis.text.x = element_blank()
+    )
+
+# Prescription rate by month
+monthly_rate <- prescription_rate %>%
+    mutate(MONTH = lubridate::month(VISIT_DATE)) %>%
+    group_by(MONTH) %>%
+    summarize(
+        PRESCRIBED = sum(PRESCRIBED),
+        TOTAL = n()
+    ) %>%
+    mutate(
+        PRESCRIBED_RATE = PRESCRIBED / TOTAL * 100
+    ) %>%
+    add_binom_interval(count_col = "PRESCRIBED", n_col = "TOTAL") %>%
+    arrange(-TOTAL)
+
+ggplot(monthly_rate, aes(x = factor(MONTH), y = PRESCRIBED_RATE)) + 
+    geom_bar(stat = "identity") +
+    geom_errorbar(aes(ymin = LOWER_BOUND, ymax = UPPER_BOUND), width = 0.2) +
+    labs(
+        title = "J06.9 Prescription Rate by Month",
+        x = "Month",
+        y = "Prescription Rate (%)"
+    ) +
+    plot_theme
+
+rate_by_weekday <- prescription_rate %>%
+    mutate(WEEKDAY = lubridate::wday(VISIT_DATE, week_start = 1)) %>%
+    group_by(WEEKDAY) %>%
+    summarize(
+        PRESCRIBED = sum(PRESCRIBED),
+        TOTAL = n()
+    ) %>%
+    mutate(PRESCRIBED_RATE = PRESCRIBED / TOTAL * 100) %>%
+    add_binom_interval(count_col = "PRESCRIBED", n_col = "TOTAL")
+
+ggplot(rate_by_weekday, aes(x = factor(WEEKDAY), y = PRESCRIBED_RATE)) +
+    geom_bar(stat = "identity") +
+    geom_errorbar(aes(ymin = LOWER_BOUND, ymax = UPPER_BOUND), width = 0.2) +
+    labs(
+        title = "J06.9 Prescription Rate by Weekday",
+        x = "Weekday",
+        y = "Prescription Rate (%)"
+    ) +
+    plot_theme
+
+# Prescription rate by J06.9 subcode
+rate_by_code <- prescription_rate %>%
+    filter(VISIT_DATE >= min(prescription$PRESCRIPTION_DATE)) %>%
+    group_by(ICD10_CODE) %>%
+    summarize(
+        PRESCRIBED = sum(PRESCRIBED),
+        TOTAL = n()
+    ) %>%
+    mutate(PRESCRIBED_RATE = PRESCRIBED / TOTAL * 100) %>%
+    add_binom_interval(count_col = "PRESCRIBED", n_col = "TOTAL") %>%
+    arrange(-TOTAL)
+
+ggplot(rate_by_code, aes(x = reorder(ICD10_CODE, TOTAL), y = TOTAL)) +
+    geom_bar(stat = "identity") +
+    coord_flip() +
+    labs(
+        title = "Distribution of J06.9 Subcodes",
+        x = "Subcode",
+        y = "Frequency"
+    ) +
+    plot_theme
+
+ggplot(rate_by_code %>% filter(TOTAL > 1000), aes(x = reorder(ICD10_CODE, TOTAL), y = PRESCRIBED_RATE)) +
+    geom_bar(stat = "identity") +
+    geom_errorbar(aes(ymin = LOWER_BOUND, ymax = UPPER_BOUND), width = 0.2) +
+    labs(
+        title = "J06.9 Prescription Rate by Subcode",
+        x = "Subcode",
+        y = "Prescription Rate (%)"
+    ) +
+    plot_theme
+
+# Prescription rate by source dataset
+rate_by_source <- prescription_rate %>%
+    group_by(SOURCE) %>%
+    summarize(
+        PRESCRIBED = sum(PRESCRIBED),
+        TOTAL = n()
+    ) %>%
+    mutate(PRESCRIBED_RATE = PRESCRIBED / TOTAL * 100) %>%
+    add_binom_interval(count_col = "PRESCRIBED", n_col = "TOTAL")
+
+ggplot(rate_by_source, aes(x = factor(SOURCE), y = PRESCRIBED_RATE)) +
+    geom_bar(stat = "identity") +
+    geom_errorbar(aes(ymin = LOWER_BOUND, ymax = UPPER_BOUND), width = 0.2) +
+    labs(
+        title = "J06.9 Prescription Rate by Source Dataset",
+        x = "Source Dataset",
+        y = "Prescription Rate (%)"
+    ) +
+    plot_theme
+
+# Prescription rate by doctor and patient home region
+rate_by_doc_region <- prescription_rate %>%
+    filter(!is.na(HOME_REGION_DOC)) %>%
+    group_by(HOME_REGION_DOC) %>%
+    summarize(
+        PRESCRIBED = sum(PRESCRIBED),
+        TOTAL = n()
+    ) %>%
+    mutate(PRESCRIBED_RATE = PRESCRIBED / TOTAL * 100) %>%
+    add_binom_interval(count_col = "PRESCRIBED", n_col = "TOTAL")
+rate_by_pat_region <- prescription_rate %>%
+    filter(!is.na(HOME_REGION_PAT)) %>%
+    group_by(HOME_REGION_PAT) %>%
+    summarize(
+        PRESCRIBED = sum(PRESCRIBED),
+        TOTAL = n()
+    ) %>%
+    mutate(PRESCRIBED_RATE = PRESCRIBED / TOTAL * 100) %>%
+    add_binom_interval(count_col = "PRESCRIBED", n_col = "TOTAL")
+rate_by_region <- rate_by_doc_region %>%
+    inner_join(rate_by_pat_region, by = c("HOME_REGION_DOC" = "HOME_REGION_PAT"), suffix = c("_DOCTOR", "_PATIENT")) %>%
+    rename(REGION = HOME_REGION_DOC) %>%
+    pivot_longer(
+        cols = -REGION,
+        names_to = c("measure", "PERSON_TYPE"),
+        names_sep = "_(?=[^_]+$)",
+        values_to = "value"
+    ) %>%
+    pivot_wider(
+        names_from = measure,
+        values_from = value
+    ) %>%
+    arrange(desc(PRESCRIBED_RATE))
+
+ggplot(rate_by_region, aes(x = reorder(REGION, PRESCRIBED_RATE), y = PRESCRIBED_RATE, fill = PERSON_TYPE)) +
+    geom_bar(stat = "identity", position = position_dodge2(reverse = TRUE)) +
+    coord_flip() +
+    geom_errorbar(aes(ymin = LOWER_BOUND, ymax = UPPER_BOUND), width = 0.2, position = position_dodge2(width = 0.9, reverse = TRUE)) +
+    labs(
+        title = "Prescription Rate by Doctor and Patient Home Region",
+        x = "Region",
+        y = "Prescription rate (%)",
+        fill = "Person Type"
+    ) +
+    scale_fill_discrete(
+        labels = c("DOCTOR" = "Doctor home region", "PATIENT" = "Patient home region")
+    ) +
+    plot_theme
+
+rate_by_language <- prescription_rate %>%
+    filter(!is.na(LANGUAGE_DOC)) %>%
+    group_by(LANGUAGE_DOC) %>%
+    summarize(
+        PRESCRIBED = sum(PRESCRIBED),
+        TOTAL = n()
+    ) %>%
+    mutate(PRESCRIBED_RATE = PRESCRIBED / TOTAL * 100) %>%
+    add_binom_interval(count_col = "PRESCRIBED", n_col = "TOTAL") %>%
+    arrange(-TOTAL)
+
+# Distribution of doctor languages
+ggplot(rate_by_language, aes(x = reorder(LANGUAGE_DOC, TOTAL), y = TOTAL)) +
+    geom_bar(stat = "identity") +
+    coord_flip() +
+    labs(
+        title = "Distribution of Doctor Languages",
+        x = "Language",
+        y = "Frequency"
+    ) +
+    plot_theme
+
+# Prescription rate by doctor language
+ggplot(rate_by_language %>% filter(TOTAL > 10000), aes(x = reorder(LANGUAGE_DOC, PRESCRIBED_RATE), y = PRESCRIBED_RATE)) +
+    geom_bar(stat = "identity") +
+    geom_errorbar(aes(ymin = LOWER_BOUND, ymax = UPPER_BOUND), width = 0.2) +
+    coord_flip() +
+    labs(
+        title = "Prescription Rate by Doctor Language",
+        x = "Language",
+        y = "Prescription Rate (%)"
+    ) +
+    plot_theme
+
+# Histogram of patient ages
+ggplot(prescription_rate %>% filter(!is.na(AGE_PAT)), aes(x = AGE_PAT)) +
+    geom_histogram(binwidth = 2) +
+    labs(
+        title = "Age Distribution of Patients Diagnosed with J06.9",
+        x = "Age",
+        y = "Frequency",
+    ) +
+    scale_x_continuous(
+        n.breaks = 10
+    ) +
+    plot_theme
+
+# Distribution of patient sex
+prescription_rate %>% 
+  filter(!is.na(SEX_PAT)) %>% 
+  count(SEX_PAT) %>% 
+  mutate(PERCENTAGE = n / sum(n) * 100) %>%
+  ggplot(aes(x = "", y = PERCENTAGE, fill = factor(SEX_PAT))) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y", start = 0) +
+  geom_text(aes(label = paste0(round(PERCENTAGE), "%")),
+           position = position_stack(vjust = 0.5),
+           size = 10) +
+  labs(title = "Sex Distribution of Patients Diagnosed with J06.9",
+       fill = "Sex",
+       x = NULL,
+       y = NULL) +
+  scale_fill_manual(
+    values = c("1" = "#f8766d", "2" = "#619cff"),
+    labels = c("1" = "Male", "2" = "Female")
+  ) +
+  theme_void() +
+  plot_theme +
+  theme(
+    axis.ticks = element_blank(),
+    axis.text = element_blank()
+  )
+
+# Histogram of doctor ages
+ggplot(prescription_rate %>% filter(!is.na(AGE_DOC)), aes(x = AGE_DOC)) +
+    geom_histogram(binwidth = 2) +
+    labs(
+        title = "Age Distribution of Doctors Diagnosing J06.9",
+        x = "Age",
+        y = "Frequency",
+    ) +
+    scale_x_continuous(
+        n.breaks = 10
+    ) +
+    plot_theme
+
+# Distribution of doctor sex
+doc_sex_freq <- prescription_rate %>%
+    filter(!is.na(SEX_DOC)) %>%
+    group_by(SEX_DOC) %>%
+    summarize(
+        COUNT = n_distinct(DOCTOR_ID)
+    ) %>%
+    mutate(PERCENTAGE = COUNT / sum(COUNT) * 100)
+
+ggplot(doc_sex_freq, aes(x = "", y = PERCENTAGE, fill = factor(SEX_DOC))) +
+    geom_bar(stat = "identity", width = 1) +
+    coord_polar("y", start = 0) +
+    geom_text(aes(label = paste0(round(PERCENTAGE), "%")),
+            position = position_stack(vjust = 0.5),
+            size = 10) +
+    labs(title = "Sex Distribution of Doctors Diagnosing J06.9",
+        fill = "Sex",
+        x = NULL,
+        y = NULL) +
+    scale_fill_manual(
+    values = c("1" = "#f8766d", "2" = "#619cff"),
+    labels = c("1" = "Male", "2" = "Female")
+    ) +
+    theme_void() +
+    plot_theme +
+    theme(
+    axis.ticks = element_blank(),
+    axis.text = element_blank()
+    )
+
+# Histogram of patient ages given prescription status
+ggplot(prescription_rate %>% filter(!is.na(AGE_PAT)), aes(x = AGE_PAT, fill = factor(PRESCRIBED))) +
+    geom_density(
+        alpha = 0.4,
+    ) +
+    scale_fill_manual(
+        values = c("0" = "#f4c0bd", "1" = "#91dddf"),
+        labels = c("0" = "Did not presribe", "1" = "Prescribed")
+    ) +
+    labs(
+        title = "Age Distribution of J06.9 Patients Being Prescribed and not Prescribed Antibiotics",
+        x = "Age",
+        y = "Probability density",
+        fill = "Prescribed"
+    ) +
+    plot_theme
+
+# Prescription rate by patient age
+rate_by_age_pat <- prescription_rate %>%
+    filter(!is.na(AGE_PAT) & AGE_PAT < 100) %>%
+    mutate(
+        AGE_BIN_PAT = cut(
+            AGE_PAT,
+            breaks = seq(from = floor(min(AGE_PAT) / 5) * 5, to = ceiling(max(AGE_PAT) / 5) * 5, by = 5),
+            labels = paste0(seq(floor(min(AGE_PAT) / 5) * 5, ceiling(max(AGE_PAT) / 5) * 5 - 5, by = 5), "-",
+                            seq(floor(min(AGE_PAT) / 5) * 5 + 4, ceiling(max(AGE_PAT) / 5) * 5 - 1, by = 5)),
+            right = FALSE
+        )
+    ) %>%
+    group_by(AGE_BIN_PAT) %>%
+    summarize(
+        PRESCRIBED = sum(PRESCRIBED),
+        TOTAL = n()
+    ) %>%
+    mutate(PRESCRIBED_RATE = PRESCRIBED / TOTAL * 100) %>%
+    add_binom_interval(count_col = "PRESCRIBED", n_col = "TOTAL")
+
+ggplot(rate_by_age_pat, aes(x = AGE_BIN_PAT, y = PRESCRIBED_RATE)) +
+    geom_bar(stat = "identity") +
+    geom_errorbar(aes(ymin = LOWER_BOUND, ymax = UPPER_BOUND), width = 0.2) +
+    labs(
+        title = "J06.9 Prescription Rate by Patient Age",
+        x = "Age",
+        y = "Prescription Rate (%)"
+    ) +
+    plot_theme
+
+# Prescription rate by patient sex
+rate_by_sex_pat <- prescription_rate %>%
+    filter(!is.na(SEX_PAT)) %>%
+    group_by(SEX_PAT) %>%
+    summarize(
+        PRESCRIBED = sum(PRESCRIBED),
+        TOTAL = n()
+    ) %>%
+    mutate(PRESCRIBED_RATE = PRESCRIBED / TOTAL * 100) %>%
+    add_binom_interval(count_col = "PRESCRIBED", n_col = "TOTAL")
+
+ggplot(rate_by_sex_pat, aes(x = factor(SEX_PAT), y = PRESCRIBED_RATE, fill = factor(SEX_PAT))) +
+    geom_bar(stat = "identity") +
+    geom_errorbar(aes(ymin = LOWER_BOUND, ymax = UPPER_BOUND), width = 0.2) +
+    scale_fill_manual(
+        values = c("1" = "#f8766d", "2" = "#619cff"),
+        labels = c("1" = "Male", "2" = "Female")
+    ) +
+    labs(
+        title = "J06.9 Prescription Rate by Patient Sex",
+        fill = "Sex",
+        x = "Sex",
+        y = "Prescription Rate (%)"
+    ) +
+    plot_theme +
+    theme(
+        axis.ticks.x = element_blank(),
+        axis.text.x = element_blank()
+    )
+
+# Prevalence of different diseases for patients with J06.9
+disease_prevalence_pat <- prescription_rate %>%
+    summarize(across(matches("^HAD_.*PAT$"), ~ mean(.x) * 100)) %>%
+    pivot_longer(cols = matches("^HAD_.*PAT$"), names_to = "DISEASE_HISTORY", values_to = "PREVALENCE") %>%
+    mutate(DISEASE_HISTORY = str_sub(DISEASE_HISTORY, 5, 5))
+
+ggplot(disease_prevalence_pat, aes(x = DISEASE_HISTORY, y = PREVALENCE)) +
+    geom_bar(stat = "identity") +
+    labs(
+        title = "Prevalence of Different Diseases for Patients with J06.9",
+        x = "ICD10 Code First Character",
+        y = "Prevalence (%)"
+    ) +
+    plot_theme
+
+rate_by_diag_history_pat <- prescription_rate %>%
+    pivot_longer(cols = matches("^HAD_.*PAT$"),
+                names_to = "DISEASE_INDICATOR",
+                values_to = "INDICATOR_VALUE") %>%
+    group_by(DISEASE_INDICATOR, INDICATOR_VALUE) %>%
+    summarize(
+        PRESCRIBED = sum(PRESCRIBED),
+        TOTAL = n(),
+    ) %>%
+    mutate(PRESCRIBED_RATE = PRESCRIBED / TOTAL * 100) %>%
+    mutate(DISEASE_INDICATOR = str_sub(DISEASE_INDICATOR, 5, 5)) %>%
+    add_binom_interval(count_col = "PRESCRIBED", n_col = "TOTAL")
+
+ggplot(rate_by_diag_history_pat, aes(x = reorder(DISEASE_INDICATOR, PRESCRIBED_RATE), y = PRESCRIBED_RATE, fill = factor(INDICATOR_VALUE))) +
+    geom_bar(stat = "identity", position = position_dodge2(reverse = TRUE)) +
+    coord_flip() +
+    geom_errorbar(aes(ymin = LOWER_BOUND, ymax = UPPER_BOUND), width = 0.2, position = position_dodge2(width = 0.9, reverse = TRUE)) +
+    labs(
+        title = "Prescription Rate by Patient Disease History",
+        x = "ICD10 Code First Character",
+        y = "Prescription rate (%)",
+        fill = "Whether Has Diagnosis"
+    ) +
+    scale_fill_discrete(
+        labels = c("0" = "Has no diagnosis", "1" = "Has diagnosis")
+    ) +
+    plot_theme
+
+# Prevalence of different prescriptions for patients with J06.9
+prescription_prevalence_pat <- prescription_rate %>%
+    summarize(across(matches("^GOT_.*PAT$"), ~ mean(.x) * 100)) %>%
+    pivot_longer(cols = matches("^GOT_.*PAT$"), names_to = "PRESCRIPTION_HISTORY", values_to = "PREVALENCE") %>%
+    mutate(PRESCRIPTION_HISTORY = str_sub(PRESCRIPTION_HISTORY, 5, 5))
+
+ggplot(prescription_prevalence_pat, aes(x = PRESCRIPTION_HISTORY, y = PREVALENCE)) +
+    geom_bar(stat = "identity") +
+    labs(
+        title = "Prevalence of Different Prescriptions for Patients with J06.9",
+        x = "ATC Code First Character",
+        y = "Prevalence"
+    ) +
+    plot_theme
+
+rate_by_pres_history_pat <- prescription_rate %>%
+    pivot_longer(cols = matches("^GOT_.*PAT$"),
+                names_to = "MEDICATION_INDICATOR",
+                values_to = "INDICATOR_VALUE") %>%
+    group_by(MEDICATION_INDICATOR, INDICATOR_VALUE) %>%
+    summarize(
+        PRESCRIBED = sum(PRESCRIBED),
+        TOTAL = n(),
+    ) %>%
+    mutate(PRESCRIBED_RATE = PRESCRIBED / TOTAL * 100) %>%
+    mutate(MEDICATION_INDICATOR = str_sub(MEDICATION_INDICATOR, 5, 5)) %>%
+    add_binom_interval(count_col = "PRESCRIBED", n_col = "TOTAL")
+ 
+ggplot(rate_by_pres_history_pat, aes(x = reorder(MEDICATION_INDICATOR, PRESCRIBED_RATE), y = PRESCRIBED_RATE, fill = factor(INDICATOR_VALUE))) +
+    geom_bar(stat = "identity", position = position_dodge2(reverse = TRUE)) +
+    coord_flip() +
+    geom_errorbar(aes(ymin = LOWER_BOUND, ymax = UPPER_BOUND), width = 0.2, position = position_dodge2(width = 0.9, reverse = TRUE)) +
+    labs(
+        title = "Prescription Rate by Patient Medication History",
+        x = "ATC Code First Character",
+        y = "Prescription rate (%)",
+        fill = "Has Used Medication"
+    ) +
+    scale_fill_discrete(
+        labels = c("0" = "Not Used", "1" = "Used")
+    ) +
+    plot_theme
+
+# Prevalence of different diseases for doctors with J06.9
+
+disease_prevalence_doc <- prescription_rate %>%
+    filter(!is.na(HAD_A_DOC)) %>%
+    summarize(across(matches("^HAD_.*DOC$"), ~ mean(.x) * 100)) %>%
+    pivot_longer(cols = matches("^HAD_.*DOC$"), names_to = "DISEASE_HISTORY", values_to = "PREVALENCE") %>%
+    mutate(DISEASE_HISTORY = str_sub(DISEASE_HISTORY, 5, 5))
+
+ggplot(disease_prevalence_doc, aes(x = DISEASE_HISTORY, y = PREVALENCE)) +
+    geom_bar(stat = "identity") +
+    labs(
+        title = "Prevalence of Different Diseases for Doctors Diagnosing J06.9",
+        x = "ICD10 Code First Character",
+        y = "Prevalence (%)"
+    ) +
+    plot_theme
+
+rate_by_diag_history_doc <- prescription_rate %>%
+    filter(!is.na(HAD_A_DOC)) %>%
+    pivot_longer(cols = matches("^HAD_.*DOC$"),
+                names_to = "DISEASE_INDICATOR",
+                values_to = "INDICATOR_VALUE") %>%
+    group_by(DISEASE_INDICATOR, INDICATOR_VALUE) %>%
+    summarize(
+        PRESCRIBED = sum(PRESCRIBED),
+        TOTAL = n(),
+    ) %>%
+    mutate(PRESCRIBED_RATE = PRESCRIBED / TOTAL * 100) %>%
+    mutate(DISEASE_INDICATOR = str_sub(DISEASE_INDICATOR, 5, 5)) %>%
+    # Remove both rows for a disease if either INDICATOR_VALUE (0 or 1) has TOTAL < 1000
+    group_by(DISEASE_INDICATOR) %>%
+    filter(all(TOTAL >= 1000)) %>%
+    ungroup() %>%
+    add_binom_interval(count_col = "PRESCRIBED", n_col = "TOTAL")
+
+ggplot(rate_by_diag_history_doc, aes(x = reorder(DISEASE_INDICATOR, PRESCRIBED_RATE), y = PRESCRIBED_RATE, fill = factor(INDICATOR_VALUE))) +
+    geom_bar(stat = "identity", position = position_dodge2(reverse = TRUE)) +
+    coord_flip() +
+    geom_errorbar(aes(ymin = LOWER_BOUND, ymax = UPPER_BOUND), width = 0.2, position = position_dodge2(width = 0.9, reverse = TRUE)) +
+    labs(
+        title = "Prescription Rate by Doctor Disease History",
+        x = "ICD10 Code First Character",
+        y = "Prescription rate (%)",
+        fill = "Whether Has Diagnosis"
+    ) +
+    scale_fill_discrete(
+        labels = c("0" = "Has no diagnosis", "1" = "Has diagnosis")
+    ) +
+    plot_theme
+
+# Prevalence of different prescriptions for doctors with J06.9
+prescription_prevalence_doc <- prescription_rate %>%
+    filter(!is.na(GOT_A_DOC)) %>%
+    summarize(across(matches("^GOT_.*DOC$"), ~ mean(.x) * 100)) %>%
+    pivot_longer(cols = matches("^GOT_.*DOC$"), names_to = "PRESCRIPTION_HISTORY", values_to = "PREVALENCE") %>%
+    mutate(PRESCRIPTION_HISTORY = str_sub(PRESCRIPTION_HISTORY, 5, 5))
+
+ggplot(prescription_prevalence_doc, aes(x = PRESCRIPTION_HISTORY, y = PREVALENCE)) +
+    geom_bar(stat = "identity") +
+    labs(
+        title = "Prevalence of Different Prescriptions for Doctors Diagnosing J06.9",
+        x = "ATC Code First Character",
+        y = "Prevalence"
+    ) +
+    plot_theme
+
+rate_by_pres_history_doc <- prescription_rate %>%
+    filter(!is.na(GOT_A_DOC)) %>%
+    pivot_longer(cols = matches("^GOT_.*DOC$"),
+                names_to = "MEDICATION_INDICATOR",
+                values_to = "INDICATOR_VALUE") %>%
+    group_by(MEDICATION_INDICATOR, INDICATOR_VALUE) %>%
+    summarize(
+        PRESCRIBED = sum(PRESCRIBED),
+        TOTAL = n(),
+    ) %>%
+    mutate(PRESCRIBED_RATE = PRESCRIBED / TOTAL * 100) %>%
+    mutate(MEDICATION_INDICATOR = str_sub(MEDICATION_INDICATOR, 5, 5)) %>%
+    add_binom_interval(count_col = "PRESCRIBED", n_col = "TOTAL")
+ 
+ggplot(rate_by_pres_history_doc, aes(x = reorder(MEDICATION_INDICATOR, PRESCRIBED_RATE), y = PRESCRIBED_RATE, fill = factor(INDICATOR_VALUE))) +
+    geom_bar(stat = "identity", position = position_dodge2(reverse = TRUE)) +
+    coord_flip() +
+    geom_errorbar(aes(ymin = LOWER_BOUND, ymax = UPPER_BOUND), width = 0.2, position = position_dodge2(width = 0.9, reverse = TRUE)) +
+    labs(
+        title = "Prescription Rate by Doctor Medication History",
+        x = "ATC Code First Character",
+        y = "Prescription rate (%)",
+        fill = "Has Used Medication"
+    ) +
+    scale_fill_discrete(
+        labels = c("0" = "Not Used", "1" = "Used")
+    ) +
+    plot_theme
+

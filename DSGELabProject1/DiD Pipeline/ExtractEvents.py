@@ -30,18 +30,25 @@ CODE_REGEX = args.event_code # regex for the event code
 with open(args.id_list, 'r') as file:
     ID_LIST = [line.strip() for line in file.readlines()]
 
-df = pd.read_csv(args.inpath)
-# filter requested IDs and Event codes
-df = df[df['PATIENT_ID'].isin(ID_LIST)]
-df['EVENT'] = df['CODE'].astype(str).str.match(CODE_REGEX, na=False).astype(int)
-# save list of controls
-controls = df[df['EVENT'] == 0]['PATIENT_ID'].unique()
-pd.Series(controls).to_csv(args.outdir+"/ID_controls.csv", index=False, header=False)
-#save list of cases
-df_filtered = df[df['EVENT'] == 1]
-pd.Series(df_filtered['PATIENT_ID'].unique()).to_csv(args.outdir+"/ID_cases.csv", index=False, header=False)
-# only use the first event per individual (if multiple events)
-if args.event_register == "Purch": df_filtered.rename(columns={'PURCHASE_DATE': 'DATE'}, inplace=True)
-df_filtered = df_filtered.sort_values('DATE').drop_duplicates('PATIENT_ID', keep='first')
-df_filtered.to_csv(args.outdir+"/Events.csv", index=False)
+# Process CSV in chunks to reduce RAM usage
+chunk_size = 1_000_000  
+events_list = []
+
+for chunk in pd.read_csv(args.inpath, chunksize=chunk_size):
+    # fix column names
+    if args.event_register == "Diag": chunk.rename(columns={'ICD10_CODE': 'CODE', 'VISIT_DATE': 'DATE'}, inplace=True)
+    if args.event_register == "Purch": chunk.rename(columns={'PURCHASE_DATE': 'DATE'}, inplace=True)
+    # filter requested IDs and Event cases
+    chunk = chunk[chunk['PATIENT_ID'].isin(ID_LIST)]
+    chunk['EVENT'] = chunk['CODE'].astype(str).str.match(CODE_REGEX, na=False).astype(int)
+    events_list.append(chunk[chunk['EVENT'] == 1])
+
+# keep only the first event per individual
+if events_list:
+    events_df = pd.concat(events_list)
+    events_df = events_df.sort_values('DATE').drop_duplicates('PATIENT_ID', keep='first')
+    events_df.to_csv(args.outdir+"/Events.csv", index=False)
+else:
+    print('No events found for the given criteria.')
+    pd.DataFrame().to_csv(args.outdir+"/Events.csv", index=False)
 

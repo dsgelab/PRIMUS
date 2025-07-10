@@ -20,6 +20,7 @@ outcomes_file = args[4]
 outcome_code = args[5]
 covariates_file = args[6]
 outdir = args[7]
+offspring_file = '/media/volume/Projects/DSGELabProject1/doctors_and_relative_20250521.csv'
 
 COLOR_MALE = "blue"
 COLOR_FEMALE = "orange"
@@ -35,12 +36,17 @@ enrichment_func_outcome <- function(s, df) {
 
 # Load data
 doctor_ids = fread(doctor_list, header = FALSE)$V1
+offspring_data = fread(offspring_file)
+offspring_data = offspring_data[offspring_data$DOCTOR_ID %in% doctor_ids, ] # filter offspring data to only include doctors in our cohort
+offspring_ids = offspring_data$RELATIVE_ID
+
 events = fread(events_file)
-event_ids = setdiff(unique(events$PATIENT_ID), doctor_ids)
+event_ids_offspring = intersect(unique(events$PATIENT_ID), offspring_ids)
+event_ids_doctors = unique(offspring_data[offspring_data$RELATIVE_ID %in% event_ids_offspring,]$DOCTOR_ID)
 
 # CHECK 1 : if N of events is less than 500, stop the analysis
-cat(paste0("Cases : ", length(event_ids), "\n"))
-cat(paste0("Controls : ", length(doctor_ids)-length(event_ids), "\n"))
+cat(paste0("Cases : ", length(event_ids_doctors), "\n"))
+cat(paste0("Controls : ", length(doctor_ids)-length(event_ids_doctors), "\n"))
 if (length(event_ids) < 500) {
     stop("Number of events (CHECK 1) is less than 500, SKIP ANALYSIS.")
 }
@@ -52,8 +58,8 @@ covariates = fread(covariates_file)
 prescriptions_per_doctor <- outcomes[grepl(paste0("^", outcome_code), CODE), .N, by = DOCTOR_ID]
 write.csv(prescriptions_per_doctor, file = file.path(outdir, "Outcomes.csv"), row.names = FALSE)
 doctors_to_keep <- prescriptions_per_doctor[N >= 20, DOCTOR_ID]
-event_ids <- intersect(intersect(unique(events$PATIENT_ID), doctors_to_keep), doctor_ids)
-control_ids <- setdiff(intersect(doctor_ids, doctors_to_keep), event_ids)
+event_ids <- intersect(event_ids_doctors, doctors_to_keep)
+control_ids <- setdiff(setdiff(doctor_ids, event_ids_doctors), setdiff(doctor_ids, doctors_to_keep))
 
 # CHECK 1 (again) : if N of events is less than 500, stop the analysis
 cat(paste0("Cases, with at least 20 prescriptions of outcome: ", length(event_ids), "\n"))
@@ -65,7 +71,7 @@ doctor_ids = c(event_ids, control_ids)
 
 # prepare outcomes for DiD analysis
 outcomes = outcomes[outcomes$DOCTOR_ID != outcomes$PATIENT_ID, ] # remove self-prescriptions
-outcomes = outcomes[DOCTOR_ID %in% doctor_ids,] # QC : only selected doctors 
+outcomes = outcomes[DOCTOR_ID %in% doctor_ids,] # QC : only selected doctors
 outcomes = outcomes[!is.na(CODE) & !is.na(DATE)]
 outcomes = outcomes[DATE >= as.Date("1998-01-01")] # QC: remove events before 1998
 outcomes[, MONTH := (as.numeric(format(DATE, "%Y")) - 1998) * 12 + as.numeric(format(DATE, "%m"))]
@@ -78,7 +84,7 @@ outcomes[, YEAR := 1998 + (MONTH - 1) %/% 12]
 
 # prepare events for DiD analysis + merge with outcomes
 events = events[, .(PATIENT_ID, CODE, DATE)]
-events = events[PATIENT_ID %in% doctor_ids,] # QC : only selected doctors
+events = events[PATIENT_ID %in% event_ids_offspring,] 
 events = events[events[, .I[which.min(DATE)], by = .(PATIENT_ID, CODE)]$V1] # only use first event
 events = events[, c("PATIENT_ID", "DATE")] %>% rename("DOCTOR_ID" = "PATIENT_ID")
 df_merged = left_join(outcomes, events, by = "DOCTOR_ID")
@@ -112,7 +118,7 @@ df_complete = df_complete %>%
 df_plot = df_complete %>% distinct(DOCTOR_ID, .keep_all = TRUE) %>% na.omit(EVENT_YEAR)
 p1_general = ggplot(df_plot, aes(x = factor(EVENT_YEAR))) +
     geom_bar(aes(y = ..count..)) +
-    labs(title = paste0("Count of (First) Events Over the Years, N = ",length(unique(df_plot$DOCTOR_ID))), x = "Event Year") 
+    labs(title = paste0("Count of (First) Events in Offspring Over the Years, N = ",length(unique(df_plot$DOCTOR_ID))), x = "Event Year") 
 specialty_enrichment = df_complete %>%
     group_by(DOCTOR_ID) %>% slice_tail(n = 1) %>% ungroup() %>% # use only one row per ID, last one
     group_by(SPECIALTY) %>%
@@ -121,17 +127,18 @@ specialty_enrichment = df_complete %>%
     arrange(desc(enrichment))
 p1_specialty = ggplot(specialty_enrichment, aes(x = SPECIALTY, y = enrichment)) +
     geom_bar(stat = "identity") +
-    labs(title = "Enrichment of Event in Specialties", x = "Specialty", y = "Enrichment Ratio") +
+    labs(title = "Enrichment of Event in Offspring across Specialties", x = "Specialty", y = "Enrichment Ratio") +
     theme_minimal() +
     theme(axis.text.x = element_text(angle = 45, hjust = 1))
 p1_age = ggplot(df_plot, aes(x = AGE_AT_EVENT, fill = factor(SEX))) +
     geom_density(alpha = 0.5, show.legend = FALSE) +
     scale_fill_manual(values = c("1" = COLOR_MALE, "2" = COLOR_FEMALE)) +
     facet_grid(~ factor(SEX, levels = c(1,2), labels = c(paste0("Male (n=", sum(df_plot$SEX == 1, na.rm = TRUE), ")"),paste0("Female (n=", sum(df_plot$SEX == 2, na.rm = TRUE), ")"))), drop = FALSE) +
-    labs(title = "Distribution of Age at First Event by Sex", x = "Age") +
+    labs(title = "Distribution of Age at First Event in Offspring by Sex", x = "Age") +
     theme_minimal()
 combined_plot1 = p1_general / p1_specialty / p1_age
 ggsave(filename = file.path(outdir, "distribution_events.png"), plot = combined_plot1, width = 10, height = 12)
+
 
 # check distribution of outcome prescription over the years
 p2_general = ggplot(df_complete, aes(x = YEAR)) +
@@ -183,12 +190,14 @@ df_plot_event_ref = df_complete %>%
 p_event_year = ggplot(df_plot_event_ref, aes(x = YEAR, y = mean_Y, color = EVENT, fill = EVENT)) +
     geom_line(size = 1) +
     geom_ribbon(aes(ymin = mean_Y - 1.96 * se_Y, ymax = mean_Y + 1.96 * se_Y), alpha = 0.2, color = NA) +
-    labs(title = paste0("Mean prescription rate (Y) given Event\n","Reference: Age (in 2023) = ", ref_age, ", Sex (1:Male, 2:Female) = ", ref_sex, ", Specialty = ", ref_specialty),x = "Year", y = "Mean Y") +
+    labs(title = paste0("Mean prescription rate (Y) given Event in Offspring \n","Reference: Doctor Age (in 2023) = ", ref_age, ", Sex (1:Male, 2:Female) = ", ref_sex, ", Specialty = ", ref_specialty),x = "Year", y = "Mean Y") +
     scale_color_manual(values = c("No Event" = "gray70", "Event" = "steelblue")) +
     scale_fill_manual(values = c("No Event" = "gray70", "Event" = "steelblue")) +
     theme_minimal()
 ggsave(filename = file.path(outdir, "Plot_Model1.png"), plot = p_event_year, width = 10, height = 12)
 
+# Model 2: Comparing (average) prescription ratios Before and After Event 
+# - adjusting for age in 2023, sex, specialty + age and year of event
 # Model 2: Comparing (average) prescription ratios Before and After Event 
 # - adjusting for age in 2023, sex, specialty + age and year of event
 df_model = df_complete %>%

@@ -1,2 +1,5 @@
 /DSGELabProject1/Archive
 .flake8
+.lintr
+/.vscode
+__pycache__
