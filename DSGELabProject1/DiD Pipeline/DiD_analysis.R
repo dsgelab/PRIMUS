@@ -203,7 +203,7 @@ df_model = df_complete %>%
         SEX = factor(SEX, levels = c(1, 2), labels = c("Male", "Female")) # set male as reference
     )
 model_formula = as.formula("Y ~ AGE_IN_2023 + AGE_AT_EVENT + SEX + SPECIALTY + PERIOD + AGE_IN_2023:PERIOD + AGE_AT_EVENT:PERIOD + SEX:PERIOD + SPECIALTY:PERIOD")
-model = fixest::feols(model_formula, data = df_model)
+model = fixest::feols(model_formula, data = df_model, vcov = ~DOCTOR_ID)
 results = data.frame(summary(model)$coeftable)
 write.csv(results, file = paste0(outdir, "/Coef_Model2.csv"), row.names = TRUE)
 
