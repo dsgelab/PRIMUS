@@ -35,7 +35,7 @@ class BaseDataset:
 
     @property
     def file_path(self):
-        return INDIR / find_latest_file_by_date(INDIR, rf"processed_{self.label.lower()}_visits_(\d{{8}}).csv")
+        return INDIR / find_latest_file_by_date(INDIR, rf"processed_{self.label.lower()}_visits_matteo_(\d{{8}}).csv")
 
     @property
     def dtypes(self):
@@ -43,6 +43,8 @@ class BaseDataset:
             "PATIENT_ID": "str",
             self.id_column: "int",
             "VISIT_DATE": "str",
+            "YHTEYSTAPA": "str",
+            "PALA": "Int64",
             "FD_HASH_CODE": "str",
             "DOCTOR_ID": "str",
         }
@@ -58,7 +60,7 @@ class OutputFile:
 
     @property
     def path(self):
-        return OUTDIR / f"AllConnected{self.label}_{current_date}.csv"
+        return OUTDIR / f"AllConnected{self.label}_matteo_{current_date}.csv"
 
 
 class JoinedDataset:
@@ -179,10 +181,13 @@ def DatasetFactory(output_file, base_dataset):
 
 
 # Specifies the files to be produced by the script. Comment out the output files you don't need to update.
-output_files = (OutputFile(label="Diagnoses"), OutputFile(label="Procedures"))
+output_files = (
+    OutputFile(label="Diagnoses"),
+    # OutputFile(label="Procedures")
+)
 # Specifies the base datasets to be used by the script. Comment out the base datasets you don't need to include.
 base_datasets = (
-    BaseDataset(label="Avohilmo", id_column="AVOHILMOID"),
+    # BaseDataset(label="Avohilmo", id_column="AVOHILMOID"),
     BaseDataset(label="Hilmo", id_column="HILMOID"),
 )
 
@@ -215,7 +220,7 @@ if __name__ == "__main__":
                 for file_path in joined_dataset.file_paths:
                     joined_chunk = joined_dataset.preprocess(file_path)
                     df = pd.merge(base_chunk, joined_chunk, on=base_dataset.id_column, how="inner")
-                    df = df[["PATIENT_ID", "VISIT_DATE", joined_dataset.new_code_column, "SOURCE", "FD_HASH_CODE", "DOCTOR_ID"]]
+                    df = df[["PATIENT_ID", "VISIT_DATE", joined_dataset.new_code_column, "SOURCE", "FD_HASH_CODE", "DOCTOR_ID", "YHTEYSTAPA", "PALA"]]
                     df.to_csv(output_file.path, mode="a", header=not output_file.path.exists(), encoding=ENCODING, index=False)
                     rows = f"{base_chunk.index[0] + 1}-{base_chunk.index[-1] + 1} of {total_rows}"
                     print(f"Joined {file_path.name} to {base_dataset.label} base rows {rows} and saved to {output_file.path.name}")

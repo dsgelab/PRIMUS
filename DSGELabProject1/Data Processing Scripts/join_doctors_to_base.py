@@ -26,6 +26,8 @@ DTYPES_HILMO = {
     "TUPVA": "str",
     "HILMOID": "int",
     "FD_HASH_Rekisteröinti..numero": "str",
+    "YHTEYSTAPA": "str",
+    "PALA": "Int64",
 }
 DTYPES_AVOHILMO = {
     "FID": "str",
@@ -49,7 +51,7 @@ class BaseDataset(NamedTuple):
 
     @property
     def output_path(self):
-        return outdir / f"processed_{self.label.lower()}_visits_{current_date}.csv"
+        return outdir / f"processed_{self.label.lower()}_visits_matteo_{current_date}.csv"
 
     def process(self, file_path: Path, doctor_df: pd.DataFrame) -> pd.DataFrame:
         print(f"Reading file {file_path.name}")
@@ -67,7 +69,7 @@ class BaseDataset(NamedTuple):
         base_chunk["FD_HASH_CODE"] = base_chunk["FD_HASH_CODE"].replace("PUUTTUVA", pd.NA)
         # Connect doctor ids to doctor visits
         merged = pd.merge(base_chunk, doctor_df, on="FD_HASH_CODE", how="left")
-        merged = merged[["PATIENT_ID", self.id_column, "VISIT_DATE", "FD_HASH_CODE", "DOCTOR_ID"]]
+        merged = merged[["PATIENT_ID", self.id_column, "VISIT_DATE", "FD_HASH_CODE", "DOCTOR_ID", "YHTEYSTAPA", "PALA"]]
         merged.to_csv(self.output_path, mode="a", header=not self.output_path.exists(), encoding="latin-1", index=False)
         print(f"Completed file {file_path.name} -> added to {self.output_path.name}")
 
@@ -75,14 +77,14 @@ class BaseDataset(NamedTuple):
 # Specifies the base datasets to be used by the script (Hilmo and Avohilmo). Base datasets represent the doctor visits. Comment out the ones
 # you don't need to include.
 base_datasets = [
-    BaseDataset(
-        label="Avohilmo",
-        file_regex=r"AH_\d",
-        dtypes=DTYPES_AVOHILMO,
-        visit_date_column="KAYNTI_ALKOI",
-        id_column="AVOHILMOID",
-        date_format="%d.%m.%Y %H:%M",
-    ),
+    # BaseDataset(
+    #     label="Avohilmo",
+    #     file_regex=r"AH_\d",
+    #     dtypes=DTYPES_AVOHILMO,
+    #     visit_date_column="KAYNTI_ALKOI",
+    #     id_column="AVOHILMOID",
+    #     date_format="%d.%m.%Y %H:%M",
+    # ),
     BaseDataset(
         label="Hilmo",
         file_regex=r"HILMO\d",
