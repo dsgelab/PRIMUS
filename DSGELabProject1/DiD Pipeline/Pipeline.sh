@@ -65,7 +65,7 @@ for pair in "${pairs[@]}"; do
         
     # STEP 1: Create experiment directory
     today=$(date '+%Y%m%d')
-    out_dir="$base_dir/DiD_Experiments/Version4/Experiment_${event_code_name}_${outcome_code_name}_$today"
+    out_dir="$base_dir/DiD_Experiments/Version5/Experiment_${event_code_name}_${outcome_code_name}_$today"
     mkdir -p $out_dir
 
     # Record the start time of the pipeline
@@ -76,10 +76,10 @@ for pair in "${pairs[@]}"; do
     step_start_time=$SECONDS
     if [[ "$event_register" == "Diag" ]]; then
         echo "ICD10 code: $event_code"
-        python3 $base_dir/DiD_Pipeline/Version4_20250611/ExtractEvents.py --id_list $list_of_doctors_spouses_children --inpath $diagnosis_file --event_register $event_register --outdir $out_dir --event_code $event_code
+        python3 $base_dir/DiD_Pipeline/Version5_20250709/ExtractEvents.py --id_list $list_of_doctors_spouses_children --inpath $diagnosis_file --event_register $event_register --outdir $out_dir --event_code $event_code
     elif [[ "$event_register" == "Purch" ]]; then
         echo "ATC code: $event_code"
-        python3 $base_dir/DiD_Pipeline/Version4_20250611/ExtractEvents.py --id_list $list_of_doctors_spouses_children --inpath $purchases_file --event_register $event_register --outdir $out_dir --event_code $event_code
+        python3 $base_dir/DiD_Pipeline/Version5_20250709/ExtractEvents.py --id_list $list_of_doctors_spouses_children --inpath $purchases_file --event_register $event_register --outdir $out_dir --event_code $event_code
     else
         echo "Invalid event register"
     fi
