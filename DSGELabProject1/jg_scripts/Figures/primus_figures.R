@@ -1464,7 +1464,8 @@ doctor_characteristics <- doctor_characteristics %>%
     mutate(
         BIRTH_YEAR = as.numeric(year(as.Date(BIRTH_DATE))),
         BIRTH_YEAR = ifelse(BIRTH_YEAR < 1900 | BIRTH_YEAR > 2023, NA, BIRTH_YEAR),
-        START_YEAR = as.numeric(year(as.Date(START_DATE))))
+        START_YEAR = as.numeric(year(as.Date(START_DATE))),
+        END_YEAR = as.numeric(year(as.Date(END_DATE))))
 
 dvv <- dvv %>% rename(ID = FID,
                      BIRTH_DATE = `Syntymä-päivä`,
@@ -1478,10 +1479,69 @@ dvv <- dvv %>% rename(ID = FID,
 dp_summary <- dp_summary %>%
     filter(DOCTOR_ID %in% doctor_IDs$V1) %>%
     mutate(YEAR = as.numeric(YEAR)) %>% 
-    left_join(doctor_characteristics %>% select(DOCTOR_ID, START_YEAR, SPECIALTY = INTERPRETATION), by = "DOCTOR_ID") %>%
+    left_join(doctor_characteristics %>% select(DOCTOR_ID, START_YEAR, END_YEAR, SEX, SPECIALTY = INTERPRETATION), by = "DOCTOR_ID") %>%
     mutate(practicing_year = YEAR - START_YEAR + 1,
-           randomization_fct = UniquePatients / TotalVisits) %>%
+           randomization_fct = UniquePatients / TotalVisits,
+           virtual_start_year = ifelse(START_YEAR < 1998, 1998, START_YEAR),
+           virtual_practicing_years = END_YEAR - virtual_start_year + 1) %>%
     filter(practicing_year > 0) # QC
+
+# Calculate for each doctor the total number of TotalVisits, TotalPatients and UniquePatients, keeping the SPECIALTY and virtual_practicing_years
+dp_summary_stats_total <- dp_summary %>%
+    group_by(DOCTOR_ID) %>%
+    summarize(
+        TotalVisits = sum(TotalVisits, na.rm = TRUE),
+        TotalPatients = sum(TotalPatients, na.rm = TRUE),
+        UniquePatients = sum(UniquePatients, na.rm = TRUE),
+        Total_Prescriptions = sum(Prescriptions, na.rm = TRUE),
+        SPECIALTY = first(SPECIALTY),
+        virtual_practicing_years = first(virtual_practicing_years),
+        SEX = first(SEX)
+    ) %>%
+    mutate(
+        SEX = factor(SEX, levels = c(1,2), labels = c("Male", "Female")),
+        VisitsPerYear = TotalVisits / virtual_practicing_years,
+        PatientsPerYear = TotalPatients / virtual_practicing_years,
+        UniquePatientsPerYear = UniquePatients / virtual_practicing_years,
+        PrescriptionsPerYear = Total_Prescriptions / virtual_practicing_years
+    ) %>%
+    ungroup()
+
+# Summary by sex and virtual practicing year
+dp_summary_stats_total_summary <- dp_summary_stats_total %>%
+    group_by(SEX, virtual_practicing_years) %>%
+    summarize(
+        n = n(),
+        mean_TotalVisits = mean(TotalVisits, na.rm = TRUE),
+        sd_TotalVisits = sd(TotalVisits, na.rm = TRUE),
+        se_TotalVisits = sd_TotalVisits / sqrt(n),
+        ci_lower_TotalVisits = mean_TotalVisits - qt(0.975, df = n - 1) * se_TotalVisits,
+        ci_upper_TotalVisits = mean_TotalVisits + qt(0.975, df = n - 1) * se_TotalVisits,
+        median_TotalVisits = median(TotalVisits, na.rm = TRUE),
+        perc25_TotalVisits = quantile(TotalVisits, 0.25, na.rm = TRUE),
+        perc75_TotalVisits = quantile(TotalVisits, 0.75, na.rm = TRUE),
+
+        mean_TotalPatients = mean(TotalPatients, na.rm = TRUE),
+        sd_TotalPatients = sd(TotalPatients, na.rm = TRUE),
+        se_TotalPatients = sd_TotalPatients / sqrt(n),
+        ci_lower_TotalPatients = mean_TotalPatients - qt(0.975, df = n - 1) * se_TotalPatients,
+        ci_upper_TotalPatients = mean_TotalPatients + qt(0.975, df = n - 1) * se_TotalPatients,
+        median_TotalPatients = median(TotalPatients, na.rm = TRUE),
+        perc25_TotalPatients = quantile(TotalPatients, 0.25, na.rm = TRUE),
+        perc75_TotalPatients = quantile(TotalPatients, 0.75, na.rm = TRUE),
+
+        mean_UniquePatients = mean(UniquePatients, na.rm = TRUE),
+        sd_UniquePatients = sd(UniquePatients, na.rm = TRUE),
+        se_UniquePatients = sd_UniquePatients / sqrt(n),
+        ci_lower_UniquePatients = mean_UniquePatients - qt(0.975, df = n - 1) * se_UniquePatients,
+        ci_upper_UniquePatients = mean_UniquePatients + qt(0.975, df = n - 1) * se_UniquePatients,
+        median_UniquePatients = median(UniquePatients, na.rm = TRUE),
+        perc25_UniquePatients = quantile(UniquePatients, 0.25, na.rm = TRUE),
+        perc75_UniquePatients = quantile(UniquePatients, 0.75, na.rm = TRUE)
+    ) %>%
+    ungroup() %>% 
+    filter(n >= 5) # QC: only include groups with at least 5 doctors
+
 
 # Calculate the stats of doctor-patient interactions per practicing year per specialty
 dp_summary_stats_by_spec <- dp_summary %>%
@@ -1942,6 +2002,54 @@ pdf(
     height = 8
 )
 print(dp_selfpresc_plot)
+dev.off()
+
+
+# Plot: Violin Plot of the density of Total Visits by Sex (on both side of the violin) using dp_summary_stats_total_summary
+# Violin Plot of the density of Total Visits by Sex (on both sides of the violin)
+dp_summary_stats_total_summary %>%
+    ggplot(aes(x = SEX, y = mean_TotalVisits, fill = SEX)) +
+    geom_violin(trim = FALSE, scale = "width", alpha = 0.7) +
+    geom_boxplot(width = 0.1, outlier.shape = NA, fill = "white") +
+    labs(
+        title = "Distribution of Mean Total Visits by Sex",
+        x = "Sex",
+        y = "Mean Total Visits"
+    ) +
+    scale_fill_manual(values = c("Male" = "steelblue", "Female" = "pink")) +
+    theme_minimal(base_size = 15) +
+    theme(
+        plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+        axis.title = element_text(size = 14),
+        axis.text = element_text(size = 12),
+        legend.position = "none"
+    )
+
+# Plot: Violin Plot of the density of TotalVisitsPerYear by Sex (on both side of the violin) using dp_summary_stats_total
+dp_visits_per_year_violin_plot <- dp_summary_stats_total %>%
+    ggplot(aes(x = SEX, y = PrescriptionsPerYear, fill = SEX)) +
+    geom_violin(trim = FALSE, scale = "width", alpha = 0.7) +
+    geom_boxplot(width = 0.1, outlier.shape = NA, fill = "white") +
+    labs(
+        title = "Distribution of Total Prescriptions Per Year by Sex",
+        x = "Sex",
+        y = "Total Prescriptions Per Year"
+    ) +
+    scale_fill_manual(values = c("Male" = "steelblue", "Female" = "pink")) +
+    theme_minimal(base_size = 15) +
+    theme(
+        plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+        axis.title = element_text(size = 14),
+        axis.text = element_text(size = 12),
+        legend.position = "none"
+    )
+
+pdf(
+    file = file.path(plot_dir, paste0("dp_visits_per_year_violin_plot_", timestamp, ".pdf")),
+    width = 8,
+    height = 6
+)
+print(dp_visits_per_year_violin_plot)
 dev.off()
 
 

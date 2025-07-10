@@ -927,3 +927,146 @@ atc_prevalences_matched_cohort <- get_atc_prevalence(atc_prefixes, prescriptions
         prevalence_doctors = round(prevalence_doctors * 100, 2),
         prevalence_nondoctors = round(prevalence_nondoctors * 100, 2)
     ) 
+
+
+# Plot: Violin Plot of Total Visits by practicing_years by Sex using dp_summary_stats_total_summary
+dp_summary_stats_total_summary  %>%
+    filter(n >= 5) %>%
+    ggplot(aes(x = factor(practicing_years), y = mean_TotalVisits, fill = SEX)) +
+    geom_violin(trim = FALSE, alpha = 0.6) +
+    geom_point(position = position_jitter(width = 0.2), size = 1.5, color = "black") +
+    labs(
+        title = "Total Visits by Practicing Years and Sex",
+        x = "Practicing Years",
+        y = "Total Visits"
+    ) +
+    theme_minimal(base_size = 15) +
+    theme(
+        plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+        axis.title = element_text(size = 14),
+        axis.text = element_text(size = 12),
+        legend.position = "bottom"
+    )
+
+
+
+# Split data by sex
+male_visits <- dp_summary_stats_total_summary %>% filter(SEX == "Male") %>% pull(mean_TotalVisits)
+female_visits <- dp_summary_stats_total_summary %>% filter(SEX == "Female") %>% pull(mean_TotalVisits)
+plot_df <- tibble(
+    value = c(male_visits, female_visits),
+    SEX = rep(c("Male", "Female"), c(length(male_visits), length(female_visits)))
+)
+
+# Custom function for half-violin using stat_density
+half_violin <- function(data, sex, fill, side = "left", ...) {
+    dens <- density(data$value, na.rm = TRUE)
+    x <- dens$y / max(dens$y) * 0.4 # scale width
+    y <- dens$x
+    if (side == "left") {
+        df <- data.frame(x = 1 - x, y = y)
+    } else {
+        df <- data.frame(x = 1 + x, y = y)
+    }
+    geom_polygon(
+        data = df,
+        aes(x = x, y = y),
+        fill = fill,
+        alpha = 0.7,
+        ...
+    )
+}
+
+# Plot: Half-violin for Male (left) and Female (right)
+ggplot() +
+    half_violin(plot_df %>% filter(SEX == "Male"), "Male", fill = "steelblue", side = "left") +
+    half_violin(plot_df %>% filter(SEX == "Female"), "Female", fill = "pink", side = "right") +
+    geom_boxplot(
+        data = plot_df,
+        aes(x = 1, y = value, fill = SEX),
+        width = 0.12,
+        outlier.shape = NA,
+        color = "black",
+        position = position_nudge(x = 0)
+    ) +
+    geom_jitter(
+        data = plot_df,
+        aes(x = 1, y = value, color = SEX),
+        width = 0.08,
+        alpha = 0.5,
+        size = 2
+    ) +
+    scale_fill_manual(values = c("Male" = "steelblue", "Female" = "pink")) +
+    scale_color_manual(values = c("Male" = "steelblue", "Female" = "pink")) +
+    labs(
+        title = "Distribution of Mean Total Visits by Sex (Half-Violin Plot)",
+        x = "Sex",
+        y = "Mean Total Visits"
+    ) +
+    scale_x_continuous(
+        breaks = 1,
+        labels = "Male (left) / Female (right)"
+    ) +
+    theme_minimal(base_size = 15) +
+    theme(
+        plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+        axis.title = element_text(size = 14),
+        axis.text = element_text(size = 12),
+        legend.position = "none"
+    )
+
+
+
+# Violin Plot of the density of Total Visits by Sex (on both sides of the violin)
+dp_summary_stats_total_summary %>%
+    ggplot(aes(x = SEX, y = mean_TotalVisits, fill = SEX)) +
+    geom_violin(trim = FALSE, scale = "width", alpha = 0.7) +
+    geom_boxplot(width = 0.1, outlier.shape = NA, fill = "white") +
+    labs(
+        title = "Distribution of Mean Total Visits by Sex",
+        x = "Sex",
+        y = "Mean Total Visits"
+    ) +
+    scale_fill_manual(values = c("Male" = "steelblue", "Female" = "pink")) +
+    theme_minimal(base_size = 15) +
+    theme(
+        plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+        axis.title = element_text(size = 14),
+        axis.text = element_text(size = 12),
+        legend.position = "none"
+    )
+
+dp_summary_stats_total_summary <- dp_summary_stats_total %>%
+    group_by(SEX) %>%
+    summarize(
+        n = n(),
+        mean_VisitsPerYear = mean(VisitsPerYear, na.rm = TRUE),
+        sd_VisitsPerYear = sd(VisitsPerYear, na.rm = TRUE),
+        se_VisitsPerYear = sd_VisitsPerYear / sqrt(n),
+        ci_lower_VisitsPerYear = mean_VisitsPerYear - qt(0.975, df = n - 1) * se_VisitsPerYear,
+        ci_upper_VisitsPerYear = mean_VisitsPerYear + qt(0.975, df = n - 1) * se_VisitsPerYear,
+        median_VisitsPerYear = median(VisitsPerYear, na.rm = TRUE),
+        perc25_VisitsPerYear = quantile(VisitsPerYear, 0.25, na.rm = TRUE),
+        perc75_VisitsPerYear = quantile(VisitsPerYear, 0.75, na.rm = TRUE),
+
+        mean_PatientsPerYear = mean(PatientsPerYear, na.rm = TRUE),
+        sd_PatientsPerYear = sd(PatientsPerYear, na.rm = TRUE),
+        se_PatientsPerYear = sd_PatientsPerYear / sqrt(n),
+        ci_lower_PatientsPerYear = mean_PatientsPerYear - qt(0.975, df = n - 1) * se_PatientsPerYear,
+        ci_upper_PatientsPerYear = mean_PatientsPerYear + qt(0.975, df = n - 1) * se_PatientsPerYear,
+        median_PatientsPerYear = median(PatientsPerYear, na.rm = TRUE),
+        perc25_PatientsPerYear = quantile(PatientsPerYear, 0.25, na.rm = TRUE),
+        perc75_PatientsPerYear = quantile(PatientsPerYear, 0.75, na.rm = TRUE),
+
+        mean_UniquePatientsPerYear = mean(UniquePatientsPerYear, na.rm = TRUE),
+        sd_UniquePatientsPerYear = sd(UniquePatientsPerYear, na.rm = TRUE),
+        se_UniquePatientsPerYear = sd_UniquePatientsPerYear / sqrt(n),
+        ci_lower_UniquePatientsPerYear = mean_UniquePatientsPerYear - qt(0.975, df = n - 1) * se_UniquePatientsPerYear,
+        ci_upper_UniquePatientsPerYear = mean_UniquePatientsPerYear + qt(0.975, df = n - 1) * se_UniquePatientsPerYear,
+        median_UniquePatientsPerYear = median(UniquePatientsPerYear, na.rm = TRUE),
+        perc25_UniquePatientsPerYear = quantile(UniquePatientsPerYear, 0.25, na.rm = TRUE),
+        perc75_UniquePatientsPerYear = quantile(UniquePatientsPerYear, 0.75, na.rm = TRUE)
+    ) %>%
+    ungroup() %>%
+    filter(n >= 5) # QC: only include groups with at least 5 doctors
+
