@@ -19,6 +19,7 @@ import numpy as np
 import shap
 from argparse_utils import probability
 from utils import format_seconds_to_hms
+from matplotlib.backends.backend_pdf import PdfPages
 
 
 def create_xgb_model(args, seed, df_train, **kwargs):
@@ -36,10 +37,119 @@ def create_xgb_model(args, seed, df_train, **kwargs):
     )
 
 
-def savefig(path):
+def savefig(path, ax=None):
     plt.tight_layout()
-    plt.savefig(path, dpi=300, bbox_inches="tight")
-    plt.close()
+    kwargs = {"dpi": 300, "bbox_inches": "tight"}
+    if ax is not None:
+        fig = ax.get_figure()
+        fig.savefig(path, **kwargs)
+        plt.close(fig)
+    else:
+        plt.savefig(path, **kwargs)
+        plt.close()
+
+
+def plot_precision_recall_curve(y_pred, y_test, ind_samples, auprcs, positive_rate, ax=None):
+    if ax is None:
+        _, ax = plt.subplots()
+    ax.plot(np.linspace(0, 1), positive_rate * np.ones(50), "--k", label="random, AUPRC=" + str(positive_rate))
+    for i, inds in enumerate(ind_samples):
+        precision, recall, _ = precision_recall_curve(y_test[inds], y_pred[inds])
+        if i == 0:
+            ax.plot(
+                recall,
+                precision,
+                linewidth=1,
+                c="b",
+                label="XGBoost, AUPRC=" + str(round(np.mean(auprcs), 3)) + " ± " + str(round(np.std(auprcs), 3)),
+            )
+        else:
+            ax.plot(recall, precision, linewidth=1, c="b")
+    ax.set_title("Precision-Recall Curve", fontsize=20)
+    ax.set_xlabel("recall")
+    ax.set_ylabel("precision")
+    ax.legend()
+    return ax
+
+
+def plot_roc_curve(y_pred, y_test, ind_samples, aucs, ax=None):
+    if ax is None:
+        _, ax = plt.subplots()
+    ax.plot(np.linspace(0, 1), np.linspace(0, 1), "--k", label="random, AUC=0.5")
+    for i, inds in enumerate(ind_samples):
+        fpr, tpr, _ = roc_curve(y_test[inds], y_pred[inds])
+        if i == 0:
+            ax.plot(fpr, tpr, linewidth=1, c="b", label="XGBoost, AUC=" + str(round(np.mean(aucs), 3)) + " ± " + str(round(np.std(aucs), 3)))
+        else:
+            ax.plot(fpr, tpr, linewidth=1, c="b")
+    ax.set_title("ROC Curve", fontsize=20)
+    ax.set_xlabel("False positive rate")
+    ax.set_ylabel("True positive rate")
+    ax.legend()
+    return ax
+
+
+def plot_probability_density(prob_class0, prob_class1, positive_rate, ax=None):
+    if ax is None:
+        _, ax = plt.subplots()
+    ax.hist(prob_class0, bins=120, alpha=0.5, weights=np.ones(len(prob_class0)) / len(prob_class0), color="red", label="Negative Class (y=0)")
+    ax.hist(prob_class1, bins=120, alpha=0.5, weights=np.ones(len(prob_class1)) / len(prob_class1), color="blue", label="Positive Class (y=1)")
+    ax.axvline(positive_rate, color="k", linestyle="dashed", linewidth=2, label=f"Positive Rate={positive_rate}")
+    ax.set_xlabel("Predicted Probability", fontsize=12)
+    ax.set_ylabel("Density", fontsize=12)
+    ax.set_title("Distribution of Predicted Probabilities by True Class", fontsize=20)
+    ax.legend(loc="upper right")
+    ax.grid(True, linestyle="--", alpha=0.6)
+    return ax
+
+
+def plot_confusion_matrix(cm, ax=None):
+    disp = ConfusionMatrixDisplay(confusion_matrix=cm)
+    if ax is None:
+        _, ax = plt.subplots()
+    disp.plot(cmap=plt.cm.Blues, values_format="d", ax=ax)
+    ax.set_title("Confusion Matrix with Threshold=Positive Rate", fontsize=20)
+    return ax
+
+
+def plot_shap_bar(shap_values, max_display, ax=None):
+    if ax is not None:
+        plt.sca(ax)
+    shap.plots.bar(shap_values, max_display=max_display, show=False)
+    if ax is None:
+        ax = plt.gca()
+    ax.set_title("Mean Absolute SHAP Values by Feature", fontsize=20)
+    return ax
+
+
+def plot_shap_beeswarm(shap_values, max_display, ax=None):
+    if ax is not None:
+        plt.sca(ax)
+    shap.plots.beeswarm(shap_values, max_display=max_display, show=False)
+    if ax is None:
+        ax = plt.gca()
+    ax.set_title("SHAP Beeswarm Plot", fontsize=20)
+    return ax
+
+
+def save_plots_to_pdf(
+    pdf_path, y_pred, y_test, ind_samples, auprcs, aucs, positive_rate, prob_class0, prob_class1, cm, shap_values, shap_max_display
+):
+    plot_funcs = [
+        (plot_precision_recall_curve, dict(y_pred=y_pred, y_test=y_test, ind_samples=ind_samples, auprcs=auprcs, positive_rate=positive_rate)),
+        (plot_roc_curve, dict(y_pred=y_pred, y_test=y_test, ind_samples=ind_samples, aucs=aucs)),
+        (plot_probability_density, dict(prob_class0=prob_class0, prob_class1=prob_class1, positive_rate=positive_rate)),
+        (plot_confusion_matrix, dict(cm=cm)),
+        (plot_shap_bar, dict(shap_values=shap_values, max_display=shap_max_display)),
+        (plot_shap_beeswarm, dict(shap_values=shap_values, max_display=shap_max_display)),
+    ]
+    with PdfPages(pdf_path) as pdf:
+        for func, kwargs in plot_funcs:
+            fig, ax = plt.subplots(figsize=(8, 6))
+            kwargs_with_ax = kwargs | {"ax": ax}
+            func(**kwargs_with_ax)
+            pdf.savefig(fig, bbox_inches="tight")
+            plt.close(fig)
 
 
 def train():
@@ -49,7 +159,7 @@ def train():
     parser.add_argument("--outdir", help="Path to the output directory (default=./).", type=str, default="./")
     parser.add_argument("--trainfile", help="Path to the file containing training samples.", type=str)
     parser.add_argument("--testfile", help="Path to the file containing test samples.", type=str)
-    parser.add_argument("--balanced", help="1 if balanced class weights are used, 0 if not (default=1).", type=int, choices=[1, 0], default=1)
+    parser.add_argument("--balanced", help="1 if balanced class weights are used, 0 if not (default=0).", type=int, choices=[1, 0], default=0)
     parser.add_argument("--dropna", help="1 if rows with missing values are dropped, 0 if not (default=0).", type=int, choices=[1, 0], default=0)
     parser.add_argument("--valsize", help="Size of the validation set; used in early stopping (default=0.1).", type=probability, default=0.1)
     parser.add_argument("--dsize", help="Proportion of the training data to be used (default=1).", type=probability, default=1)
@@ -183,51 +293,21 @@ def train():
     f = 0.75
     ind_samples = []
     len_y_test = len(y_test)
-    for i in range(num_subsamples):
+    for _ in range(num_subsamples):
         ind_samples.append(np.random.choice(len_y_test, int(f * len_y_test), replace=False).tolist())
 
-    # Plot precision-recall curves
-    auprcs = []
     positive_rate = round(np.mean(y_test), 3)
-    plt.plot(np.linspace(0, 1), positive_rate * np.ones(50), "--k", label="random, AUPRC=" + str(positive_rate))
 
-    for inds in ind_samples:
-        auprcs.append(average_precision_score(y_test[inds], y_pred[inds]))
-        precision, recall, _ = precision_recall_curve(y_test[inds], y_pred[inds])
-        if len(auprcs) == len(ind_samples):
-            plt.plot(
-                recall,
-                precision,
-                linewidth=1,
-                c="b",
-                label="XGBoost, AUPRC=" + str(round(np.mean(auprcs), 3)) + " ± " + str(round(np.std(auprcs), 3)),
-            )
-        else:
-            plt.plot(recall, precision, linewidth=1, c="b")
-
-    plt.title("Precision-Recall Curve")
-    plt.xlabel("recall")
-    plt.ylabel("precision")
-    plt.legend()
-    savefig(f"{args.outdir}/xgb_precision_recall_curve_{current_datetime}.png")
+    # Plot precision-recall curve
+    auprcs = [average_precision_score(y_test[inds], y_pred[inds]) for inds in ind_samples]
+    ax = plot_precision_recall_curve(y_pred, y_test, ind_samples, auprcs, positive_rate)
+    savefig(f"{args.outdir}/xgb_precision_recall_curve_{current_datetime}.png", ax=ax)
     print("Precision-Recall curve saved.")
 
-    # Plot ROC curves
-    aucs = []
-    plt.plot(np.linspace(0, 1), np.linspace(0, 1), "--k", label="random, AUC=0.5")
-    for inds in ind_samples:
-        aucs.append(roc_auc_score(y_test[inds], y_pred[inds]))
-        fpr, tpr, _ = roc_curve(y_test[inds], y_pred[inds])
-        if len(aucs) == len(ind_samples):
-            plt.plot(fpr, tpr, linewidth=1, c="b", label="XGBoost, AUC=" + str(round(np.mean(aucs), 3)) + " ± " + str(round(np.std(aucs), 3)))
-        else:
-            plt.plot(fpr, tpr, linewidth=1, c="b")
-
-    plt.title("ROC Curve")
-    plt.xlabel("False positive rate")
-    plt.ylabel("True positive rate")
-    plt.legend()
-    savefig(f"{args.outdir}/xgb_roc_curve_{current_datetime}.png")
+    # Plot ROC curve
+    aucs = [roc_auc_score(y_test[inds], y_pred[inds]) for inds in ind_samples]
+    ax = plot_roc_curve(y_pred, y_test, ind_samples, aucs)
+    savefig(f"{args.outdir}/xgb_roc_curve_{current_datetime}.png", ax=ax)
     print("ROC curve saved.")
 
     # Confidence interval for AUPRC
@@ -253,24 +333,15 @@ def train():
     # Probability densities of predicted probabilities
     prob_class0 = y_pred[y_test == 0]
     prob_class1 = y_pred[y_test == 1]
-    plt.hist(prob_class0, bins=120, alpha=0.5, weights=np.ones(len(prob_class0)) / len(prob_class0), color="red", label="Negative Class (y=0)")
-    plt.hist(prob_class1, bins=120, alpha=0.5, weights=np.ones(len(prob_class1)) / len(prob_class1), color="blue", label="Positive Class (y=1)")
-    plt.axvline(positive_rate, color="k", linestyle="dashed", linewidth=2, label=f"Positive Rate={positive_rate}")
-    plt.xlabel("Predicted Probability", fontsize=12)
-    plt.ylabel("Density", fontsize=12)
-    plt.title("Distribution of Predicted Probabilities by True Class", fontsize=14)
-    plt.legend(loc="upper right")
-    plt.grid(True, linestyle="--", alpha=0.6)
-    savefig(f"{args.outdir}/xgb_prob_density_{current_datetime}.png")
+    ax = plot_probability_density(prob_class0, prob_class1, positive_rate)
+    savefig(f"{args.outdir}/xgb_prob_density_{current_datetime}.png", ax=ax)
     print("Probability density plot saved.")
 
     # Confusion matrix
     y_pred_int = (y_pred > positive_rate).astype(int)
     cm = confusion_matrix(y_test, y_pred_int)
-    disp = ConfusionMatrixDisplay(confusion_matrix=cm)
-    disp.plot(cmap=plt.cm.Blues, values_format="d")
-    plt.title("Confusion Matrix with Threshold=Positive Rate")
-    savefig(f"{args.outdir}/xgb_confusion_matrix_{current_datetime}.png")
+    ax = plot_confusion_matrix(cm)
+    savefig(f"{args.outdir}/xgb_confusion_matrix_{current_datetime}.png", ax=ax)
     print("Confusion matrix saved.")
 
     # Prediction bias
@@ -285,18 +356,31 @@ def train():
     explainer = shap.Explainer(model, X_test, seed=seed)
     shap_values = explainer(X_test)
 
-    max_display = 25
-    plt.figure()
-    shap.plots.bar(shap_values, max_display=max_display, show=False)
-    plt.title("Mean Absolute SHAP Values by Feature", fontsize=20)
-    savefig(f"{args.outdir}/xgb_shap_bar_{current_datetime}.png")
+    shap_max_display = 25
+    ax = plot_shap_bar(shap_values, max_display=shap_max_display)
+    savefig(f"{args.outdir}/xgb_shap_bar_{current_datetime}.png", ax=ax)
     print("SHAP bar plot saved.")
 
-    plt.figure()
-    shap.plots.beeswarm(shap_values, max_display=max_display, show=False)
-    plt.title("SHAP Beeswarm Plot", fontsize=20)
-    savefig(f"{args.outdir}/xgb_shap_beeswarm_{current_datetime}.png")
+    ax = plot_shap_beeswarm(shap_values, max_display=shap_max_display)
+    savefig(f"{args.outdir}/xgb_shap_beeswarm_{current_datetime}.png", ax=ax)
     print("SHAP beeswarm plot saved.")
+
+    # Save all plots to a PDF, each on a separate page
+    save_plots_to_pdf(
+        f"{args.outdir}/xgb_plot_summary_{current_datetime}.pdf",
+        y_pred,
+        y_test,
+        ind_samples,
+        auprcs,
+        aucs,
+        positive_rate,
+        prob_class0,
+        prob_class1,
+        cm,
+        shap_values,
+        shap_max_display,
+    )
+    print("Plot summary saved.")
 
     summary_df.to_csv(f"{args.outdir}/xgb_summary_{current_datetime}.csv", index=False)
     print("Summary saved.")
