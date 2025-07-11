@@ -71,20 +71,24 @@ for pair in "${pairs[@]}"; do
     # Record the start time of the pipeline
     start_time=$SECONDS
 
-    # STEP2: Extract desired event 
-    echo "Extracting desired event"
-    step_start_time=$SECONDS
-    if [[ "$event_register" == "Diag" ]]; then
-        echo "ICD10 code: $event_code"
-        python3 $base_dir/DiD_Pipeline/Version5_20250709/ExtractEvents.py --id_list $list_of_doctors_spouses_children --inpath $diagnosis_file --event_register $event_register --outdir $out_dir --event_code $event_code
-    elif [[ "$event_register" == "Purch" ]]; then
-        echo "ATC code: $event_code"
-        python3 $base_dir/DiD_Pipeline/Version5_20250709/ExtractEvents.py --id_list $list_of_doctors_spouses_children --inpath $purchases_file --event_register $event_register --outdir $out_dir --event_code $event_code
+    # STEP2: Extract desired event (skip if Events.csv exists)
+    if [[ -f "$out_dir/Events.csv" ]]; then
+        echo "Events already extracted, SKIP EXTRACTION"
     else
-        echo "Invalid event register"
+        echo "Extracting desired event"
+        step_start_time=$SECONDS
+        if [[ "$event_register" == "Diag" ]]; then
+            echo "ICD10 code: $event_code"
+            python3 $base_dir/DiD_Pipeline/Version5_20250709/ExtractEvents.py --id_list $list_of_doctors_spouses_children --inpath $diagnosis_file --event_register $event_register --outdir $out_dir --event_code $event_code
+        elif [[ "$event_register" == "Purch" ]]; then
+            echo "ATC code: $event_code"
+            python3 $base_dir/DiD_Pipeline/Version5_20250709/ExtractEvents.py --id_list $list_of_doctors_spouses_children --inpath $purchases_file --event_register $event_register --outdir $out_dir --event_code $event_code
+        else
+            echo "Invalid event register"
+        fi
+        step_end_time=$SECONDS
+        echo "Step completed in $(($step_end_time - $step_start_time)) seconds"
     fi
-    step_end_time=$SECONDS
-    echo "Step completed in $(($step_end_time - $step_start_time)) seconds"
 
     # STEP 3: Run Difference-in-Difference analysis
     echo "Running DiD analysis"
