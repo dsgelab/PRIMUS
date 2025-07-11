@@ -47,7 +47,7 @@ event_ids_doctors = unique(offspring_data[offspring_data$RELATIVE_ID %in% event_
 # CHECK 1 : if N of events is less than 500, stop the analysis
 cat(paste0("Cases : ", length(event_ids_doctors), "\n"))
 cat(paste0("Controls : ", length(doctor_ids)-length(event_ids_doctors), "\n"))
-if (length(event_ids) < 500) {
+if (length(event_ids_doctors) < 500) {
     stop("Number of events (CHECK 1) is less than 500, SKIP ANALYSIS.")
 }
 
