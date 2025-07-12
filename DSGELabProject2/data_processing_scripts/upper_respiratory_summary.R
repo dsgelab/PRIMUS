@@ -1058,6 +1058,48 @@ rate_by_pres_history_doc_plot <- ggplot(rate_by_pres_history_doc, aes(x = reorde
     plot_theme
 rate_by_pres_history_doc_plot
 
+# Histogram of mean yearly past prescriptions
+mean_past_pres_hist <- ggplot(prescription_rate %>% filter(!is.na(MEAN_YEARLY_PRESCRIPTIONS)), aes(x = MEAN_YEARLY_PRESCRIPTIONS)) +
+    geom_histogram(binwidth = 1) +
+    labs(
+        title = "Histogram of Mean Yearly Past Prescriptions",
+        x = "Mean Yearly Past Prescriptions",
+    ) +
+    plot_theme
+mean_past_pres_hist
+
+# Mean yearly past prescription by specialty
+past_pres_by_specialty <- prescription_rate %>%
+    filter(!is.na(SPECIALTY_DOC) & !is.na(MEAN_YEARLY_PRESCRIPTIONS)) %>%
+    group_by(SPECIALTY) %>%
+    summarize(
+        MEAN_SPECIALTY_PRESCRIPTIONS = mean(MEAN_YEARLY_PRESCRIPTIONS)
+    )
+
+past_pres_by_specialty_plot <- ggplot(past_pres_by_specialty, aes(x = SPECIALTY, y = MEAN_SPECIALTY_PRESCRIPTIONS)) +
+    geom_bar(stat = "identity") +
+    coord_flip() +
+    labs(
+        title = "Mean Yearly Past Prescriptions by Specialty",
+        x = "Specialty",
+        y = "Mean Yearly Past Prescriptions"
+    ) +
+    plot_theme
+past_pres_by_specialty_plot
+
+# Prescription rate by mean yearly past prescriptions
+rate_by_past_pres <- prescription_rate %>%
+    filter(!is.na(MEAN_YEARLY_PRESCRIPTIONS)) %>%
+    mutate(
+        MEAN_YEARLY_PRESCRIPTIONS_BIN = cut(
+            MEAN_YEARLY_PRESCRIPTIONS,
+            breaks = 10,
+            include.lowest = TRUE,
+            dig.lab = 4
+        )
+    ) %>%
+
+
 # Make a PDF summary of the most important plots
 plot_summary_theme <- theme(
     plot.title = element_text(size = 24),
