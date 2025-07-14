@@ -61,7 +61,7 @@ def preprocess_data(test_size, categorical_encoding, outdir, user_suffix, input_
     categorical_features = ["SPECIALTY", "LANGUAGE_DOC", "SEX_DOC", "HOME_REGION_DOC", "SEX_PAT", "HOME_REGION_PAT"]
     filename_suffix = ""
     if categorical_encoding == "one_hot":
-        df = pd.get_dummies(df, columns=categorical_features)
+        df = pd.get_dummies(df, columns=categorical_features, drop_first=True)
         train_df, test_df = split_train_test_df(df, test_size)
     elif categorical_encoding == "freq":
         train_df, test_df = split_train_test_df(df, test_size)
