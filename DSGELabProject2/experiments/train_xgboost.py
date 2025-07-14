@@ -261,8 +261,28 @@ def train():
     # Summarize statistics to a file
     summary_df = pd.DataFrame(
         {
-            "statistic": ["trainfile", "dataset_size", "balanced", "dropna", "nsearch", "search_improvement", "Train_AUPRC", "Val_AUPRC"],
-            "value": [args.trainfile, args.dsize, args.balanced, args.dropna, args.nsearch, search_improvement, auprc_train, auprc_val],
+            "statistic": [
+                "trainfile",
+                "dataset_size",
+                "balanced",
+                "dropna",
+                "nsearch",
+                "shap_data_size",
+                "search_improvement",
+                "Train_AUPRC",
+                "Val_AUPRC",
+            ],
+            "value": [
+                args.trainfile,
+                args.dsize,
+                args.balanced,
+                args.dropna,
+                args.nsearch,
+                args.shapdsize,
+                search_improvement,
+                auprc_train,
+                auprc_val,
+            ],
         }
     )
 

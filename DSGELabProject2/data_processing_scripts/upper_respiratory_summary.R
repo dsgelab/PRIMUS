@@ -1058,6 +1058,69 @@ rate_by_pres_history_doc_plot <- ggplot(rate_by_pres_history_doc, aes(x = reorde
     plot_theme
 rate_by_pres_history_doc_plot
 
+# Histogram of mean yearly past prescriptions
+mean_past_pres_hist <- ggplot(prescription_rate %>% filter(!is.na(MEAN_YEARLY_PRESCRIPTIONS)), aes(x = MEAN_YEARLY_PRESCRIPTIONS)) +
+    geom_histogram(binwidth = 100) +
+    labs(
+        title = "Histogram of Mean Yearly Past Prescriptions",
+        x = "Mean Yearly Past Prescriptions",
+    ) +
+    plot_theme
+mean_past_pres_hist
+
+# Mean yearly past prescription by specialty
+past_pres_by_specialty <- prescription_rate %>%
+    filter(!is.na(SPECIALTY) & !is.na(MEAN_YEARLY_PRESCRIPTIONS)) %>%
+    group_by(SPECIALTY) %>%
+    summarize(
+        MEAN_SPECIALTY_PRESCRIPTIONS = mean(MEAN_YEARLY_PRESCRIPTIONS),
+        TOTAL = n()
+    ) %>%
+    arrange(desc(MEAN_SPECIALTY_PRESCRIPTIONS))
+
+past_pres_by_specialty_plot <- ggplot(past_pres_by_specialty %>% filter(TOTAL > 1000), aes(x = reorder(SPECIALTY, MEAN_SPECIALTY_PRESCRIPTIONS), y = MEAN_SPECIALTY_PRESCRIPTIONS)) +
+    geom_bar(stat = "identity") +
+    coord_flip() +
+    labs(
+        title = "Mean Yearly Past Prescriptions by Specialty",
+        x = "Specialty",
+        y = "Mean Yearly Past Prescriptions"
+    ) +
+    plot_theme
+past_pres_by_specialty_plot
+
+# Prescription rate by mean yearly past prescriptions
+rate_by_past_pres <- prescription_rate %>%
+    filter(!is.na(MEAN_YEARLY_PRESCRIPTIONS)) %>%
+    mutate(
+        MEAN_YEARLY_PRESCRIPTIONS_BIN = cut(
+            MEAN_YEARLY_PRESCRIPTIONS,
+            breaks = quantile(MEAN_YEARLY_PRESCRIPTIONS, probs = seq(0, 1, by = 0.1), na.rm = TRUE),
+            labels = paste0(seq(0, 90, by = 10), "-", seq(9, 99, by = 10)),
+            include.lowest = TRUE,
+            dig.lab = 4
+        )
+    ) %>%
+    group_by(MEAN_YEARLY_PRESCRIPTIONS_BIN) %>%
+    summarize(
+        PRESCRIBED = sum(PRESCRIBED),
+        TOTAL = n()
+    ) %>%
+    mutate(PRESCRIBED_RATE = PRESCRIBED / TOTAL * 100) %>%
+    add_binom_interval(count_col = "PRESCRIBED", n_col = "TOTAL")
+
+rate_by_past_pres_plot <- ggplot(rate_by_past_pres, aes(x = MEAN_YEARLY_PRESCRIPTIONS_BIN, y = PRESCRIBED_RATE)) +
+    geom_bar(stat = "identity") +
+    geom_errorbar(aes(ymin = LOWER_BOUND, ymax = UPPER_BOUND), width = 0.2) +
+    labs(
+        title = "Prescription Rate by Mean Yearly Past Prescriptions",
+        x = "Mean Yearly Past Prescription Decile",
+        y = "Prescription Rate (%)"
+    ) +
+    plot_theme
+rate_by_past_pres_plot
+
+
 # Make a PDF summary of the most important plots
 plot_summary_theme <- theme(
     plot.title = element_text(size = 24),
