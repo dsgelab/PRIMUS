@@ -9,7 +9,7 @@ setwd("/media/volume/Projects/mikael/ProcessedData")
 source("/media/volume/Projects/mikael/utils.R")
 
 diagnosis_file <- get_latest_file("FirstConnectedJ069Diagnoses") # First diagnosis for each patient
-prescription_file <- get_latest_file("ImputedJ01Prescriptions")
+prescription_file <- get_latest_file("J01Prescriptions")
 doctor_file <- "/media/volume/Projects/DSGELabProject1/doctor_characteristics_20250520.csv"
 patient_file <- "/media/volume/Data/Data_THL_2698_14.02.00_2023/DVV/FD_2698_Tulokset_2024-04-09_HY.csv"
 city_file <- "cities.csv"
@@ -101,7 +101,8 @@ plot_theme <- theme(
     axis.title = element_text(size = 24),
     axis.text = element_text(size = 20),
     legend.title = element_text(size = 22),
-    legend.text = element_text(size = 20)
+    legend.text = element_text(size = 20),
+    strip.text = element_text(size = 20)
 )
 
 diag_by_year_source_plot <- diagnosis %>%
@@ -234,10 +235,11 @@ calc_age <- function(birth_date, current_date) {
 # Filter out unclear prescriptions from further analysis. Impute diagnosing doctor from prescribing doctor. Add
 # doctor and patient characteristics.
 prescription_rate <- prescription_rate_init %>%
-    filter(prescribed_condition | UNCLEAR_OR_PRES == 0) %>%
+    filter(prescribed_condition_strict | UNCLEAR_OR_PRES == 0) %>%
     rename(PRESCRIBED = UNCLEAR_OR_PRES) %>%
     mutate(PRESCRIBED = as.numeric(PRESCRIBED)) %>%
-    mutate(DOCTOR_ID = ifelse(PRESCRIBED == 1, DOCTOR_ID_PRES, DOCTOR_ID_DIAG)) %>%
+    #mutate(DOCTOR_ID = ifelse(PRESCRIBED == 1, DOCTOR_ID_PRES, DOCTOR_ID_DIAG)) %>%  # Use if unknown diagnosing doctors are imputed from prescribing doctors
+    mutate(DOCTOR_ID = DOCTOR_ID_DIAG) %>% # Use if unknown diagnosing doctors are not imputed from prescribing doctors
     left_join(doctor, by = "DOCTOR_ID") %>%
     left_join(patient, by = c("DOCTOR_ID" = "PATIENT_ID")) %>%  # Doctors are also patients
     left_join(patient, by = "PATIENT_ID", suffix = c("_DOC", "_PAT")) %>%
@@ -438,7 +440,7 @@ age_doc_pres_plot <- ggplot(prescription_rate %>% filter(!is.na(AGE_DOC)), aes(x
     ) +
     scale_fill_manual(
         values = c("0" = "#f4c0bd", "1" = "#91dddf"),
-        labels = c("0" = "Did not presribe", "1" = "Prescribed")
+        labels = c("0" = "Did not prescribe", "1" = "Prescribed")
     ) +
     labs(
         title = "Age Distribution of Doctors Prescribing and not Prescribing to J06.9 Patients",
@@ -792,7 +794,7 @@ age_pat_pres_plot <- ggplot(prescription_rate %>% filter(!is.na(AGE_PAT)), aes(x
     ) +
     scale_fill_manual(
         values = c("0" = "#f4c0bd", "1" = "#91dddf"),
-        labels = c("0" = "Did not presribe", "1" = "Prescribed")
+        labels = c("0" = "Did not prescribe", "1" = "Prescribed")
     ) +
     labs(
         title = "Age Distribution of J06.9 Patients Being Prescribed and not Prescribed Antibiotics",
@@ -1120,6 +1122,48 @@ rate_by_past_pres_plot <- ggplot(rate_by_past_pres, aes(x = MEAN_YEARLY_PRESCRIP
     plot_theme
 rate_by_past_pres_plot
 
+# Scatter plot of doctor age vs. visit date, colored by prescription
+age_doc_vs_visitdate_sample <- prescription_rate %>%
+    filter(!is.na(AGE_DOC))
+
+age_doc_vs_visitdate_plot <- ggplot(age_doc_vs_visitdate_sample, 
+                                    aes(x = VISIT_DATE, y = AGE_DOC, color = factor(PRESCRIBED))) +
+    geom_jitter(alpha = 0.5, width = 0.5, height = 0.5, size = 1) +
+    scale_color_manual(
+        values = c("0" = "#f4c0bd", "1" = "#91dddf"),
+        labels = c("0" = "Did not prescribe", "1" = "Prescribed")
+    ) +
+    labs(
+        title = "Doctor Age vs. Visit Date (J06.9)",
+        x = "Visit Date",
+        y = "Doctor Age",
+        color = "Prescribed"
+    ) +
+    plot_theme
+age_doc_vs_visitdate_plot
+
+# Add indicator column for visits after the doctor information (age, specialty etc.) is available
+cutoff_date <- as.Date("2016-01-01")
+prescription_rate <- prescription_rate %>%
+    mutate(AFTER_CUTOFF = VISIT_DATE > cutoff_date)
+
+age_doc_pres_plot_group <- ggplot(prescription_rate %>% filter(!is.na(AGE_DOC)), aes(x = AGE_DOC, fill = factor(PRESCRIBED))) +
+    geom_density(
+        alpha = 0.4,
+    ) +
+    scale_fill_manual(
+        values = c("0" = "#f4c0bd", "1" = "#91dddf"),
+        labels = c("0" = "Did not prescribe", "1" = "Prescribed")
+    ) +
+    labs(
+        title = "Age Distribution of Doctors Prescribing and not Prescribing to J06.9 Patients",
+        x = "Age",
+        y = "Probability density",
+        fill = "Prescribed"
+    ) +
+    facet_wrap(~ AFTER_CUTOFF, labeller = as_labeller(c(`FALSE` = paste0("Visit Date ≤ ", cutoff_date), `TRUE` = paste0("Visit Date > ", cutoff_date)))) +
+    plot_theme
+age_doc_pres_plot_group
 
 # Make a PDF summary of the most important plots
 plot_summary_theme <- theme(
