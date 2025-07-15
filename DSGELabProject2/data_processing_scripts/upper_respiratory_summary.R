@@ -20,7 +20,7 @@ pres_history_doc_file <- get_latest_file("J069DoctorPrescriptionHistory")
 
 current_date <- strftime(Sys.Date(), "%Y%m%d")
 
-# prescription <- fread(get_latest_file("imputed_prescriptions_20250501152846.csv.gz"))[startsWith(ATC_CODE, "J01")]
+# prescription <- fread(get_latest_file("/media/volume/Projects/DSGELabProject1/ProcessedData/AllConnectedPrescriptions_20250506.csv"))[startsWith(ATC_CODE, "J01")]
 # write.csv(prescription, paste0("J01Prescriptions_", current_date, ".csv"), row.names = FALSE)
 prescription <- fread(prescription_file) %>%
     as_tibble() %>%
