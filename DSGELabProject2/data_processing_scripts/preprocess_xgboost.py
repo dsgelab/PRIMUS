@@ -55,6 +55,8 @@ def preprocess_data(test_size, categorical_encoding, outdir, user_suffix, input_
             "AGE_PAT",
             "BIRTH_YEAR_DOC",
             "BIRTH_YEAR_PAT",
+            "MEAN_YEARLY_DIAGNOSES",
+            "MEAN_YEARLY_PRESCRIPTIONS",
             "PRESCRIBED",
             *disease_history_cols,
             *medication_history_cols,
