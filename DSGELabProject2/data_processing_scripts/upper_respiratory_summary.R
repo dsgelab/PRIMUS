@@ -166,7 +166,8 @@ patient <- fread(patient_file) %>%
     rename(CITY = "Kotikunnan.nimi") %>%
     left_join(city, by = "CITY") %>%
     rename(HOME_REGION = REGION) %>%
-    select(PATIENT_ID, BIRTH_DATE, SEX, HOME_REGION)
+    mutate(BIRTH_YEAR = year(BIRTH_DATE)) %>%
+    select(PATIENT_ID, BIRTH_YEAR, BIRTH_DATE, SEX, HOME_REGION)
 
 doctor <- fread(doctor_file) %>%
     as_tibble() %>%
@@ -1178,7 +1179,7 @@ pdf("J069SummaryPlots.pdf", width = 10, height = 7)
 print(diag_by_year_pres_plot + plot_summary_theme)
 print(yearly_rate_plot + plot_summary_theme)
 print(class_freq_plot + plot_summary_theme)
-print(freq_by_specialty_plot + plot_summary_theme)
+print(rate_by_specialty_plot + plot_summary_theme)
 print(age_doc_freq_plot + plot_summary_theme)
 print(rate_by_age_doc_plot + plot_summary_theme)
 print(rate_by_age_pat_plot + plot_summary_theme)

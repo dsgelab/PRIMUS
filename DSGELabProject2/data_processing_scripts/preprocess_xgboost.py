@@ -53,6 +53,8 @@ def preprocess_data(test_size, categorical_encoding, outdir, user_suffix, input_
             "SEX_PAT",
             "HOME_REGION_PAT",
             "AGE_PAT",
+            "BIRTH_YEAR_DOC",
+            "BIRTH_YEAR_PAT",
             "PRESCRIBED",
             *disease_history_cols,
             *medication_history_cols,
@@ -61,7 +63,7 @@ def preprocess_data(test_size, categorical_encoding, outdir, user_suffix, input_
     categorical_features = ["SPECIALTY", "LANGUAGE_DOC", "SEX_DOC", "HOME_REGION_DOC", "SEX_PAT", "HOME_REGION_PAT"]
     filename_suffix = ""
     if categorical_encoding == "one_hot":
-        df = pd.get_dummies(df, columns=categorical_features)
+        df = pd.get_dummies(df, columns=categorical_features, drop_first=True)
         train_df, test_df = split_train_test_df(df, test_size)
     elif categorical_encoding == "freq":
         train_df, test_df = split_train_test_df(df, test_size)
@@ -80,7 +82,7 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--outdir", help="Path to the output directory (default=./).", type=str, default="./")
-    parser.add_argument("--testsize", help="Test set size as a decimal (default=0.2).", type=probability, default=0.2)
+    parser.add_argument("--testsize", help="Test set size as a decimal (default=0.15).", type=probability, default=0.15)
     parser.add_argument(
         "--cat-encoding", help="Encoding method for categorical features (default=one_hot).", type=str, choices=["one_hot", "freq"], default="one_hot"
     )
