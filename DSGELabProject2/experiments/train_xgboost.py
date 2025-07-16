@@ -12,6 +12,7 @@ from sklearn.metrics import (
     confusion_matrix,
     ConfusionMatrixDisplay,
 )
+from sklearn.calibration import calibration_curve
 from scipy.stats import loguniform
 from time import time
 from datetime import datetime
@@ -109,6 +110,20 @@ def plot_confusion_matrix(cm, ax=None):
         _, ax = plt.subplots()
     disp.plot(cmap=plt.cm.Blues, values_format="d", ax=ax)
     ax.set_title("Confusion Matrix with Threshold=Positive Rate", fontsize=20)
+    return ax
+
+
+def plot_calibration_curve(y_pred, y_test, ax=None):
+    if ax is None:
+        _, ax = plt.subplots()
+    prob_true, prob_pred = calibration_curve(y_test, y_pred, n_bins=10, strategy="uniform")
+    ax.plot(prob_pred, prob_true, marker="o", label="Calibration curve")
+    ax.plot([0, 1], [0, 1], linestyle="--", color="gray", label="Perfectly calibrated")
+    ax.set_xlabel("Mean predicted probability")
+    ax.set_ylabel("Fraction of positives")
+    ax.set_title("Calibration Plot")
+    ax.legend()
+    ax.grid(True, linestyle="--", alpha=0.6)
     return ax
 
 
@@ -363,6 +378,11 @@ def train():
     ax = plot_confusion_matrix(cm)
     savefig(f"{args.outdir}/xgb_confusion_matrix_{current_datetime}.png", ax=ax)
     print("Confusion matrix saved.")
+
+    # Plot calibration curve
+    ax = plot_calibration_curve(y_pred, y_test)
+    savefig(f"{args.outdir}/xgb_calibration_curve_{current_datetime}.png", ax=ax)
+    print("Calibration curve saved.")
 
     # Prediction bias
     pred_bias = np.mean(y_pred) - np.mean(y_test)
