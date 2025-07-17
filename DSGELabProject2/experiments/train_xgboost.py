@@ -185,6 +185,7 @@ def train():
         "--shapdsize", help="Proportion of the test data to be used for estimating SHAP values (default=1).", type=probability, default=1
     )
     parser.add_argument("--fitlc", help="Whether to fit a learning curve (default=1).", type=int, choices=[1, 0], default=1)
+    parser.add_argument("--suffix", help="Suffix for output files (default='').", type=str, default="")
 
     args = parser.parse_args()
     seed = 123
@@ -228,6 +229,7 @@ def train():
 
     cv_df = pd.DataFrame.from_dict(search.cv_results_)
     current_datetime = datetime.now().strftime("%Y-%m-%d-%H%M")
+    suffix = "" if args.suffix == "" else f"_{args.suffix}"
 
     # Plot the best search score as a function of the number of iterations
     cv_cummax_scores = cv_df["mean_test_score"].cummax()
@@ -235,10 +237,10 @@ def train():
     plt.xlabel("Number of iterations passed")
     plt.ylabel("Best search score")
     plt.title("Best Test Mean AUPRC during Hyperparameter Search")
-    savefig(f"{args.outdir}/xgb_search_score_{current_datetime}.png")
+    savefig(f"{args.outdir}/xgb{suffix}_search_score_{current_datetime}.png")
     print("Search score plot saved.")
 
-    cv_df.to_csv(f"{args.outdir}/xgb_cv_results_{current_datetime}.csv", index=False)
+    cv_df.to_csv(f"{args.outdir}/xgb{suffix}_cv_results_{current_datetime}.csv", index=False)
 
     tuned_model = search.best_estimator_
     # Check how the model performs against a model with default hyperparameters
@@ -258,11 +260,11 @@ def train():
 
     y_pred = model.predict_proba(X_test)[:, 1]
     df_test["XGB_PRED"] = y_pred
-    df_test.to_csv(f"{args.outdir}/xgb_predictions_{current_datetime}.csv", index=False)
+    df_test.to_csv(f"{args.outdir}/xgb{suffix}_predictions_{current_datetime}.csv", index=False)
     print("Test predictions saved.")
 
     # Save model
-    with open(f"{args.outdir}/xgb_model_{current_datetime}.pkl", "wb") as f:
+    with open(f"{args.outdir}/xgb{suffix}_model_{current_datetime}.pkl", "wb") as f:
         pickle.dump(model, f)
         print("Model saved.")
 
@@ -277,6 +279,7 @@ def train():
     summary_df = pd.DataFrame(
         {
             "statistic": [
+                "suffix",
                 "trainfile",
                 "dataset_size",
                 "balanced",
@@ -288,6 +291,7 @@ def train():
                 "Val_AUPRC",
             ],
             "value": [
+                args.suffix,
                 args.trainfile,
                 args.dsize,
                 args.balanced,
@@ -320,7 +324,7 @@ def train():
         plt.xlabel("Training set size")
         plt.ylabel("AUPRC")
         plt.legend()
-        savefig(f"{args.outdir}/xgb_learning_curve_{current_datetime}.png")
+        savefig(f"{args.outdir}/xgb{suffix}_learning_curve_{current_datetime}.png")
         print("Learning curve saved.")
 
     # Generate N random samples
@@ -336,13 +340,13 @@ def train():
     # Plot precision-recall curve
     auprcs = [average_precision_score(y_test[inds], y_pred[inds]) for inds in ind_samples]
     ax = plot_precision_recall_curve(y_pred, y_test, ind_samples, auprcs, positive_rate)
-    savefig(f"{args.outdir}/xgb_precision_recall_curve_{current_datetime}.png", ax=ax)
+    savefig(f"{args.outdir}/xgb{suffix}_precision_recall_curve_{current_datetime}.png", ax=ax)
     print("Precision-Recall curve saved.")
 
     # Plot ROC curve
     aucs = [roc_auc_score(y_test[inds], y_pred[inds]) for inds in ind_samples]
     ax = plot_roc_curve(y_pred, y_test, ind_samples, aucs)
-    savefig(f"{args.outdir}/xgb_roc_curve_{current_datetime}.png", ax=ax)
+    savefig(f"{args.outdir}/xgb{suffix}_roc_curve_{current_datetime}.png", ax=ax)
     print("ROC curve saved.")
 
     # Confidence interval for AUPRC
@@ -369,19 +373,19 @@ def train():
     prob_class0 = y_pred[y_test == 0]
     prob_class1 = y_pred[y_test == 1]
     ax = plot_probability_density(prob_class0, prob_class1, positive_rate)
-    savefig(f"{args.outdir}/xgb_prob_density_{current_datetime}.png", ax=ax)
+    savefig(f"{args.outdir}/xgb{suffix}_prob_density_{current_datetime}.png", ax=ax)
     print("Probability density plot saved.")
 
     # Confusion matrix
     y_pred_int = (y_pred > positive_rate).astype(int)
     cm = confusion_matrix(y_test, y_pred_int)
     ax = plot_confusion_matrix(cm)
-    savefig(f"{args.outdir}/xgb_confusion_matrix_{current_datetime}.png", ax=ax)
+    savefig(f"{args.outdir}/xgb{suffix}_confusion_matrix_{current_datetime}.png", ax=ax)
     print("Confusion matrix saved.")
 
     # Plot calibration curve
     ax = plot_calibration_curve(y_pred, y_test)
-    savefig(f"{args.outdir}/xgb_calibration_curve_{current_datetime}.png", ax=ax)
+    savefig(f"{args.outdir}/xgb{suffix}_calibration_curve_{current_datetime}.png", ax=ax)
     print("Calibration curve saved.")
 
     # Prediction bias
@@ -398,16 +402,16 @@ def train():
 
     shap_max_display = 25
     ax = plot_shap_bar(shap_values, max_display=shap_max_display)
-    savefig(f"{args.outdir}/xgb_shap_bar_{current_datetime}.png", ax=ax)
+    savefig(f"{args.outdir}/xgb{suffix}_shap_bar_{current_datetime}.png", ax=ax)
     print("SHAP bar plot saved.")
 
     ax = plot_shap_beeswarm(shap_values, max_display=shap_max_display)
-    savefig(f"{args.outdir}/xgb_shap_beeswarm_{current_datetime}.png", ax=ax)
+    savefig(f"{args.outdir}/xgb{suffix}_shap_beeswarm_{current_datetime}.png", ax=ax)
     print("SHAP beeswarm plot saved.")
 
     # Save all plots to a PDF, each on a separate page
     save_plots_to_pdf(
-        f"{args.outdir}/xgb_plot_summary_{current_datetime}.pdf",
+        f"{args.outdir}/xgb{suffix}_plot_summary_{current_datetime}.pdf",
         y_pred,
         y_test,
         ind_samples,
@@ -422,7 +426,7 @@ def train():
     )
     print("Plot summary saved.")
 
-    summary_df.to_csv(f"{args.outdir}/xgb_summary_{current_datetime}.csv", index=False)
+    summary_df.to_csv(f"{args.outdir}/xgb{suffix}_summary_{current_datetime}.csv", index=False)
     print("Summary saved.")
 
     print(f"Script finished in {format_seconds_to_hms(time() - start_time)} seconds.")

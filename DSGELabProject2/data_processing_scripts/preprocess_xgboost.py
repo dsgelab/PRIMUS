@@ -75,8 +75,12 @@ def preprocess_data(test_size, categorical_encoding, outdir, user_suffix, input_
             test_df[key] = test_df[key].map(freq_maps[key])
         filename_suffix = "_freq"
 
-    train_df.to_csv(f"{outdir}/xgboost_train{filename_suffix}{user_suffix}.csv", index=False)
-    test_df.to_csv(f"{outdir}/xgboost_test{filename_suffix}{user_suffix}.csv", index=False)
+    suffix = "" if user_suffix == "" else f"_{user_suffix}"
+    train_outfile = f"{outdir}/xgboost_train{filename_suffix}{suffix}.csv"
+    test_outfile = f"{outdir}/xgboost_test{filename_suffix}{suffix}.csv"
+    train_df.to_csv(train_outfile, index=False)
+    test_df.to_csv(test_outfile, index=False)
+    print(f"Saved train and test sets to {train_outfile} and {test_outfile}.")
 
 
 def main():
@@ -93,7 +97,6 @@ def main():
         "--inputfile",
         help="Path pattern to the file containing training samples (see utils.py::find_latest_file_by_date).",
         type=str,
-        default="J069DiagnosesWithPrescriptions",
     )
     args = parser.parse_args()
 

@@ -51,46 +51,7 @@ print(paste0("Number of first diagnoses connected to a doctor: ", count_with_doc
 codes <- unique(diagnosis$ICD10_CODE)
 print(paste("All ICD10 codes starting with J06.9:", paste(codes, collapse = ", ")))
 
-# all_diagnoses <- fread(get_latest_file("AllConnectedDiagnoses"))[grepl("^[A-Z]", ICD10_CODE)] # Filter out improper ICD10 codes
-# diag_history_pat <- diagnosis %>%
-#     inner_join(all_diagnoses, by = "PATIENT_ID", suffix = c("_J069", "_HIST")) %>%
-#     filter(VISIT_DATE_HIST < VISIT_DATE_J069) %>%
-#     mutate(first_letter = str_sub(ICD10_CODE_HIST, 1, 1)) %>%
-#     distinct(PATIENT_ID, first_letter) %>%
-#     mutate(present = 1) %>%
-#     pivot_wider(
-#         names_from = first_letter,
-#         values_from = present,
-#         names_prefix = "HAD_",
-#         values_fill = 0
-#     ) %>%
-#     right_join(
-#         diagnosis %>% distinct(PATIENT_ID),
-#         by = "PATIENT_ID"
-#     ) %>%
-#     mutate(across(starts_with("HAD_"), ~ replace_na(., 0)))
-# write.csv(diag_history_pat, paste0("J069PatientDiagnosisHistory_", current_date, ".csv"), row.names = FALSE)
 diag_history_pat <- fread(diag_history_pat_file)
-
-# pres_history_pat <- fread("imputed_prescriptions_20250501152849.csv")[grepl("^[A-Z]", CODE)] # Filter out improper ATC codes
-# pres_history_pat <- diagnosis %>%
-#     inner_join(pres_history_pat, by = "PATIENT_ID", suffix = c("_J069", "_PRES")) %>%
-#     filter(PRESCRIPTION_DATE < VISIT_DATE) %>%
-#     mutate(first_letter = str_sub(CODE, 1, 1)) %>%
-#     distinct(PATIENT_ID, first_letter) %>%
-#     mutate(present = 1) %>%
-#     pivot_wider(
-#         names_from = first_letter,
-#         values_from = present,
-#         names_prefix = "GOT_",
-#         values_fill = 0
-#     ) %>%
-#     right_join(
-#         diagnosis %>% distinct(PATIENT_ID),
-#         by = "PATIENT_ID"
-#     ) %>%
-#     mutate(across(starts_with("GOT_"), ~ replace_na(., 0)))
-# write.csv(pres_history_pat, paste0("J069PatientPrescriptionHistory_", current_date, ".csv"), row.names = FALSE)
 pres_history_pat <- fread(pres_history_pat_file)
 
 pres_history_doc <- fread(pres_history_doc_file)
