@@ -22,12 +22,13 @@ def process_purchases(data):
     #1. remove rows with missing data
     data = data[(data.DOCTOR_ID.notna()) & (data.DOCTOR_ID != "")]
     #3. prepare data for output
-    data['REGISTER'] = 'Purchase'
-    data.rename(columns={'PURCHASE_DATE':'DATE', 'ATC_CODE':'CODE'}, inplace=True)
-    data['PRIVATE']=0
-    data['PUBLIC']=0
-    data['CITY']=""
-    data = data[['DOCTOR_ID','PATIENT_ID','REGISTER','DATE','CODE','PRIVATE','PUBLIC','CITY']]
+    if not data.empty:
+        data['REGISTER'] = 'Purchase'
+        data.rename(columns={'PURCHASE_DATE':'DATE', 'ATC_CODE':'CODE'}, inplace=True)
+        data['PRIVATE']=0
+        data['PUBLIC']=0
+        data['CITY']=""
+        data = data[['DOCTOR_ID','PATIENT_ID','REGISTER','DATE','CODE','PRIVATE','PUBLIC','CITY']]
     return data 
 
 
@@ -35,11 +36,12 @@ def process_prescriptions(data):
     #1. remove rows with missing data
     data = data[(data.DOCTOR_ID.notna()) & (data.DOCTOR_ID != "")]
     #3. prepare data for output
-    data['REGISTER'] = 'Prescription'
-    data.rename(columns={'PRESCRIPTION_DATE':'DATE', 'ATC_CODE':'CODE'}, inplace=True)
-    data['PRIVATE'] = data['SECTOR'].apply(lambda x: 1 if x == '2' else 0)
-    data['PUBLIC'] = data['SECTOR'].apply(lambda x: 1 if x == '1' else 0)
-    data = data[['DOCTOR_ID','PATIENT_ID','REGISTER','DATE','CODE','PRIVATE','PUBLIC','CITY']]
+    if not data.empty:
+        data['REGISTER'] = 'Prescription'
+        data.rename(columns={'PRESCRIPTION_DATE':'DATE', 'ATC_CODE':'CODE'}, inplace=True)
+        data['PRIVATE'] = data['SECTOR'].apply(lambda x: 1 if x == '2' else 0)
+        data['PUBLIC'] = data['SECTOR'].apply(lambda x: 1 if x == '1' else 0)
+        data = data[['DOCTOR_ID','PATIENT_ID','REGISTER','DATE','CODE','PRIVATE','PUBLIC','CITY']]
     return data 
 
 
@@ -47,13 +49,14 @@ def process_diagnosis(data):
     #1. remove rows with missing data
     data = data[(data.DOCTOR_ID.notna()) & (data.DOCTOR_ID != "")]
     #3. prepare data for output
-    data.loc[data['SOURCE'] == 'Hilmo', 'REGISTER'] = 'Diagnosis Hilmo'
-    data.loc[data['SOURCE'] == 'Avohilmo', 'REGISTER'] = 'Diagnosis Avohilmo'
-    data.rename(columns={'DIAGNOSIS_DATE':'DATE', 'ICD10_CODE':'CODE'}, inplace=True)
-    data['PRIVATE']=0
-    data['PUBLIC']=0
-    data['CITY']=""
-    data = data[['DOCTOR_ID','PATIENT_ID','REGISTER','DATE','CODE','PRIVATE','PUBLIC','CITY']]
+    if not data.empty:
+        data.loc[data['SOURCE'] == 'Hilmo', 'REGISTER'] = 'Diagnosis Hilmo'
+        data.loc[data['SOURCE'] == 'Avohilmo', 'REGISTER'] = 'Diagnosis Avohilmo'
+        data.rename(columns={'DIAGNOSIS_DATE':'DATE', 'ICD10_CODE':'CODE'}, inplace=True)
+        data['PRIVATE']=0
+        data['PUBLIC']=0
+        data['CITY']=""
+        data = data[['DOCTOR_ID','PATIENT_ID','REGISTER','DATE','CODE','PRIVATE','PUBLIC','CITY']]
     return data 
 
 #### Main ####
