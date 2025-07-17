@@ -8,15 +8,17 @@ library(patchwork)
 setwd("/media/volume/Projects/mikael/ProcessedData")
 source("/media/volume/Projects/mikael/utils.R")
 
-diagnosis_file <- get_latest_file("FirstConnectedJ069Diagnoses") # First diagnosis for each patient
+code <- "J06.9"
+code_no_dot <- "J069"
+diagnosis_file <- get_latest_file(paste0("FirstConnected", code_no_dot, "Diagnoses")) # First diagnosis for each patient
 prescription_file <- get_latest_file("J01Prescriptions")
 doctor_file <- "/media/volume/Projects/DSGELabProject1/doctor_characteristics_20250520.csv"
 patient_file <- "/media/volume/Data/Data_THL_2698_14.02.00_2023/DVV/FD_2698_Tulokset_2024-04-09_HY.csv"
 city_file <- "cities.csv"
-diag_history_pat_file <- get_latest_file("J069PatientDiagnosisHistory")
-pres_history_pat_file <- get_latest_file("J069PatientPrescriptionHistory")
-diag_history_doc_file <- get_latest_file("J069DoctorDiagnosisHistory")
-pres_history_doc_file <- get_latest_file("J069DoctorPrescriptionHistory")
+diag_history_pat_file <- get_latest_file(paste0(code_no_dot, "PatientDiagnosisHistory"))
+pres_history_pat_file <- get_latest_file(paste0(code_no_dot, "PatientPrescriptionHistory"))
+diag_history_doc_file <- get_latest_file(paste0(code_no_dot, "DoctorDiagnosisHistory"))
+pres_history_doc_file <- get_latest_file(paste0(code_no_dot, "DoctorPrescriptionHistory"))
 
 current_date <- strftime(Sys.Date(), "%Y%m%d")
 
@@ -27,7 +29,7 @@ prescription <- fread(prescription_file) %>%
     select(PATIENT_ID, PRESCRIPTION_DATE, DOCTOR_ID)
 print(paste("Number of J01 (antibiotics) prescriptions:", nrow(prescription)))
 
-# diagnosis <- fread(get_latest_file("AllConnectedDiagnoses"))[startsWith(ICD10_CODE, "J06.9") | startsWith(ICD10_CODE, "J069")]
+# diagnosis <- fread(get_latest_file("AllConnectedDiagnoses"))[startsWith(ICD10_CODE, code) | startsWith(ICD10_CODE, code_no_dot)]
 # # Only select the earliest instance of diagnosis for each patient
 # diagnosis <- diagnosis %>%
 #     as_tibble() %>%
@@ -35,7 +37,7 @@ print(paste("Number of J01 (antibiotics) prescriptions:", nrow(prescription)))
 #     group_by(PATIENT_ID) %>%
 #     slice(1) %>%
 #     ungroup()
-# write.csv(diagnosis, paste0("FirstConnectedJ069Diagnoses_", current_date, ".csv"), row.names = FALSE)
+# write.csv(diagnosis, paste0("FirstConnected", code_no_dot, "Diagnoses_", current_date, ".csv"), row.names = FALSE)
 diagnosis <- fread(diagnosis_file) %>%
     as_tibble() %>%
     mutate(across(where(is.character), ~ na_if(., ""))) %>%
@@ -49,48 +51,9 @@ percentage_with_doctor <- sprintf("%.2f%%", count_with_doctor / count * 100)
 print(paste0("Number of first diagnoses connected to a doctor: ", count_with_doctor, " (", percentage_with_doctor, ")"))
 
 codes <- unique(diagnosis$ICD10_CODE)
-print(paste("All ICD10 codes starting with J06.9:", paste(codes, collapse = ", ")))
+print(paste("All ICD10 codes starting with", code, ":", paste(codes, collapse = ", ")))
 
-# all_diagnoses <- fread(get_latest_file("AllConnectedDiagnoses"))[grepl("^[A-Z]", ICD10_CODE)] # Filter out improper ICD10 codes
-# diag_history_pat <- diagnosis %>%
-#     inner_join(all_diagnoses, by = "PATIENT_ID", suffix = c("_J069", "_HIST")) %>%
-#     filter(VISIT_DATE_HIST < VISIT_DATE_J069) %>%
-#     mutate(first_letter = str_sub(ICD10_CODE_HIST, 1, 1)) %>%
-#     distinct(PATIENT_ID, first_letter) %>%
-#     mutate(present = 1) %>%
-#     pivot_wider(
-#         names_from = first_letter,
-#         values_from = present,
-#         names_prefix = "HAD_",
-#         values_fill = 0
-#     ) %>%
-#     right_join(
-#         diagnosis %>% distinct(PATIENT_ID),
-#         by = "PATIENT_ID"
-#     ) %>%
-#     mutate(across(starts_with("HAD_"), ~ replace_na(., 0)))
-# write.csv(diag_history_pat, paste0("J069PatientDiagnosisHistory_", current_date, ".csv"), row.names = FALSE)
 diag_history_pat <- fread(diag_history_pat_file)
-
-# pres_history_pat <- fread("imputed_prescriptions_20250501152849.csv")[grepl("^[A-Z]", CODE)] # Filter out improper ATC codes
-# pres_history_pat <- diagnosis %>%
-#     inner_join(pres_history_pat, by = "PATIENT_ID", suffix = c("_J069", "_PRES")) %>%
-#     filter(PRESCRIPTION_DATE < VISIT_DATE) %>%
-#     mutate(first_letter = str_sub(CODE, 1, 1)) %>%
-#     distinct(PATIENT_ID, first_letter) %>%
-#     mutate(present = 1) %>%
-#     pivot_wider(
-#         names_from = first_letter,
-#         values_from = present,
-#         names_prefix = "GOT_",
-#         values_fill = 0
-#     ) %>%
-#     right_join(
-#         diagnosis %>% distinct(PATIENT_ID),
-#         by = "PATIENT_ID"
-#     ) %>%
-#     mutate(across(starts_with("GOT_"), ~ replace_na(., 0)))
-# write.csv(pres_history_pat, paste0("J069PatientPrescriptionHistory_", current_date, ".csv"), row.names = FALSE)
 pres_history_pat <- fread(pres_history_pat_file)
 
 pres_history_doc <- fread(pres_history_doc_file)
@@ -111,7 +74,7 @@ diag_by_year_source_plot <- diagnosis %>%
     ggplot(aes(x = DIAGNOSIS_YEAR, y = n, fill = SOURCE)) +
     geom_bar(stat = "identity") +
     scale_x_discrete(breaks = ~ levels(factor(.x))[seq(1, nlevels(factor(.x)), by = 2)]) +
-    labs(title = "Number of J06.9 Diagnoses by Year and Source Dataset",
+    labs(title = paste("Number of", code, "Diagnoses by Year and Source Dataset"),
          x = "Year",
          y = "Diagnoses",
          fill = "Source dataset") +
@@ -149,7 +112,7 @@ stopifnot(nrow(same_day) == sum(pstats[pstats$PRESCRIPTION_TIME == "same_day", "
 pres_timing_plot <- ggplot(pstats, aes(x = DOCTOR_MATCH, y = COUNT, fill = PRESCRIPTION_TIME)) +
     geom_bar(stat = "identity", position = position_dodge()) +
     labs(
-        title = "J06.9 Prescription Timing by Doctor Match",
+        title = paste(code, "Prescription Timing by Doctor Match"),
         x = "Doctor Match",
         y = "Count",
         fill = "Prescription Time"
@@ -221,7 +184,7 @@ pres_class_plot <- ggplot(prescription_classes, aes(x = CLASS, y = COUNT, fill =
     geom_text(aes(label = sprintf("%.1f%%", PERCENTAGE)), 
               vjust = -0.3, size = 6) +
     labs(
-        title = "J06.9 Patients with Prescription vs No Prescription vs Unclear status",
+        title = paste(code, "Patients with Prescription vs No Prescription vs Unclear status"),
         y = "Frequency",
         x = NULL,
         fill = "Label"
@@ -250,7 +213,7 @@ prescription_rate <- prescription_rate_init %>%
     inner_join(pres_history_pat, by = "PATIENT_ID") %>%
     left_join(diag_history_doc, by = c("DOCTOR_ID", "VISIT_DATE"), suffix = c("_PAT", "_DOC")) %>%
     left_join(pres_history_doc, by = c("DOCTOR_ID", "VISIT_DATE"), suffix = c("_PAT", "_DOC"))
-# write.csv(prescription_rate, paste0("J069DiagnosesWithPrescriptions_", current_date, ".csv"), row.names = FALSE)
+# write.csv(prescription_rate, paste0(code_no_dot, "DiagnosesWithPrescriptions_", current_date, ".csv"), row.names = FALSE)
 
 # Class imbalance plot
 class_freq <- tibble(
@@ -264,7 +227,7 @@ class_freq_plot <- ggplot(class_freq, aes(x = CLASS, y = COUNT, fill = CLASS)) +
     geom_text(aes(label = sprintf("%.1f%%", PERCENTAGE)), 
               vjust = -0.3, size = 6) +
     labs(
-        title = "J06.9 Patients with Prescription vs No Prescription",
+        title = paste(code, "Patients with Prescription vs No Prescription"),
         y = "Frequency",
         fill = "Label",
         x = NULL
@@ -282,7 +245,7 @@ yearly_prescriptions <- prescription_rate %>%
 yearly_pres_plot <- ggplot(yearly_prescriptions, aes(x = factor(YEAR), y = PRESCRIPTION_COUNT)) +
     geom_bar(stat = "identity") +
     labs(
-        title = "Number of J06.9 Prescriptions per Year",
+        title = paste("Number of", code, "Prescriptions per Year"),
         x = "Year",
         y = "Prescription Count"
     ) +
@@ -298,7 +261,7 @@ get_year_breaks <- function(years, n_years) if (n_years > 12) years[seq(1, n_yea
 diag_by_year_pres_plot <- ggplot(visit_year_counts, aes(x = factor(VISIT_YEAR), y = n, fill = factor(PRESCRIBED))) +
     geom_bar(stat = "identity") +
     labs(
-        title = "Number of J06.9 Diagnoses by Year and Prescription Status",
+        title = paste("Number of", code, "Diagnoses by Year and Prescription Status"),
         x = "Year",
         y = "Diagnoses",
         fill = "Prescribed"
@@ -349,7 +312,7 @@ freq_by_specialty_plot <- ggplot(freq_by_specialty, aes(x = reorder(SPECIALTY, F
     geom_bar(stat = "identity", position = position_dodge2(reverse = TRUE)) +
     coord_flip() +
     labs(
-        title = "Distribution of J06.9 Prescriptions and\nDiagnoses by Specialty",
+        title = paste("Distribution of", code, "Prescriptions and\nDiagnoses by Specialty"),
         x = "Specialty",
         y = "Relative Frequency (%)",
         fill = "Frequency Type"
@@ -1175,7 +1138,7 @@ plot_summary_theme <- theme(
     legend.text = element_text(size = 19)
 )
 
-pdf("J069SummaryPlots.pdf", width = 10, height = 7)
+pdf(paste0(code_no_dot, "SummaryPlots.pdf"), width = 10, height = 7)
 print(diag_by_year_pres_plot + plot_summary_theme)
 print(yearly_rate_plot + plot_summary_theme)
 print(class_freq_plot + plot_summary_theme)
