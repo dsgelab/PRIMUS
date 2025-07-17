@@ -6,6 +6,7 @@ import time
 import numpy as np
 import sys
 import os
+import argparse
 
 INDIR = Path("/media/volume/Projects/mikael/ProcessedData/")
 OUTDIR = Path("/media/volume/Projects/mikael/ProcessedData/")
@@ -164,7 +165,7 @@ def save_history(events_filename, events_dtypes, code_column, date_column, histo
     add_mean_past_yearly_column(events_file, events_dtypes, date_column, doctor_event_history, outfile_label)
     print(f"Mean yearly past {outfile_label.lower()} column added.")
 
-    outfile = OUTDIR / f"J069Doctor{outfile_label}History_{current_date}.csv"
+    outfile = OUTDIR / f"{icd10_code_no_dot}Doctor{outfile_label}History_{current_date}.csv"
     doctor_event_history.to_csv(outfile, index=False)
     print(f"{outfile_label} history saved to {outfile.name}.")
 
@@ -172,11 +173,18 @@ def save_history(events_filename, events_dtypes, code_column, date_column, histo
 if __name__ == "__main__":
     start_time = time.time()
 
-    diagnosis_file = find_latest_file_by_date(INDIR, r"FirstConnectedJ069Diagnoses_(\d{8}).csv")  # First J06.9 diagnosis for each patient
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--icd10_code", type=str, default="J06.9")
+    args = parser.parse_args()
+
+    icd10_code = args.icd10_code
+    icd10_code_no_dot = icd10_code.replace(".", "")
+
+    diagnosis_file = find_latest_file_by_date(INDIR, rf"FirstConnected{icd10_code_no_dot}Diagnoses_(\d{{8}}).csv")  # First diagnosis for each patient
     diagnosis = pd.read_csv(diagnosis_file, dtype=DIAGNOSIS_DTYPES, usecols=DIAGNOSIS_DTYPES.keys())
     diagnosis = diagnosis[diagnosis["DOCTOR_ID"].notna()]
     diagnosis["VISIT_DATE"] = pd.to_datetime(diagnosis["VISIT_DATE"])
-    print(f"J069 patients loaded (N={len(diagnosis)}).")
+    print(f"{icd10_code} patients loaded (N={len(diagnosis)}).")
 
     save_history(r"AllConnectedDiagnoses_(\d{8}).csv", DIAGNOSIS_DTYPES, "ICD10_CODE", "VISIT_DATE", "HAD", "Diagnosis", diagnosis)
     save_history(
