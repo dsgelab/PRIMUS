@@ -33,6 +33,7 @@ enrichment_func_outcome <- function(s, df) {
 }
 
 #### Main
+setDTthreads(0)
 
 # Load data
 doctor_ids = fread(doctor_list, header = FALSE)$V1
@@ -216,7 +217,57 @@ model = fixest::feols(model_formula, data = df_model, vcov = ~DOCTOR_ID)
 results = data.frame(summary(model)$coeftable)
 write.csv(results, file = paste0(outdir, "/Coef_Model2.csv"), row.names = TRUE)
 
-# Visualization: usa external function
+# PLOT 1: Average prescription ratio (Y) centered on event
+# - sets of averages: non-adjusted (overall) and adjusted (by age,sex & specialty based on the model)
+# - focus on +/- 36 months around the event month
+df_centered <- df_model %>%
+    mutate(time_from_event = MONTH - EVENT_MONTH) %>%
+    filter(time_from_event >= -36 & time_from_event <= 36)
+avg_Y_data <- df_centered %>% 
+    group_by(PERIOD) %>% 
+    summarise(mean_Y = mean(Y, na.rm = TRUE), .groups = 'drop')
+avg_Y_model <- df_centered %>%
+    mutate(predicted_Y = predict(model, newdata = .)) %>%
+    group_by(PERIOD) %>%
+    summarise(mean_Y = mean(predicted_Y, na.rm = TRUE),se_Y = sd(predicted_Y, na.rm = TRUE) / sqrt(n()),.groups = 'drop')
+plot_data <- df_centered %>%
+    mutate(predicted_Y = predict(model, newdata = .)) %>%
+    group_by(time_from_event) %>%
+    summarise(
+        raw_mean_Y = mean(Y, na.rm = TRUE),
+        raw_se_Y = sd(Y, na.rm = TRUE) / sqrt(n()),
+        model_mean_Y = mean(predicted_Y, na.rm = TRUE),
+        model_se_Y = sd(predicted_Y, na.rm = TRUE) / sqrt(n()),
+        .groups = 'drop')
+
+mean_before_model <- filter(avg_Y_model, PERIOD == "BEFORE")$mean_Y
+mean_after_model <- filter(avg_Y_model, PERIOD == "AFTER")$mean_Y
+mean_before_raw <- filter(avg_Y_data, PERIOD == "BEFORE")$mean_Y
+mean_after_raw <- filter(avg_Y_data, PERIOD == "AFTER")$mean_Y
+
+p_centered_subset <- ggplot(plot_data, aes(x = time_from_event)) +
+    geom_ribbon(aes(ymin = model_mean_Y - 1.96 * model_se_Y, ymax = model_mean_Y + 1.96 * model_se_Y), alpha = 0.1, fill = "steelblue") +
+    geom_ribbon(aes(ymin = raw_mean_Y - 1.96 * raw_se_Y, ymax = raw_mean_Y + 1.96 * raw_se_Y), alpha = 0.1, fill = "orange") +
+    geom_line(aes(y = model_mean_Y), size = 1, color = "steelblue", alpha = 0.2) +
+    geom_line(aes(y = raw_mean_Y), size = 1, color = "orange", alpha = 0.2) +
+    geom_point(aes(y = model_mean_Y), size = 0.8, color = "steelblue", alpha = 0.2) +
+    geom_point(aes(y = raw_mean_Y), size = 0.8, color = "orange", alpha = 0.2) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+    geom_segment(aes(x = -36, xend = 0, y = mean_before_model, yend = mean_before_model), linetype = "solid", color = "steelblue", alpha = 0.8, size = 1.2) +
+    geom_segment(aes(x = 0, xend = 36, y = mean_after_model, yend = mean_after_model), linetype = "solid", color = "steelblue", alpha = 0.8, size = 1.2) +
+    geom_segment(aes(x = -36, xend = 0, y = mean_before_raw, yend = mean_before_raw), linetype = "solid", color = "orange", alpha = 0.8, size = 1.2) +
+    geom_segment(aes(x = 0, xend = 36, y = mean_after_raw, yend = mean_after_raw), linetype = "solid", color = "orange", alpha = 0.8, size = 1.2) +
+    scale_x_continuous(breaks = seq(-36, 36, 12),labels = seq(-36, 36, 12),limits = c(-36, 36)) +
+    labs(
+        x = "Months from Event",
+        y = "Average Prescription Ratio (Y)",
+        title = "Average Prescription Ratio Before and After Event",
+        subtitle = "Blue: Model-adjusted estimates, Orange: Raw data"
+    ) +
+    theme_minimal()
+ggsave(filename = file.path(outdir, "Plot_Model2_adjusted.png"), plot = p_centered_subset, width = 10, height = 12)
+
+# PLOT 2: usa external function
 source("/media/volume/Projects/DSGELabProject1/DiD_Pipeline/PlotDIDResults.R")
 plots <- create_model_visualization(model, df_model, outdir)
 
