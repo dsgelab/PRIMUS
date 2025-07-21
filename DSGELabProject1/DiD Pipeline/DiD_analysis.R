@@ -237,10 +237,10 @@ plot_data <- df_centered %>%
 p_centered_subset <- ggplot(plot_data, aes(x = time_from_event)) +
     geom_ribbon(aes(ymin = model_mean_Y - 1.96 * model_se_Y, ymax = model_mean_Y + 1.96 * model_se_Y), alpha = 0.1, fill = "steelblue") +
     geom_ribbon(aes(ymin = raw_mean_Y - 1.96 * raw_se_Y, ymax = raw_mean_Y + 1.96 * raw_se_Y), alpha = 0.1, fill = "orange") +
-    geom_line(aes(y = model_mean_Y), size = 1, color = "steelblue", alpha = 0.2) +
-    geom_line(aes(y = raw_mean_Y), size = 1, color = "orange", alpha = 0.2) +
-    geom_point(aes(y = model_mean_Y), size = 0.8, color = "steelblue", alpha = 0.2) +
-    geom_point(aes(y = raw_mean_Y), size = 0.8, color = "orange", alpha = 0.2) +
+    geom_line(aes(y = model_mean_Y), size = 1, color = "steelblue", alpha = 1) +
+    geom_line(aes(y = raw_mean_Y), size = 1, color = "orange", alpha = 0.5) +
+    geom_point(aes(y = model_mean_Y), size = 0.8, color = "steelblue", alpha = 1) +
+    geom_point(aes(y = raw_mean_Y), size = 0.8, color = "orange", alpha = 0.5) +
     geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
     scale_x_continuous(breaks = seq(-36, 36, 12), labels = seq(-36, 36, 12), limits = c(-36, 36)) +
     labs(
