@@ -193,18 +193,21 @@ ggsave(filename = file.path(outdir, "Plot_Model1.png"), plot = p_event_year, wid
 # Model 2: Comparing (average) prescription ratios Before and After Event 
 # - adjusting for age in 2023, sex, specialty + age and year of event
 df_model = df_complete %>%
-    mutate(PERIOD = case_when(
+    mutate(
+        PERIOD = case_when(
             !is.na(EVENT_MONTH) & MONTH < EVENT_MONTH ~ "BEFORE",
             !is.na(EVENT_MONTH) & MONTH > EVENT_MONTH ~ "AFTER",
-            is.na(EVENT_MONTH) ~ NA_character_)) %>% 
-    filter(!is.na(PERIOD)) %>%
+            is.na(EVENT_MONTH) ~ NA_character_),
+        time_from_event = MONTH - EVENT_MONTH
+    ) %>%
+    filter(!is.na(PERIOD), time_from_event >= -36, time_from_event <= 36) %>%
     mutate(
         PERIOD = factor(PERIOD, levels = c("BEFORE", "AFTER")), # set BEFORE as reference
         SPECIALTY = factor(SPECIALTY, levels = c("", setdiff(unique(df_complete$SPECIALTY), ""))), # set no specialty as reference
         SEX = factor(SEX, levels = c(1, 2), labels = c("Male", "Female")) # set male as reference
     )
-model_formula = as.formula("Y ~ AGE_IN_2023 + AGE_AT_EVENT + SEX + SPECIALTY + PERIOD + AGE_IN_2023:PERIOD + AGE_AT_EVENT:PERIOD + SEX:PERIOD + SPECIALTY:PERIOD")
-model = fixest::feols(model_formula, data = df_model, vcov = ~DOCTOR_ID)
+model_formula = as.formula("Y ~ PERIOD + YEAR + AGE_AT_EVENT + EVENT_YEAR + AGE_IN_2023 + SEX + SPECIALTY + AGE_AT_EVENT:PERIOD + EVENT_YEAR:PERIOD + AGE_IN_2023:PERIOD + SEX:PERIOD + SPECIALTY:PERIOD")
+model = fixest::feglm(model_formula, family = binomial("logit"), data = df_model, cluster = ~DOCTOR_ID)
 results = data.frame(summary(model)$coeftable)
 write.csv(results, file = paste0(outdir, "/Coef_Model2.csv"), row.names = TRUE)
 
@@ -231,11 +234,6 @@ plot_data <- df_centered %>%
         model_se_Y = sd(predicted_Y, na.rm = TRUE) / sqrt(n()),
         .groups = 'drop')
 
-mean_before_model <- filter(avg_Y_model, PERIOD == "BEFORE")$mean_Y
-mean_after_model <- filter(avg_Y_model, PERIOD == "AFTER")$mean_Y
-mean_before_raw <- filter(avg_Y_data, PERIOD == "BEFORE")$mean_Y
-mean_after_raw <- filter(avg_Y_data, PERIOD == "AFTER")$mean_Y
-
 p_centered_subset <- ggplot(plot_data, aes(x = time_from_event)) +
     geom_ribbon(aes(ymin = model_mean_Y - 1.96 * model_se_Y, ymax = model_mean_Y + 1.96 * model_se_Y), alpha = 0.1, fill = "steelblue") +
     geom_ribbon(aes(ymin = raw_mean_Y - 1.96 * raw_se_Y, ymax = raw_mean_Y + 1.96 * raw_se_Y), alpha = 0.1, fill = "orange") +
@@ -244,11 +242,7 @@ p_centered_subset <- ggplot(plot_data, aes(x = time_from_event)) +
     geom_point(aes(y = model_mean_Y), size = 0.8, color = "steelblue", alpha = 0.2) +
     geom_point(aes(y = raw_mean_Y), size = 0.8, color = "orange", alpha = 0.2) +
     geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
-    geom_segment(aes(x = -36, xend = 0, y = mean_before_model, yend = mean_before_model), linetype = "solid", color = "steelblue", alpha = 0.8, size = 1.2) +
-    geom_segment(aes(x = 0, xend = 36, y = mean_after_model, yend = mean_after_model), linetype = "solid", color = "steelblue", alpha = 0.8, size = 1.2) +
-    geom_segment(aes(x = -36, xend = 0, y = mean_before_raw, yend = mean_before_raw), linetype = "solid", color = "orange", alpha = 0.8, size = 1.2) +
-    geom_segment(aes(x = 0, xend = 36, y = mean_after_raw, yend = mean_after_raw), linetype = "solid", color = "orange", alpha = 0.8, size = 1.2) +
-    scale_x_continuous(breaks = seq(-36, 36, 12),labels = seq(-36, 36, 12),limits = c(-36, 36)) +
+    scale_x_continuous(breaks = seq(-36, 36, 12), labels = seq(-36, 36, 12), limits = c(-36, 36)) +
     labs(
         x = "Months from Event",
         y = "Average Prescription Ratio (Y)",
