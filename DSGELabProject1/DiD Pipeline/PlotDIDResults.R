@@ -319,26 +319,9 @@ create_model_visualization <- function(model, df_model, outdir) {
     combined_plot <- grid.arrange(
         p1, p2, p3, p4, 
         ncol = 2, nrow = 2, 
-        top = paste0("GLM Model Results (Odds Ratios)\n",
-                    "Reference Specialty: '", specialties[1], "', Reference Sex: Male")
+        top = paste0("GLM Model Results (Odds Ratios)\n", "Reference Specialty: '", specialties[1], "', Reference Sex: Male")
     )
-    
-    # Save plots if output directory is provided
-    if (!missing(outdir) && !is.null(outdir)) {
-        ggsave(file.path(outdir, "model_visualization_combined.png"), 
-               combined_plot, width = 16, height = 12, dpi = 300)
-        
-        # Save individual plots
-        ggsave(file.path(outdir, "specialty_baseline_OR.png"), 
-               p1, width = 8, height = 6, dpi = 300)
-        ggsave(file.path(outdir, "period_effects_OR.png"), 
-               p2, width = 8, height = 6, dpi = 300)
-        ggsave(file.path(outdir, "baseline_effects_OR.png"), 
-               p3, width = 8, height = 6, dpi = 300)
-        ggsave(file.path(outdir, "interaction_effects_OR.png"), 
-               p4, width = 8, height = 6, dpi = 300)
-    }
-    
+
     # Return the individual plots and combined plot object
     return(list(
         baseline = p1, 
