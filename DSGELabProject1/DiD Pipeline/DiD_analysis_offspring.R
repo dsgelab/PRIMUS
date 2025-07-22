@@ -213,7 +213,7 @@ df_model = df_complete %>%
         SPECIALTY = factor(SPECIALTY, levels = c("", setdiff(unique(df_complete$SPECIALTY), ""))), # set no specialty as reference
         SEX = factor(SEX, levels = c(1, 2), labels = c("Male", "Female")) # set male as reference
     )
-model_formula = as.formula("Y ~ PERIOD + YEAR + AGE_AT_EVENT + EVENT_YEAR + AGE_IN_2023 + SEX + SPECIALTY + AGE_AT_EVENT:PERIOD + EVENT_YEAR:PERIOD + AGE_IN_2023:PERIOD + SEX:PERIOD + SPECIALTY:PERIOD")
+model_formula = as.formula("Y ~ PERIOD + MONTH + AGE_AT_EVENT + AGE_IN_2023 + SEX + SPECIALTY + AGE_AT_EVENT:PERIOD + AGE_IN_2023:PERIOD + SEX:PERIOD + SPECIALTY:PERIOD")
 model = fixest::feglm(model_formula, family = binomial("logit"), data = df_model, cluster = ~DOCTOR_ID)
 results = data.frame(summary(model)$coeftable)
 write.csv(results, file = paste0(outdir, "/Coef_Model2.csv"), row.names = TRUE)
