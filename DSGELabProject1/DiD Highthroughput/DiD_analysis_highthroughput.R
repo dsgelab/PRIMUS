@@ -42,9 +42,9 @@ event_source = event_code_parts[1]
 event_code_prefix = event_code_parts[2]
 event_ids = unique(events[SOURCE == event_source & startsWith(as.character(CODE), event_code_prefix), PATIENT_ID])
 
-# CHECK 1 : if N of events is less than 500, stop the analysis
-cat(paste0("Cases : ", length(event_ids), "\n"))
-cat(paste0("Controls : ", length(doctor_ids)-length(event_ids), "\n"))
+# CHECK 1: if N of events is less than 500, stop the analysis
+cat(paste0("Cases: ", length(event_ids), "\n"))
+cat(paste0("Controls: ", length(setdiff(doctor_ids, event_ids)), "\n"))
 if (length(event_ids) < 500) {
     cat("Number of events (CHECK 1) is less than 500, SKIP ANALYSIS.\n")
     stop("Number of events (CHECK 1) is less than 500, SKIP ANALYSIS.")
@@ -54,19 +54,22 @@ outcomes_cols = c("DOCTOR_ID", "MONTH", "YEAR", paste0("N_", outcome_code), past
 outcomes = read_parquet(outcomes_file, col_select = outcomes_cols)
 outcomes = as.data.table(outcomes)
 
-# CHECK 2 : if doctor has less than 20 prescriptions for the outcome of interest, remove doctor from analysis
+# CHECK 2: if doctor has less than 20 prescriptions for the outcome of interest, remove doctor from analysis
 prescriptions_per_doctor = outcomes[, .(total_prescriptions = sum(get(paste0("N_", outcome_code)), na.rm = TRUE)), by = DOCTOR_ID]
 doctors_to_keep = prescriptions_per_doctor[total_prescriptions >= 20, DOCTOR_ID]
-event_ids = intersect(intersect(unique(events$PATIENT_ID), doctors_to_keep), doctor_ids)
+
+# Apply both conditions: must have event AND ≥20 prescriptions AND be in doctor list
+event_ids = intersect(intersect(event_ids, doctors_to_keep), doctor_ids)
 control_ids = setdiff(intersect(doctor_ids, doctors_to_keep), event_ids)
 
-# CHECK 1 (again) : if N of events is less than 500, stop the analysis
+# CHECK 1 (again): if N of events is less than 500, stop the analysis
 cat(paste0("Cases, with at least 20 prescriptions of outcome: ", length(event_ids), "\n"))
 cat(paste0("Controls, with at least 20 prescriptions of outcome: ", length(control_ids), "\n"))
 if (length(event_ids) < 500) {
     cat("Number of events (post CHECK 2) is less than 500, SKIP ANALYSIS.\n")
     stop("Number of events (post CHECK 2) is less than 500, SKIP ANALYSIS.")
 }
+
 doctor_ids = c(event_ids, control_ids)
 
 # Prepare outcomes for DiD analysis
