@@ -114,11 +114,14 @@ df_complete = df_complete %>%
 # DiD analysis model
 # - adjusting for age in 2023, sex, specialty + age and year of event
 df_model = df_complete %>%
-    mutate(PERIOD = case_when(
+    mutate(
+        PERIOD = case_when(
             !is.na(EVENT_MONTH) & MONTH < EVENT_MONTH ~ "BEFORE",
             !is.na(EVENT_MONTH) & MONTH > EVENT_MONTH ~ "AFTER",
-            is.na(EVENT_MONTH) ~ NA_character_)) %>% 
-    filter(!is.na(PERIOD)) %>%
+            is.na(EVENT_MONTH) ~ NA_character_),
+        time_from_event = MONTH - EVENT_MONTH
+    ) %>%
+    filter(!is.na(PERIOD), time_from_event >= -36, time_from_event <= 36) %>%
     mutate(
         PERIOD = factor(PERIOD, levels = c("BEFORE", "AFTER")), # set BEFORE as reference
         SPECIALTY = factor(SPECIALTY, levels = c("", setdiff(unique(df_complete$SPECIALTY), ""))), # set no specialty as reference
@@ -127,7 +130,7 @@ df_model = df_complete %>%
 
 # Create the outcome variable name dynamically
 outcome_var = paste0("Y_", outcome_code)
-model_formula = as.formula("Y ~ AGE_IN_2023 + AGE_AT_EVENT + EVENT_YEAR + SEX + SPECIALTY + PERIOD + AGE_IN_2023:PERIOD + AGE_AT_EVENT:PERIOD + EVENT_YEAR:PERIOD + SEX:PERIOD + SPECIALTY:PERIOD")
+model_formula = as.formula(paste0(outcome_var, " ~ PERIOD + MONTH + AGE_IN_2023 + AGE_AT_EVENT + SEX + SPECIALTY + AGE_IN_2023:PERIOD + AGE_AT_EVENT:PERIOD + EVENT_YEAR:PERIOD + SEX:PERIOD + SPECIALTY:PERIOD"))
 model = fixest::feols(model_formula, data = df_model, vcov = ~DOCTOR_ID)
 
 options(marginaleffects_parallel = TRUE)
