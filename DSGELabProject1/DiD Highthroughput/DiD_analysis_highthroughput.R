@@ -130,7 +130,7 @@ df_model = df_complete %>%
 
 # Create the outcome variable name dynamically
 outcome_var = paste0("Y_", outcome_code)
-model_formula = as.formula(paste0(outcome_var, " ~ PERIOD + MONTH + AGE_IN_2023 + AGE_AT_EVENT + SEX + SPECIALTY + AGE_IN_2023:PERIOD + AGE_AT_EVENT:PERIOD + EVENT_YEAR:PERIOD + SEX:PERIOD + SPECIALTY:PERIOD"))
+model_formula = as.formula(paste0(outcome_var, " ~ PERIOD + MONTH + AGE_IN_2023 + AGE_AT_EVENT + SEX + SPECIALTY + AGE_IN_2023:PERIOD + AGE_AT_EVENT:PERIOD + SEX:PERIOD + SPECIALTY:PERIOD"))
 model = fixest::feols(model_formula, data = df_model, vcov = ~DOCTOR_ID)
 
 options(marginaleffects_parallel = TRUE)
