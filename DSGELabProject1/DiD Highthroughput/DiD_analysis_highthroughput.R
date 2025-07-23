@@ -82,6 +82,7 @@ setnames(events, "PATIENT_ID", "DOCTOR_ID")
 # Convert to tibble for dplyr operations
 df_merged = as_tibble(outcomes) %>%
     left_join(as_tibble(events), by = "DOCTOR_ID") %>%
+    filter(DOCTOR_ID %in% doctor_ids) %>%
     mutate(
         DATE = as.Date(DATE),
         EVENT = if_else(!is.na(DATE), 1, 0),
@@ -144,7 +145,7 @@ effect_size = marginal$estimate
 p_value = marginal$p.value
 ci_lower = marginal$conf.low
 ci_upper = marginal$conf.high
-n_cases = length(unique(event_ids))
-n_controls = length(unique(control_ids))
+n_cases = length(unique(df_complete$DOCTOR_ID[df_complete$EVENT == 1]))
+n_controls = length(unique(df_complete$DOCTOR_ID[df_complete$EVENT == 0]))
 
 cat(paste(event_code, outcome_code, effect_size, p_value, ci_lower, ci_upper, n_cases, n_controls, sep = ","), "\n", file = results_file, append = TRUE)
