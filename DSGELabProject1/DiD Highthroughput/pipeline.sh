@@ -107,7 +107,14 @@ for event_code in "${event_codes[@]}"; do
         pair_count=$((pair_count + 1))
         echo ""
         echo "--- Pair $pair_count: $event_code -> $outcome_code ---"
-         
+
+        # Check if this pair already exists in the results file (skip header)
+        if grep -q "^${event_code},${outcome_code}," "$results_file"; then
+            echo "Pair already analyzed, skipping..."
+            successful_pairs=$((successful_pairs + 1))
+            continue
+        fi
+
         pair_start_time=$SECONDS
 
         # Run DiD analysis and save results to results file
@@ -119,12 +126,12 @@ for event_code in "${event_codes[@]}"; do
             "$list_of_doctors" \
             "$covariates" \
             "$results_file"
-        
+
         exit_code=$?
-        
+
         pair_end_time=$SECONDS
         pair_duration=$((pair_end_time - pair_start_time))
-        
+
         if [[ $exit_code -eq 0 ]]; then
             echo "✓ Pair completed successfully in $pair_duration seconds"
             successful_pairs=$((successful_pairs + 1))
