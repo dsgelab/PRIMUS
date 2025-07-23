@@ -259,12 +259,26 @@ p_centered_subset <- ggplot(plot_data, aes(x = time_from_event)) +
     theme_minimal()
 ggsave(filename = file.path(outdir, "Plot_Model2_adjusted.png"), plot = p_centered_subset, width = 10, height = 12)
 
-# PLOT 2: usa external function
-source("/media/volume/Projects/DSGELabProject1/DiD_Pipeline/PlotDIDResults.R")
-plots <- create_model_visualization(model, df_model, outdir)
+# Export summary of results
+.libPaths("/shared-directory/sd-tools/apps/R/lib/")
+library(marginaleffects)
 
-ggsave(filename = file.path(outdir, "Model_Results_Comprehensive.png"), plot = plots$combined, width = 16, height = 12, dpi = 300)
-ggsave(filename = file.path(outdir, "Baseline_Differences.png"), plot = plots$baseline, width = 8, height = 6)
-ggsave(filename = file.path(outdir, "Period_Effects.png"), plot = plots$period, width = 8, height = 6)
-ggsave(filename = file.path(outdir, "Age_Sex_Baseline.png"), plot = plots$age_sex_baseline, width = 8, height = 6)
-ggsave(filename = file.path(outdir, "Age_Sex_Interactions.png"), plot = plots$age_sex_interactions, width = 8, height = 6)
+options(marginaleffects_parallel = TRUE)
+marginal = avg_slopes(model, variables = "PERIOD")
+
+# Save results
+effect_size = marginal$estimate
+p_value = marginal$p.value
+ci_lower = marginal$conf.low
+ci_upper = marginal$conf.high
+n_cases = df_complete %>% filter(EVENT == 1) %>% pull(DOCTOR_ID) %>% unique() %>% length()
+n_controls = df_complete %>% filter(EVENT == 0) %>% pull(DOCTOR_ID) %>% unique() %>% length()
+results_summary = data.frame(
+    effect_size = effect_size,
+    p_value = p_value,
+    ci_lower = ci_lower,
+    ci_upper = ci_upper,
+    n_cases = n_cases,
+    n_controls = n_controls
+)
+write.csv(results_summary, file = paste0(outdir, "/results_summary.csv"), row.names = FALSE)
