@@ -23,7 +23,7 @@ from time import time
 from datetime import datetime
 import numpy as np
 import shap
-from argparse_utils import probability
+from argparse_utils import probability, probability_or_auto
 from utils import format_seconds_to_hms
 from matplotlib.backends.backend_pdf import PdfPages
 
@@ -153,7 +153,20 @@ def plot_shap_beeswarm(shap_values, max_display, ax=None, suffix=""):
 
 
 def save_plots_to_pdf(
-    pdf_path, y_pred, y_test, ind_samples, auprcs, aucs, positive_rate, prob_class0, prob_class1, cm, shap_values, shap_max_display, calculate_shap, suffix=""
+    pdf_path,
+    y_pred,
+    y_test,
+    ind_samples,
+    auprcs,
+    aucs,
+    positive_rate,
+    prob_class0,
+    prob_class1,
+    cm,
+    shap_values,
+    shap_max_display,
+    calculate_shap,
+    suffix="",
 ):
     plot_funcs = [
         (
@@ -165,10 +178,12 @@ def save_plots_to_pdf(
         (plot_confusion_matrix, dict(cm=cm, suffix=suffix)),
     ]
     if calculate_shap:
-        plot_funcs.extend([
-            (plot_shap_bar, dict(shap_values=shap_values, max_display=shap_max_display, suffix=suffix)),
-            (plot_shap_beeswarm, dict(shap_values=shap_values, max_display=shap_max_display, suffix=suffix))
-        ])
+        plot_funcs.extend(
+            [
+                (plot_shap_bar, dict(shap_values=shap_values, max_display=shap_max_display, suffix=suffix)),
+                (plot_shap_beeswarm, dict(shap_values=shap_values, max_display=shap_max_display, suffix=suffix)),
+            ]
+        )
     with PdfPages(pdf_path) as pdf:
         for func, kwargs in plot_funcs:
             fig, ax = plt.subplots(figsize=(8, 6))
@@ -180,6 +195,17 @@ def save_plots_to_pdf(
 
 def predict_proba(model, X):
     return model.predict_proba(X)[:, 1]
+
+
+def get_shap_sample_size(test_len, shap_dsize):
+    """
+    Get the sample size for which SHAP values will be calculated. If auto is selected, clamps the value between 5000 and 100000.
+    """
+    if shap_dsize == "auto":
+        shap_min = min(5000, test_len)
+        shap_max = min(100000, test_len)
+        return max(shap_min, min(int(0.5 * test_len), shap_max))
+    return int(shap_dsize * test_len)
 
 
 def train():
@@ -218,7 +244,10 @@ def train():
         default="auto",
     )
     parser.add_argument(
-        "--shapdsize", help="Proportion of the test data to be used for estimating SHAP values (default=1).", type=probability, default=1
+        "--shapdsize",
+        help="Proportion of the test data to be used for estimating SHAP values (default=1, or 'auto' for 50%% clamped between 5000 and 100000).",
+        type=probability_or_auto,
+        default=1,
     )
     parser.add_argument(
         "--fitlc", help="Whether to fit a learning curve (default=1). Only used if --mode is 'train'.", type=int, choices=[1, 0], default=1
@@ -240,7 +269,9 @@ def train():
         type=str,
         default=None,
     )
-    parser.add_argument("--shap", help="Whether to calculate shap values (default=1). 1 to calculate, 0 to skip.", type=int, choices=[1, 0], default=1)
+    parser.add_argument(
+        "--shap", help="Whether to calculate shap values (default=1). 1 to calculate, 0 to skip.", type=int, choices=[1, 0], default=1
+    )
 
     args = parser.parse_args()
 
@@ -257,26 +288,13 @@ def train():
         df_test = df_test.dropna().reset_index(drop=True)
     print(f"Test set size: {len(df_test)}/{test_len} ({round(len(df_test) / test_len * 100, 2)}%)\n")
 
-    summary_df = pd.DataFrame(
-        {
-            "statistic": [
-                "suffix",
-                "testfile",
-                "test_size",
-                "shap_size",
-                "dropna",
-                "trainset_proportion",
-            ],
-            "value": [
-                args.suffix,
-                args.testfile,
-                len(df_test),
-                args.shapdsize,
-                args.dropna,
-                args.dsize,
-            ],
-        }
-    )
+    summary_list = [
+        ("suffix", args.suffix),
+        ("testfile", args.testfile),
+        ("test_size", len(df_test)),
+        ("dropna", args.dropna),
+        ("trainset_proportion", args.dsize),
+    ]
     current_datetime = datetime.now().strftime("%Y-%m-%d-%H%M")
     suffix = "" if args.suffix == "" else f"_{args.suffix}"
     plot_suffix = "" if args.suffix == "" else f" ({args.suffix})"
@@ -350,34 +368,16 @@ def train():
         print(f"\nTrain AUPRC: {auprc_train:.3f}")
         print(f"Validation AUPRC: {auprc_val:.3f}\n")
 
-        # Summarize statistics to a file
-        summary_df = pd.concat(
+        summary_list.extend(
             [
-                summary_df,
-                pd.DataFrame(
-                    {
-                        "statistic": [
-                            "balanced",
-                            "nsearch",
-                            "search_improvement",
-                            "train_AUPRC",
-                            "val_AUPRC",
-                            "trainfile",
-                            "train_size",
-                        ],
-                        "value": [
-                            args.balanced,
-                            args.nsearch,
-                            search_improvement,
-                            auprc_train,
-                            auprc_val,
-                            args.trainfile,
-                            len(df_train),
-                        ],
-                    }
-                ),
-            ],
-            ignore_index=True,
+                ("balanced", args.balanced),
+                ("nsearch", args.nsearch),
+                ("search_improvement", search_improvement),
+                ("train_AUPRC", auprc_train),
+                ("val_AUPRC", auprc_val),
+                ("trainfile", args.trainfile),
+                ("train_size", len(df_train)),
+            ]
         )
 
         # Plot learning curve
@@ -404,18 +404,7 @@ def train():
     elif args.mode == "test":
         with open(args.modelfile, "rb") as f:
             model = pickle.load(f)
-        summary_df = pd.concat(
-            [
-                summary_df,
-                pd.DataFrame(
-                    {
-                        "statistic": ["model_file"],
-                        "value": [args.modelfile],
-                    }
-                ),
-            ],
-            ignore_index=True,
-        )
+        summary_list.append(("model_file", args.modelfile))
         if args.testfileorig is not None:
             # Align test columns to match the original test file
             df_test_orig = pd.read_csv(args.testfileorig)
@@ -476,13 +465,14 @@ def train():
     mean_auprc = np.mean(bootstrapped_auprcs)
 
     CI = int((1 - alpha) * 100)
-    auprc_df = pd.DataFrame(
-        {
-            "statistic": ["mean_auprc", f"lower_ci_auprc_{CI}", f"upper_ci_auprc_{CI}"],
-            "value": [mean_auprc, confidence_lower_auprc, confidence_upper_auprc],
-        }
+    summary_list.extend(
+        [
+            ("mean_AUPRC", mean_auprc),
+            (f"lower_CI_AUPRC_{CI}", confidence_lower_auprc),
+            (f"upper_CI_AUPRC_{CI}", confidence_upper_auprc),
+            ("positive_rate", positive_rate),
+        ]
     )
-    summary_df = pd.concat([summary_df, auprc_df], ignore_index=True)
 
     # Probability densities of predicted probabilities
     prob_class0 = y_pred[y_test == 0]
@@ -505,23 +495,22 @@ def train():
 
     # Prediction bias
     pred_bias = np.mean(y_pred) - np.mean(y_test)
-    summary_df.loc[len(summary_df)] = ["pred_bias", pred_bias]
     print(f"Prediction bias: {pred_bias:.4f}\n")
 
     # Accuracy & F1 score
     accuracy = accuracy_score(y_test, y_pred_int)
     f1 = f1_score(y_test, y_pred_int)
-    summary_df = pd.concat([summary_df, pd.DataFrame({"statistic": ["accuracy", "f1_score"], "value": [accuracy, f1]})], ignore_index=True)
+    summary_list.extend([("prediction_bias", pred_bias), ("accuracy", accuracy), ("f1_score", f1)])
 
     # Shap values
     shap_values = None
+    n_shap = None
     shap_max_display = 25
     if args.shap == 1:
-        bool_cols = X_test.select_dtypes(include="bool").columns
-        X_test[bool_cols] = X_test[bool_cols].astype(int)  # Convert boolean columns to integers, as required by SHAP
-        X_test = X_test.sample(frac=args.shapdsize, random_state=seed)  # Add random_state for reproducibility
-        explainer = shap.Explainer(model, X_test, seed=seed)
-        shap_values = explainer(X_test)
+        n_shap = get_shap_sample_size(len(X_test), args.shapdsize)
+        X_test_shap = X_test.sample(n=n_shap, random_state=seed)
+        explainer = shap.Explainer(model, X_test_shap, seed=seed)
+        shap_values = explainer(X_test_shap)
 
         ax = plot_shap_bar(shap_values, max_display=shap_max_display, suffix=plot_suffix)
         savefig(f"{args.outdir}/xgb{suffix}_shap_bar_{current_datetime}.png", ax=ax)
@@ -553,12 +542,13 @@ def train():
     print(f"Current date and time: {current_datetime}")
 
     execution_time = time() - start_time
-    summary_df.loc[len(summary_df)] = ["exec_time_sec", execution_time]
+    summary_list.extend([("exec_time_sec", execution_time), ("shap_sample_size", n_shap)])
 
-    summary_df.to_csv(f"{args.outdir}/xgb{suffix}_summary_{current_datetime}.csv", index=False)
+    pd.DataFrame(summary_list, columns=["statistic", "value"]).to_csv(f"{args.outdir}/xgb{suffix}_summary_{current_datetime}.csv", index=False)
     print("Summary saved.")
 
     print(f"Script finished in {format_seconds_to_hms(execution_time)}.")
+
 
 if __name__ == "__main__":
     train()

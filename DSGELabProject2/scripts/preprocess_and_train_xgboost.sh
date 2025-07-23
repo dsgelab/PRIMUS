@@ -34,7 +34,7 @@ else
     suffix="$icd10_code_no_dot"
 fi
 python3 train_xgboost.py --outdir XGBoost/results --trainfile XGBoost/xgboost_train_"$icd10_code_no_dot".csv --testfile XGBoost/xgboost_test_"$icd10_code_no_dot".csv \
-    --balanced 0 --dropna 0 --valsize 0.1 --dsize 1 --nproc 16 --nsearch 100 --shapdsize 0.5 --fitlc 1 --suffix "$suffix" --mode "$mode" \
+    --balanced 0 --dropna 0 --valsize 0.1 --dsize 1 --nproc 16 --nsearch 100 --shapdsize auto --fitlc 1 --suffix "$suffix" --mode "$mode" \
     --modelfile XGBoost/results/xgb_model_2025-07-17-1457.pkl --testfileorig XGBoost/xgboost_test_all.csv
 
 end_time=$(date +%s)
