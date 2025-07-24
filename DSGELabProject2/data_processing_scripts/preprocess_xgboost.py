@@ -37,8 +37,8 @@ def preprocess_data(test_size, categorical_encoding, outdir, user_suffix, input_
     df["MONTH"] = df["VISIT_DATE"].dt.month
     df["WEEKDAY"] = df["VISIT_DATE"].dt.weekday
     df["LANGUAGE_DOC"] = fct_lump_min(df["LANGUAGE_DOC"], 0.01 * len(df))
-    disease_history_cols = df.columns[df.columns.str.startswith("HAD_")].tolist()
-    medication_history_cols = df.columns[df.columns.str.startswith("GOT_")].tolist()
+    disease_history_cols = df.columns[df.columns.str.startswith("HAD_ICD10_")].tolist()
+    medication_history_cols = df.columns[df.columns.str.startswith("GOT_ATC_")].tolist()
     print("disease_history_cols: ", len(disease_history_cols))
     print("medication_history_cols: ", len(medication_history_cols))
     df = df[
@@ -47,12 +47,12 @@ def preprocess_data(test_size, categorical_encoding, outdir, user_suffix, input_
             "WEEKDAY",
             "SPECIALTY",
             "LANGUAGE_DOC",
-            "AGE_DOC",
+            "AGE_AT_VISIT_DOC",
             "SEX_DOC",
             "HOME_REGION_DOC",
             "SEX_PAT",
             "HOME_REGION_PAT",
-            "AGE_PAT",
+            "AGE_AT_VISIT_PAT",
             "BIRTH_YEAR_DOC",
             "BIRTH_YEAR_PAT",
             "MEAN_YEARLY_DIAGNOSES",

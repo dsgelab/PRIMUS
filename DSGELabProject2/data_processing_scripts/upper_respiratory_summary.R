@@ -208,8 +208,8 @@ prescription_rate <- prescription_rate_init %>%
     left_join(doctor, by = "DOCTOR_ID") %>%
     left_join(patient, by = c("DOCTOR_ID" = "PATIENT_ID")) %>%  # Doctors are also patients
     left_join(patient, by = "PATIENT_ID", suffix = c("_DOC", "_PAT")) %>%
-    mutate(AGE_DOC = calc_age(BIRTH_DATE_DOC, VISIT_DATE)) %>%
-    mutate(AGE_PAT = calc_age(BIRTH_DATE_PAT, VISIT_DATE)) %>%
+    mutate(AGE_AT_VISIT_DOC = calc_age(BIRTH_DATE_DOC, VISIT_DATE)) %>%
+    mutate(AGE_AT_VISIT_PAT = calc_age(BIRTH_DATE_PAT, VISIT_DATE)) %>%
     inner_join(diag_history_pat, by = "PATIENT_ID") %>%
     inner_join(pres_history_pat, by = "PATIENT_ID") %>%
     left_join(diag_history_doc, by = c("DOCTOR_ID", "VISIT_DATE"), suffix = c("_PAT", "_DOC")) %>%
@@ -400,7 +400,7 @@ yearly_rate_plot <- ggplot(yearly_rate, aes(x = YEAR, y = PRESCRIBED_RATE)) +
 yearly_rate_plot
 
 # Histogram of ages
-age_doc_pres_plot <- ggplot(prescription_rate %>% filter(!is.na(AGE_DOC)), aes(x = AGE_DOC, fill = factor(PRESCRIBED))) +
+age_doc_pres_plot <- ggplot(prescription_rate %>% filter(!is.na(AGE_AT_VISIT_DOC)), aes(x = AGE_AT_VISIT_DOC, fill = factor(PRESCRIBED))) +
     geom_density(
         alpha = 0.4,
     ) +
@@ -418,14 +418,14 @@ age_doc_pres_plot <- ggplot(prescription_rate %>% filter(!is.na(AGE_DOC)), aes(x
 age_doc_pres_plot
 
 rate_by_age_doc <- prescription_rate %>%
-    filter(AGE_DOC < 90 & AGE_DOC > 20) %>%
+    filter(AGE_AT_VISIT_DOC < 90 & AGE_AT_VISIT_DOC > 20) %>%
     # Discretize doctor age to bins of 5 years
     mutate(
         AGE_BIN_DOC = cut(
-            AGE_DOC,
-            breaks = seq(from = floor(min(AGE_DOC) / 5) * 5, to = ceiling(max(AGE_DOC) / 5) * 5, by = 5),
-            labels = paste0(seq(floor(min(AGE_DOC) / 5) * 5, ceiling(max(AGE_DOC) / 5) * 5 - 5, by = 5), "-",
-                            seq(floor(min(AGE_DOC) / 5) * 5 + 4, ceiling(max(AGE_DOC) / 5) * 5 - 1, by = 5)),
+            AGE_AT_VISIT_DOC,
+            breaks = seq(from = floor(min(AGE_AT_VISIT_DOC) / 5) * 5, to = ceiling(max(AGE_AT_VISIT_DOC) / 5) * 5, by = 5),
+            labels = paste0(seq(floor(min(AGE_AT_VISIT_DOC) / 5) * 5, ceiling(max(AGE_AT_VISIT_DOC) / 5) * 5 - 5, by = 5), "-",
+                            seq(floor(min(AGE_AT_VISIT_DOC) / 5) * 5 + 4, ceiling(max(AGE_AT_VISIT_DOC) / 5) * 5 - 1, by = 5)),
             right = FALSE
         )
     ) %>%
@@ -668,7 +668,7 @@ rate_by_lang_plot <- ggplot(rate_by_language %>% filter(TOTAL > 10000), aes(x = 
 rate_by_lang_plot
 
 # Histogram of patient ages
-age_pat_freq_plot <- ggplot(prescription_rate %>% filter(!is.na(AGE_PAT)), aes(x = AGE_PAT)) +
+age_pat_freq_plot <- ggplot(prescription_rate %>% filter(!is.na(AGE_AT_VISIT_PAT)), aes(x = AGE_AT_VISIT_PAT)) +
     geom_histogram(binwidth = 2) +
     labs(
         title = "Age Distribution of Patients Diagnosed with J06.9",
@@ -709,7 +709,7 @@ pat_sex_freq_plot <- prescription_rate %>%
 pat_sex_freq_plot
 
 # Histogram of doctor ages
-age_doc_freq_plot <- ggplot(prescription_rate %>% filter(!is.na(AGE_DOC)), aes(x = AGE_DOC)) +
+age_doc_freq_plot <- ggplot(prescription_rate %>% filter(!is.na(AGE_AT_VISIT_DOC)), aes(x = AGE_AT_VISIT_DOC)) +
     geom_histogram(binwidth = 2) +
     labs(
         title = "Age Distribution of Doctors Diagnosing J06.9",
@@ -754,7 +754,7 @@ doc_sex_freq_plot <- ggplot(doc_sex_freq, aes(x = "", y = PERCENTAGE, fill = fac
 doc_sex_freq_plot
 
 # Histogram of patient ages given prescription status
-age_pat_pres_plot <- ggplot(prescription_rate %>% filter(!is.na(AGE_PAT)), aes(x = AGE_PAT, fill = factor(PRESCRIBED))) +
+age_pat_pres_plot <- ggplot(prescription_rate %>% filter(!is.na(AGE_AT_VISIT_PAT)), aes(x = AGE_AT_VISIT_PAT, fill = factor(PRESCRIBED))) +
     geom_density(
         alpha = 0.4,
     ) +
@@ -773,13 +773,13 @@ age_pat_pres_plot
 
 # Prescription rate by patient age
 rate_by_age_pat <- prescription_rate %>%
-    filter(!is.na(AGE_PAT) & AGE_PAT < 100) %>%
+    filter(!is.na(AGE_AT_VISIT_PAT) & AGE_AT_VISIT_PAT < 100) %>%
     mutate(
         AGE_BIN_PAT = cut(
-            AGE_PAT,
-            breaks = seq(from = floor(min(AGE_PAT) / 5) * 5, to = ceiling(max(AGE_PAT) / 5) * 5, by = 5),
-            labels = paste0(seq(floor(min(AGE_PAT) / 5) * 5, ceiling(max(AGE_PAT) / 5) * 5 - 5, by = 5), "-",
-                            seq(floor(min(AGE_PAT) / 5) * 5 + 4, ceiling(max(AGE_PAT) / 5) * 5 - 1, by = 5)),
+            AGE_AT_VISIT_PAT,
+            breaks = seq(from = floor(min(AGE_AT_VISIT_PAT) / 5) * 5, to = ceiling(max(AGE_AT_VISIT_PAT) / 5) * 5, by = 5),
+            labels = paste0(seq(floor(min(AGE_AT_VISIT_PAT) / 5) * 5, ceiling(max(AGE_AT_VISIT_PAT) / 5) * 5 - 5, by = 5), "-",
+                            seq(floor(min(AGE_AT_VISIT_PAT) / 5) * 5 + 4, ceiling(max(AGE_AT_VISIT_PAT) / 5) * 5 - 1, by = 5)),
             right = FALSE
         )
     ) %>%
@@ -837,9 +837,10 @@ rate_by_sex_pat_plot <- ggplot(rate_by_sex_pat, aes(x = factor(SEX_PAT), y = PRE
 rate_by_sex_pat_plot
 
 # Prevalence of different diseases for patients with J06.9
+patient_disease_pattern <- "^HAD_ICD10.*PAT$"
 disease_prevalence_pat <- prescription_rate %>%
-    summarize(across(matches("^HAD_.*PAT$"), ~ mean(.x) * 100)) %>%
-    pivot_longer(cols = matches("^HAD_.*PAT$"), names_to = "DISEASE_HISTORY", values_to = "PREVALENCE") %>%
+    summarize(across(matches(patient_disease_pattern), ~ mean(.x) * 100)) %>%
+    pivot_longer(cols = matches(patient_disease_pattern), names_to = "DISEASE_HISTORY", values_to = "PREVALENCE") %>%
     mutate(DISEASE_HISTORY = str_sub(DISEASE_HISTORY, 5, 5))
 
 disease_prevalence_pat_plot <- ggplot(disease_prevalence_pat, aes(x = DISEASE_HISTORY, y = PREVALENCE)) +
@@ -853,7 +854,7 @@ disease_prevalence_pat_plot <- ggplot(disease_prevalence_pat, aes(x = DISEASE_HI
 disease_prevalence_pat_plot
 
 rate_by_diag_history_pat <- prescription_rate %>%
-    pivot_longer(cols = matches("^HAD_.*PAT$"),
+    pivot_longer(cols = matches(patient_disease_pattern),
                 names_to = "DISEASE_INDICATOR",
                 values_to = "INDICATOR_VALUE") %>%
     group_by(DISEASE_INDICATOR, INDICATOR_VALUE) %>%
@@ -883,9 +884,10 @@ rate_by_diag_history_pat_plot <-
 rate_by_diag_history_pat_plot
 
 # Prevalence of different prescriptions for patients with J06.9
+patient_prescription_pattern <- "^GOT_ATC_.*PAT$"
 prescription_prevalence_pat <- prescription_rate %>%
-    summarize(across(matches("^GOT_.*PAT$"), ~ mean(.x) * 100)) %>%
-    pivot_longer(cols = matches("^GOT_.*PAT$"), names_to = "PRESCRIPTION_HISTORY", values_to = "PREVALENCE") %>%
+    summarize(across(matches(patient_prescription_pattern), ~ mean(.x) * 100)) %>%
+    pivot_longer(cols = matches(patient_prescription_pattern), names_to = "PRESCRIPTION_HISTORY", values_to = "PREVALENCE") %>%
     mutate(PRESCRIPTION_HISTORY = str_sub(PRESCRIPTION_HISTORY, 5, 5))
 
 prescription_prevalence_pat_plot <- ggplot(prescription_prevalence_pat, aes(x = PRESCRIPTION_HISTORY, y = PREVALENCE)) +
@@ -899,7 +901,7 @@ prescription_prevalence_pat_plot <- ggplot(prescription_prevalence_pat, aes(x = 
 prescription_prevalence_pat_plot
 
 rate_by_pres_history_pat <- prescription_rate %>%
-    pivot_longer(cols = matches("^GOT_.*PAT$"),
+    pivot_longer(cols = matches(patient_prescription_pattern),
                 names_to = "MEDICATION_INDICATOR",
                 values_to = "INDICATOR_VALUE") %>%
     group_by(MEDICATION_INDICATOR, INDICATOR_VALUE) %>%
@@ -929,10 +931,11 @@ rate_by_pres_history_pat_plot
 
 # Prevalence of different diseases for doctors with J06.9
 
+doctor_disease_pattern <- "^HAD_ICD10.*DOC$"
 disease_prevalence_doc <- prescription_rate %>%
-    filter(!is.na(HAD_A_DOC)) %>%
-    summarize(across(matches("^HAD_.*DOC$"), ~ mean(.x) * 100)) %>%
-    pivot_longer(cols = matches("^HAD_.*DOC$"), names_to = "DISEASE_HISTORY", values_to = "PREVALENCE") %>%
+    filter(!is.na(HAD_ICD10_A_DOC)) %>%
+    summarize(across(matches(doctor_disease_pattern), ~ mean(.x) * 100)) %>%
+    pivot_longer(cols = matches(doctor_disease_pattern), names_to = "DISEASE_HISTORY", values_to = "PREVALENCE") %>%
     mutate(DISEASE_HISTORY = str_sub(DISEASE_HISTORY, 5, 5))
 
 disease_prevalence_doc_plot <- ggplot(disease_prevalence_doc, aes(x = DISEASE_HISTORY, y = PREVALENCE)) +
@@ -946,8 +949,8 @@ disease_prevalence_doc_plot <- ggplot(disease_prevalence_doc, aes(x = DISEASE_HI
 disease_prevalence_doc_plot
 
 rate_by_diag_history_doc <- prescription_rate %>%
-    filter(!is.na(HAD_A_DOC)) %>%
-    pivot_longer(cols = matches("^HAD_.*DOC$"),
+    filter(!is.na(HAD_ICD10_A_DOC)) %>%
+    pivot_longer(cols = matches(doctor_disease_pattern),
                 names_to = "DISEASE_INDICATOR",
                 values_to = "INDICATOR_VALUE") %>%
     group_by(DISEASE_INDICATOR, INDICATOR_VALUE) %>%
@@ -980,10 +983,11 @@ rate_by_diag_history_doc_plot <- ggplot(rate_by_diag_history_doc, aes(x = reorde
 rate_by_diag_history_doc_plot
 
 # Prevalence of different prescriptions for doctors with J06.9
+doctor_prescription_pattern <- "^GOT_ATC_.*DOC$"
 prescription_prevalence_doc <- prescription_rate %>%
-    filter(!is.na(GOT_A_DOC)) %>%
-    summarize(across(matches("^GOT_.*DOC$"), ~ mean(.x) * 100)) %>%
-    pivot_longer(cols = matches("^GOT_.*DOC$"), names_to = "PRESCRIPTION_HISTORY", values_to = "PREVALENCE") %>%
+    filter(!is.na(GOT_ATC_A_DOC)) %>%
+    summarize(across(matches(doctor_prescription_pattern), ~ mean(.x) * 100)) %>%
+    pivot_longer(cols = matches(doctor_prescription_pattern), names_to = "PRESCRIPTION_HISTORY", values_to = "PREVALENCE") %>%
     mutate(PRESCRIPTION_HISTORY = str_sub(PRESCRIPTION_HISTORY, 5, 5))
 
 prescription_prevalence_doc_plot <- ggplot(prescription_prevalence_doc, aes(x = PRESCRIPTION_HISTORY, y = PREVALENCE)) +
@@ -997,8 +1001,8 @@ prescription_prevalence_doc_plot <- ggplot(prescription_prevalence_doc, aes(x = 
 prescription_prevalence_doc_plot
 
 rate_by_pres_history_doc <- prescription_rate %>%
-    filter(!is.na(GOT_A_DOC)) %>%
-    pivot_longer(cols = matches("^GOT_.*DOC$"),
+    filter(!is.na(GOT_ATC_A_DOC)) %>%
+    pivot_longer(cols = matches(doctor_prescription_pattern),
                 names_to = "MEDICATION_INDICATOR",
                 values_to = "INDICATOR_VALUE") %>%
     group_by(MEDICATION_INDICATOR, INDICATOR_VALUE) %>%
@@ -1090,10 +1094,10 @@ rate_by_past_pres_plot
 
 # Scatter plot of doctor age vs. visit date, colored by prescription
 age_doc_vs_visitdate_sample <- prescription_rate %>%
-    filter(!is.na(AGE_DOC))
+    filter(!is.na(AGE_AT_VISIT_DOC))
 
 age_doc_vs_visitdate_plot <- ggplot(age_doc_vs_visitdate_sample, 
-                                    aes(x = VISIT_DATE, y = AGE_DOC, color = factor(PRESCRIBED))) +
+                                    aes(x = VISIT_DATE, y = AGE_AT_VISIT_DOC, color = factor(PRESCRIBED))) +
     geom_jitter(alpha = 0.5, width = 0.5, height = 0.5, size = 1) +
     scale_color_manual(
         values = c("0" = "#f4c0bd", "1" = "#91dddf"),
@@ -1113,7 +1117,7 @@ cutoff_date <- as.Date("2016-01-01")
 prescription_rate <- prescription_rate %>%
     mutate(AFTER_CUTOFF = VISIT_DATE > cutoff_date)
 
-age_doc_pres_plot_group <- ggplot(prescription_rate %>% filter(!is.na(AGE_DOC)), aes(x = AGE_DOC, fill = factor(PRESCRIBED))) +
+age_doc_pres_plot_group <- ggplot(prescription_rate %>% filter(!is.na(AGE_AT_VISIT_DOC)), aes(x = AGE_AT_VISIT_DOC, fill = factor(PRESCRIBED))) +
     geom_density(
         alpha = 0.4,
     ) +
