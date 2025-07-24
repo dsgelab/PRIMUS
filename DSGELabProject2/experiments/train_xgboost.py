@@ -58,7 +58,7 @@ def savefig(path, ax=None):
 def plot_precision_recall_curve(y_pred, y_test, ind_samples, auprcs, positive_rate, ax=None, suffix=""):
     if ax is None:
         _, ax = plt.subplots()
-    ax.plot(np.linspace(0, 1), positive_rate * np.ones(50), "--k", label="random, AUPRC=" + str(positive_rate))
+    ax.plot(np.linspace(0, 1), positive_rate * np.ones(50), "--k", label="random, AUPRC=" + str(round(positive_rate, 3)))
     for i, inds in enumerate(ind_samples):
         precision, recall, _ = precision_recall_curve(y_test[inds], y_pred[inds])
         if i == 0:
@@ -74,6 +74,7 @@ def plot_precision_recall_curve(y_pred, y_test, ind_samples, auprcs, positive_ra
     ax.set_title(f"Precision-Recall Curve{suffix}", fontsize=20)
     ax.set_xlabel("recall")
     ax.set_ylabel("precision")
+    ax.set_ylim([0, 1.01])
     ax.legend()
     return ax
 
@@ -91,16 +92,17 @@ def plot_roc_curve(y_pred, y_test, ind_samples, aucs, ax=None, suffix=""):
     ax.set_title(f"ROC Curve{suffix}", fontsize=20)
     ax.set_xlabel("False positive rate")
     ax.set_ylabel("True positive rate")
+    ax.set_ylim([0, 1.01])
     ax.legend()
     return ax
 
 
-def plot_probability_density(prob_class0, prob_class1, positive_rate, ax=None, suffix=""):
+def plot_probability_density(prob_class0, prob_class1, positive_threshold, ax=None, suffix=""):
     if ax is None:
         _, ax = plt.subplots()
     ax.hist(prob_class0, bins=120, alpha=0.5, weights=np.ones(len(prob_class0)) / len(prob_class0), color="red", label="Negative Class (y=0)")
     ax.hist(prob_class1, bins=120, alpha=0.5, weights=np.ones(len(prob_class1)) / len(prob_class1), color="blue", label="Positive Class (y=1)")
-    ax.axvline(positive_rate, color="k", linestyle="dashed", linewidth=2, label=f"Positive Rate={positive_rate}")
+    ax.axvline(positive_threshold, color="k", linestyle="dashed", linewidth=2, label=f"Positive Threshold={positive_threshold:.3f}")
     ax.set_xlabel("Predicted Probability", fontsize=12)
     ax.set_ylabel("Density", fontsize=12)
     ax.set_title(f"Distribution of Predicted Probabilities by True Class{suffix}", fontsize=20)
@@ -160,6 +162,7 @@ def save_plots_to_pdf(
     auprcs,
     aucs,
     positive_rate,
+    positive_threshold,
     prob_class0,
     prob_class1,
     cm,
@@ -174,7 +177,7 @@ def save_plots_to_pdf(
             dict(y_pred=y_pred, y_test=y_test, ind_samples=ind_samples, auprcs=auprcs, positive_rate=positive_rate, suffix=suffix),
         ),
         (plot_roc_curve, dict(y_pred=y_pred, y_test=y_test, ind_samples=ind_samples, aucs=aucs, suffix=suffix)),
-        (plot_probability_density, dict(prob_class0=prob_class0, prob_class1=prob_class1, positive_rate=positive_rate, suffix=suffix)),
+        (plot_probability_density, dict(prob_class0=prob_class0, prob_class1=prob_class1, positive_threshold=positive_threshold, suffix=suffix)),
         (plot_confusion_matrix, dict(cm=cm, suffix=suffix)),
     ]
     if calculate_shap:
@@ -439,7 +442,9 @@ def train():
     for _ in range(num_subsamples):
         ind_samples.append(np.random.choice(len_y_test, int(f * len_y_test), replace=False).tolist())
 
-    positive_rate = round(np.mean(y_test), 3)
+    positive_rate = np.mean(y_test)
+    positive_threshold = positive_rate if args.testfileorig is None else df_test_orig["PRESCRIBED"].mean()
+    print(f'Positive rate: {positive_rate:.3f}, positive threshold: {positive_threshold:.3f}')
 
     # Plot precision-recall curve
     auprcs = [average_precision_score(y_test[inds], y_pred[inds]) for inds in ind_samples]
@@ -471,18 +476,19 @@ def train():
             (f"lower_CI_AUPRC_{CI}", confidence_lower_auprc),
             (f"upper_CI_AUPRC_{CI}", confidence_upper_auprc),
             ("positive_rate", positive_rate),
+            ("positive_threshold", positive_threshold),
         ]
     )
 
     # Probability densities of predicted probabilities
     prob_class0 = y_pred[y_test == 0]
     prob_class1 = y_pred[y_test == 1]
-    ax = plot_probability_density(prob_class0, prob_class1, positive_rate, suffix=plot_suffix)
+    ax = plot_probability_density(prob_class0, prob_class1, positive_threshold, suffix=plot_suffix)
     savefig(f"{args.outdir}/xgb{suffix}_prob_density_{current_datetime}.png", ax=ax)
     print("Probability density plot saved.")
 
     # Confusion matrix
-    y_pred_int = (y_pred > positive_rate).astype(int)
+    y_pred_int = (y_pred > positive_threshold).astype(int)
     cm = confusion_matrix(y_test, y_pred_int)
     ax = plot_confusion_matrix(cm, suffix=plot_suffix)
     savefig(f"{args.outdir}/xgb{suffix}_confusion_matrix_{current_datetime}.png", ax=ax)
@@ -529,6 +535,7 @@ def train():
         auprcs,
         aucs,
         positive_rate,
+        positive_threshold,
         prob_class0,
         prob_class1,
         cm,

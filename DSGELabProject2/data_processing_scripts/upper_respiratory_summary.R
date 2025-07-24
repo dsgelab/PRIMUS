@@ -15,6 +15,7 @@ prescription_file <- get_latest_file("J01Prescriptions")
 doctor_file <- "/media/volume/Projects/DSGELabProject1/doctor_characteristics_20250520.csv"
 patient_file <- "/media/volume/Data/Data_THL_2698_14.02.00_2023/DVV/FD_2698_Tulokset_2024-04-09_HY.csv"
 city_file <- "cities.csv"
+prescription_rate_file <- get_latest_file(paste0(code_no_dot, "DiagnosesWithPrescriptions"))
 diag_history_pat_file <- get_latest_file(paste0(code_no_dot, "PatientDiagnosisHistory"))
 pres_history_pat_file <- get_latest_file(paste0(code_no_dot, "PatientPrescriptionHistory"))
 diag_history_doc_file <- get_latest_file(paste0(code_no_dot, "DoctorDiagnosisHistory"))
@@ -214,6 +215,7 @@ prescription_rate <- prescription_rate_init %>%
     left_join(diag_history_doc, by = c("DOCTOR_ID", "VISIT_DATE"), suffix = c("_PAT", "_DOC")) %>%
     left_join(pres_history_doc, by = c("DOCTOR_ID", "VISIT_DATE"), suffix = c("_PAT", "_DOC"))
 # write.csv(prescription_rate, paste0(code_no_dot, "DiagnosesWithPrescriptions_", current_date, ".csv"), row.names = FALSE)
+# prescription_rate <- fread(prescription_rate_file) %>% as_tibble
 
 # Class imbalance plot
 class_freq <- tibble(
