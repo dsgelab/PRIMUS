@@ -10,7 +10,7 @@ list_of_doctors="$base_dir/doctors_20250424.csv"
 list_of_doctors_spouses_children="$base_dir/doctors_and_spouses+children_20250521.csv"
 diagnosis_file="$base_dir/ProcessedData/AllConnectedDiagnosis_20250528.csv"
 purchases_file="$base_dir/ProcessedData/AllConnectedPurchases_FirstEvents_20250421.csv"
-outcome_file="$base_dir/ProcessedData/imputed_prescriptions_20250501152849.csv.gz"
+outcome_file="/media/volume/Projects/mattferr/did_pipeline/Outcomes_ForRatio_20250506.csv"
 covariates="$base_dir/doctor_characteristics_20250520.csv"
 
 # Event and outcome codes
@@ -61,6 +61,10 @@ echo ""
 echo "=== STEP 2: Processing Outcomes ==="
 step2_start_time=$SECONDS
 
+# Create temp directory for chunked processing
+temp_dir="$processed_outcomes_dir/temp"
+mkdir -p "$temp_dir"
+
 if [[ -f "$processed_outcomes_dir/processed_outcomes.parquet" ]]; then
     echo "Processed outcomes already exist, skipping..."
 else
@@ -68,7 +72,10 @@ else
         --id_list "$list_of_doctors" \
         --outcome_file "$outcome_file" \
         --outcome_codes "$outcome_codes_file" \
-        --outdir "$processed_outcomes_dir"
+        --outdir "$processed_outcomes_dir" \
+        --method chunked \
+        --chunk_size 1000000 \
+        --temp_dir "$temp_dir"
 fi
 
 step2_end_time=$SECONDS
