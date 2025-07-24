@@ -111,8 +111,8 @@ prescription_rate <- prescription_rate_init %>%
     left_join(doctor, by = "DOCTOR_ID") %>%
     left_join(patient, by = c("DOCTOR_ID" = "PATIENT_ID")) %>%  # Doctors are also patients
     left_join(patient, by = "PATIENT_ID", suffix = c("_DOC", "_PAT")) %>%
-    mutate(AGE_DOC = calc_age(BIRTH_DATE_DOC, VISIT_DATE)) %>%
-    mutate(AGE_PAT = calc_age(BIRTH_DATE_PAT, VISIT_DATE)) %>%
+    mutate(AGE_AT_VISIT_DOC = calc_age(BIRTH_DATE_DOC, VISIT_DATE)) %>%
+    mutate(AGE_AT_VISIT_PAT = calc_age(BIRTH_DATE_PAT, VISIT_DATE)) %>%
     inner_join(diag_history_pat, by = "PATIENT_ID") %>%
     inner_join(pres_history_pat, by = "PATIENT_ID") %>%
     left_join(diag_history_doc, by = c("DOCTOR_ID", "VISIT_DATE"), suffix = c("_PAT", "_DOC")) %>%

@@ -42,14 +42,14 @@ diag_history_pat <- diagnosis %>%
     pivot_wider(
         names_from = first_letter,
         values_from = present,
-        names_prefix = "HAD_",
+        names_prefix = "HAD_ICD10_",
         values_fill = 0
     ) %>%
     right_join(
         diagnosis %>% distinct(PATIENT_ID),
         by = "PATIENT_ID"
     ) %>%
-    mutate(across(starts_with("HAD_"), ~ replace_na(., 0)))
+    mutate(across(starts_with("HAD_ICD10_"), ~ replace_na(., 0)))
 diag_history_pat_outfile <- paste0(icd10_code_no_dot, "PatientDiagnosisHistory_", current_date, ".csv")
 write.csv(diag_history_pat, diag_history_pat_outfile, row.names = FALSE)
 print(paste0("Patient diagnosis history saved to ", diag_history_pat_outfile))
@@ -65,14 +65,14 @@ pres_history_pat <- diagnosis %>%
     pivot_wider(
         names_from = first_letter,
         values_from = present,
-        names_prefix = "GOT_",
+        names_prefix = "GOT_ATC_",
         values_fill = 0
     ) %>%
     right_join(
         diagnosis %>% distinct(PATIENT_ID),
         by = "PATIENT_ID"
     ) %>%
-    mutate(across(starts_with("GOT_"), ~ replace_na(., 0)))
+    mutate(across(starts_with("GOT_ATC_"), ~ replace_na(., 0)))
 pres_history_pat_outfile <- paste0(icd10_code_no_dot, "PatientPrescriptionHistory_", current_date, ".csv")
 write.csv(pres_history_pat, pres_history_pat_outfile, row.names = FALSE)
 print(paste0("Patient prescription history saved to ", pres_history_pat_outfile))

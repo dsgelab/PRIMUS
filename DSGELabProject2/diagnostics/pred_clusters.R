@@ -93,8 +93,8 @@ feature_hist_by_pred_class <- function (feature, label) {
 
 # Most important features according to shap values
 feature_cols <- c(
-  "AGE_DOC", "AGE_PAT", "HAD_O_DOC", "SPECIALTY_No_Specialty", "GOT_G_DOC", "GOT_C_DOC", "SEX_DOC_female", "GOT_E_DOC", "GOT_B_DOC", "HAD_C_DOC", "SPECIALTY_General_Medicine",
-  "GOT_P_DOC", "GOT_J_PAT", "HAD_J_DOC", "GOT_R_PAT", "GOT_H_DOC", "MONTH", "HAD_K_DOC", "LANGUAGE_DOC_fi"
+  "AGE_AT_VISIT_DOC", "AGE_AT_VISIT_PAT", "HAD_ICD10_O_DOC", "SPECIALTY_No_Specialty", "GOT_ATC_G_DOC", "GOT_ATC_C_DOC", "SEX_DOC_female", "GOT_ATC_E_DOC", "GOT_ATC_B_DOC", "HAD_ICD10_C_DOC", "SPECIALTY_General_Medicine",
+  "GOT_ATC_P_DOC", "GOT_ATC_J_PAT", "HAD_ICD10_J_DOC", "GOT_ATC_R_PAT", "GOT_ATC_H_DOC", "MONTH", "HAD_ICD10_K_DOC", "LANGUAGE_DOC_fi"
 )
 
 feature_means <- pred %>%
@@ -128,10 +128,10 @@ feature_mean_vars <- pred %>%
   ) %>%
   arrange(desc(SCALED_VARIANCE))
 
-feature_hist_by_pred_class("AGE_DOC", "Doctor Age")
-feature_hist_by_pred_class("AGE_PAT", "Patient Age")
+feature_hist_by_pred_class("AGE_AT_VISIT_DOC", "Doctor Age")
+feature_hist_by_pred_class("AGE_AT_VISIT_PAT", "Patient Age")
 feature_hist_by_pred_class("SEX_DOC_female", "Doctor Sex = Female")
 feature_hist_by_pred_class("SEX_PAT_female", "Patient Sex = Female")
-feature_hist_by_pred_class("HAD_O_DOC", "Doctor had O Diagnosis")
+feature_hist_by_pred_class("HAD_ICD10_O_DOC", "Doctor had O Diagnosis")
 feature_hist_by_pred_class("SPECIALTY_No_Specialty", "Doctor has no specialty")
-feature_hist_by_pred_class("GOT_R_PAT", "Patient was prescribed R")
+feature_hist_by_pred_class("GOT_ATC_R_PAT", "Patient was prescribed R")
