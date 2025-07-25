@@ -8,7 +8,7 @@ source("/media/volume/Projects/mikael/utils.R")
 
 option_list <- list(
     make_option(c("-c", "--icd10_code"), type = "character",
-                help = "ICD10 code to filter diagnoses [default %default]", metavar = "character")
+                help = "ICD10 code to filter diagnoses [default %default]", metavar = "character", default = "J06.9")
 )
 opt_parser <- OptionParser(option_list = option_list)
 opt <- parse_args(opt_parser)
