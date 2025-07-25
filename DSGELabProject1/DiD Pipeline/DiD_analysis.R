@@ -160,6 +160,41 @@ p2_birthyear = ggplot(df_birthyear_sex, aes(x = BIRTH_YEAR, y = mean_Y, color = 
 combined_plot2 = p2_general / p2_specialty / p2_birthyear
 ggsave(filename = file.path(outdir, "distribution_outcomes.png"), plot = combined_plot2, width = 10, height = 12)
 
+# check quantiles of N and Y around the event (apply Bayesian adjustment to Y)
+df_plot = df_complete %>% mutate(time = MONTH - EVENT_MONTH, Y_adj = ifelse(!is.na(N),(Ni+mean(df_complete$Y))/(N+1),Y)) %>%
+    filter(!is.na(time)) %>%
+    filter(time >= -36 & time <= 36) # filter to 3 years before and after event
+percentiles_N = df_plot %>%
+    group_by(time = factor(time)) %>%
+    summarise(
+        p25 = quantile(N, 0.25, na.rm = TRUE),
+        p50 = quantile(N, 0.5, na.rm = TRUE),
+        p75 = quantile(N, 0.75, na.rm = TRUE))
+percentiles_Y = df_plot %>%
+    group_by(time = factor(time)) %>%
+    summarise(
+        p25 = quantile(Y_adj, 0.25, na.rm = TRUE),
+        p50 = quantile(Y_adj, 0.5, na.rm = TRUE),
+        p75 = quantile(Y_adj, 0.75, na.rm = TRUE))
+p2_N = ggplot(percentiles_N, aes(x = time, group = 1)) +
+    geom_line(aes(y = p25), color = "gray40", linetype = "dashed") +
+    geom_line(aes(y = p50), color = "black", size = 1) +
+    geom_line(aes(y = p75), color = "gray40", linetype = "dashed") +
+    geom_vline(xintercept = which(levels(percentiles_N$time) == "0"), linetype = "dashed", color = "red") +
+    labs(title = paste0("Number of Prescriptions N (quartiles),\nFocus on ±3 years for cases who prescribed = ", length(unique(df_plot$DOCTOR_ID))),x = "Months from Event", y = "N") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 8))
+p2_Y = ggplot(percentiles_Y, aes(x = time, group = 1)) +
+    geom_line(aes(y = p25), color = "gray40", linetype = "dashed") +
+    geom_line(aes(y = p50), color = "black", size = 1) +
+    geom_line(aes(y = p75), color = "gray40", linetype = "dashed") +
+    geom_vline(xintercept = which(levels(percentiles_Y$time) == "0"), linetype = "dashed", color = "red") +
+    labs(title = paste0("Population Adjusted Prescription Ratio Y (quartiles),\nFocus on ±3 years for cases who prescribed= ", length(unique(df_plot$DOCTOR_ID))), x = "Months from Event", y = "Population Adjusted Y") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 8))
+combined_plot2 = p2_N / p2_Y
+ggsave(filename = file.path(outdir, "quintiles_outcomes.png"), plot = combined_plot2, width = 10, height = 12)
+
 # DiD analysis model
 
 # Model 1: Comparing prescription ratios in Events vs Non-Events
@@ -251,6 +286,16 @@ p_centered_subset <- ggplot(plot_data, aes(x = time_from_event)) +
     ) +
     theme_minimal()
 ggsave(filename = file.path(outdir, "Plot_Model2_adjusted.png"), plot = p_centered_subset, width = 10, height = 12)
+
+# PLOT 2: Interaction Effects
+source("/media/volume/Projects/DSGELabProject1/DiD_Pipeline/PlotInteractionEffects.R")
+plots <- create_model_visualization(model, df_model, outdir)
+
+ggsave(filename = file.path(outdir, "Model_Results_Comprehensive.png"), plot = plots$combined, width = 16, height = 12, dpi = 300)
+ggsave(filename = file.path(outdir, "Specialty_Baseline_Differences.png"), plot = plots$baseline, width = 8, height = 6)
+ggsave(filename = file.path(outdir, "Specialty_Interactions.png"), plot = plots$period, width = 8, height = 6)
+ggsave(filename = file.path(outdir, "Age_Sex_Baseline.png"), plot = plots$age_sex_baseline, width = 8, height = 6)
+ggsave(filename = file.path(outdir, "Age_Sex_Interactions.png"), plot = plots$age_sex_interactions, width = 8, height = 6)
 
 # Export summary of results
 .libPaths("/shared-directory/sd-tools/apps/R/lib/")
