@@ -42,7 +42,6 @@ print(paste("Number of J01 (antibiotics) prescriptions:", nrow(prescription)))
 diagnosis <- fread(diagnosis_file) %>%
     as_tibble() %>%
     mutate(across(where(is.character), ~ na_if(., ""))) %>%
-    select(PATIENT_ID, VISIT_DATE, ICD10_CODE, SOURCE, DOCTOR_ID) %>%
     filter(VISIT_DATE >= min(prescription$PRESCRIPTION_DATE)) # Only include patients from the same time period as prescriptions
 
 count <- nrow(diagnosis)
@@ -1134,6 +1133,44 @@ age_doc_pres_plot_group <- ggplot(prescription_rate %>% filter(!is.na(AGE_AT_VIS
     facet_wrap(~ AFTER_CUTOFF, labeller = as_labeller(c(`FALSE` = paste0("Visit Date ≤ ", cutoff_date), `TRUE` = paste0("Visit Date > ", cutoff_date)))) +
     plot_theme
 age_doc_pres_plot_group
+
+rate_by_secondary_diag <- prescription_rate %>%
+    filter(!is.na(ICD10_CODE_2ND)) %>%
+    group_by(ICD10_CODE_2ND) %>%
+    summarize(
+        PRESCRIBED = sum(PRESCRIBED),
+        TOTAL = n(),
+        RELATIVE_FREQ = TOTAL / nrow(prescription_rate) * 100
+    ) %>%
+    mutate(PRESCRIBED_RATE = PRESCRIBED / TOTAL * 100) %>%
+    add_binom_interval(count_col = "PRESCRIBED", n_col = "TOTAL")
+
+rate_by_secondary_diag_common <- rate_by_secondary_diag %>%
+    filter(RELATIVE_FREQ > 0.1)
+print(paste0("Coverage of most common secondary diagnoses: ", round(sum(rate_by_secondary_diag_common$RELATIVE_FREQ), 1), "%"))
+
+# Distribution of secondary diagnoses
+secondary_diag_plot <- ggplot(rate_by_secondary_diag_common, aes(x = ICD10_CODE_2ND, y = RELATIVE_FREQ)) +
+    geom_bar(stat = "identity") +
+    labs(
+        title = paste0("Distribution of Most Common Secondary Diagnoses for ", code_no_dot, " Patients"),
+        x = "ICD10 Code",
+        y = "Relative Frequency (%)",
+    ) +
+    plot_theme
+secondary_diag_plot
+
+# Prescription rate by secondary diagnoses
+rate_by_secondary_diag_plot <- ggplot(rate_by_secondary_diag_common, aes(x = reorder(ICD10_CODE_2ND, PRESCRIBED_RATE), y = PRESCRIBED_RATE)) +
+    geom_bar(stat = "identity") +
+    geom_errorbar(aes(ymin = LOWER_BOUND, ymax = UPPER_BOUND), width = 0.2) +
+    labs(
+        title = paste0(code_no_dot, " Prescription Rate by Secondary Diagnosis"),
+        x = "Secondary Diagnosis",
+        y = "Prescription Rate (%)"
+    ) +
+    plot_theme
+rate_by_secondary_diag_plot
 
 # Make a PDF summary of the most important plots
 plot_summary_theme <- theme(

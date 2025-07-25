@@ -1,6 +1,6 @@
 # Info
 # This script joins diagnosis and procedure files to the respective base files (processed_{hilmo|avohilmo}_visits_YYYYMMDD.csv) and saves them to two
-# combined csv files (connected diagnoses and connected procedures). Pipeline diagram in doc/AllConnectedPipeline.png.  The script takes roughly 9,5
+# combined csv files (connected diagnoses and connected procedures). Pipeline diagram in doc/AllConnectedPipeline.png. The script takes roughly 23
 # hours to run. Assumes that you have already run the join_doctors_to_base.py script that produces the base files.
 
 
@@ -86,6 +86,7 @@ class ProcedureDataset(JoinedDataset):
         self.procedure_column = procedure_column
         self.order_column = order_column
         self.new_code_column = "NOMESCO_CODE"
+        self.output_columns = [self.new_code_column]
 
     def preprocess(self, file_path):
         """
@@ -117,10 +118,13 @@ class DiagnosisDataset(JoinedDataset):
         self.class_column = class_column
         self.class_value = class_value
         self.new_code_column = "ICD10_CODE"
+        self.new_code_column2 = f"{self.new_code_column}_2ND"
+        self.output_columns = [self.new_code_column, self.new_code_column2]
 
     def preprocess(self, file_path):
         """
         Preprocesses a single diagnosis file (for example, FD_2698_THL2023_2698_H_ICD10_1.csv) and returns a dataframe.
+        Groups by self.id_column, producing two columns for primary and secondary ICD10 codes. Only keeps groups where primary diagnosis exists.
         """
         dtypes = {
             "FID": "str",
@@ -130,10 +134,14 @@ class DiagnosisDataset(JoinedDataset):
             self.class_column: "str",
         }
         df = pd.read_csv(file_path, sep=";", encoding=ENCODING, usecols=dtypes.keys(), dtype=dtypes)
-        # filter only first and main diagnosis
-        df = df[(df[self.order_column] == 0) & (df[self.class_column] == self.class_value)]
-        df = df.rename(columns={self.code_column: self.new_code_column})
-        return df
+        df = df[df[self.class_column] == self.class_value]
+        df = df[df[self.order_column].isin([0, 1])]
+        df_pivot = df.pivot_table(index=self.id_column, columns=self.order_column, values=self.code_column, aggfunc="first").reset_index()
+        df_pivot = df_pivot.rename(columns={0: self.new_code_column, 1: self.new_code_column2})
+        df_pivot = df_pivot[df_pivot[self.new_code_column].notnull()]
+        if self.new_code_column2 not in df_pivot.columns:
+            df_pivot[self.new_code_column2] = pd.NA  # If the secondary diagnosis column is missing after pivot, add it with NaNs
+        return df_pivot
 
 
 def DatasetFactory(output_file, base_dataset):
@@ -215,7 +223,7 @@ if __name__ == "__main__":
                 for file_path in joined_dataset.file_paths:
                     joined_chunk = joined_dataset.preprocess(file_path)
                     df = pd.merge(base_chunk, joined_chunk, on=base_dataset.id_column, how="inner")
-                    df = df[["PATIENT_ID", "VISIT_DATE", joined_dataset.new_code_column, "SOURCE", "FD_HASH_CODE", "DOCTOR_ID"]]
+                    df = df[["PATIENT_ID", "VISIT_DATE", "SOURCE", "FD_HASH_CODE", "DOCTOR_ID", *joined_dataset.output_columns]]
                     df.to_csv(output_file.path, mode="a", header=not output_file.path.exists(), encoding=ENCODING, index=False)
                     rows = f"{base_chunk.index[0] + 1}-{base_chunk.index[-1] + 1} of {total_rows}"
                     print(f"Joined {file_path.name} to {base_dataset.label} base rows {rows} and saved to {output_file.path.name}")
