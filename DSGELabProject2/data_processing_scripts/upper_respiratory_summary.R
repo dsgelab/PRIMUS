@@ -837,11 +837,11 @@ rate_by_sex_pat_plot <- ggplot(rate_by_sex_pat, aes(x = factor(SEX_PAT), y = PRE
 rate_by_sex_pat_plot
 
 # Prevalence of different diseases for patients with J06.9
-patient_disease_pattern <- "^HAD_ICD10.*PAT$"
+patient_disease_pattern <- "^HAD_ICD10_(.+)_PAT$"
 disease_prevalence_pat <- prescription_rate %>%
     summarize(across(matches(patient_disease_pattern), ~ mean(.x) * 100)) %>%
     pivot_longer(cols = matches(patient_disease_pattern), names_to = "DISEASE_HISTORY", values_to = "PREVALENCE") %>%
-    mutate(DISEASE_HISTORY = str_sub(DISEASE_HISTORY, 5, 5))
+    mutate(DISEASE_HISTORY = sub(patient_disease_pattern, "\\1", DISEASE_HISTORY))
 
 disease_prevalence_pat_plot <- ggplot(disease_prevalence_pat, aes(x = DISEASE_HISTORY, y = PREVALENCE)) +
     geom_bar(stat = "identity") +
@@ -863,7 +863,7 @@ rate_by_diag_history_pat <- prescription_rate %>%
         TOTAL = n(),
     ) %>%
     mutate(PRESCRIBED_RATE = PRESCRIBED / TOTAL * 100) %>%
-    mutate(DISEASE_INDICATOR = str_sub(DISEASE_INDICATOR, 5, 5)) %>%
+    mutate(DISEASE_INDICATOR = sub(patient_disease_pattern, "\\1", DISEASE_INDICATOR)) %>%
     add_binom_interval(count_col = "PRESCRIBED", n_col = "TOTAL")
 
 rate_by_diag_history_pat_plot <-
@@ -884,11 +884,11 @@ rate_by_diag_history_pat_plot <-
 rate_by_diag_history_pat_plot
 
 # Prevalence of different prescriptions for patients with J06.9
-patient_prescription_pattern <- "^GOT_ATC_.*PAT$"
+patient_prescription_pattern <- "^GOT_ATC_(.+)_PAT$"
 prescription_prevalence_pat <- prescription_rate %>%
     summarize(across(matches(patient_prescription_pattern), ~ mean(.x) * 100)) %>%
     pivot_longer(cols = matches(patient_prescription_pattern), names_to = "PRESCRIPTION_HISTORY", values_to = "PREVALENCE") %>%
-    mutate(PRESCRIPTION_HISTORY = str_sub(PRESCRIPTION_HISTORY, 5, 5))
+    mutate(PRESCRIPTION_HISTORY = sub(patient_prescription_pattern, "\\1", PRESCRIPTION_HISTORY))
 
 prescription_prevalence_pat_plot <- ggplot(prescription_prevalence_pat, aes(x = PRESCRIPTION_HISTORY, y = PREVALENCE)) +
     geom_bar(stat = "identity") +
@@ -910,7 +910,7 @@ rate_by_pres_history_pat <- prescription_rate %>%
         TOTAL = n(),
     ) %>%
     mutate(PRESCRIBED_RATE = PRESCRIBED / TOTAL * 100) %>%
-    mutate(MEDICATION_INDICATOR = str_sub(MEDICATION_INDICATOR, 5, 5)) %>%
+    mutate(MEDICATION_INDICATOR = sub(patient_prescription_pattern, "\\1", MEDICATION_INDICATOR)) %>%
     add_binom_interval(count_col = "PRESCRIBED", n_col = "TOTAL")
  
 rate_by_pres_history_pat_plot <- ggplot(rate_by_pres_history_pat, aes(x = reorder(MEDICATION_INDICATOR, PRESCRIBED_RATE), y = PRESCRIBED_RATE, fill = factor(INDICATOR_VALUE))) +
@@ -931,12 +931,12 @@ rate_by_pres_history_pat_plot
 
 # Prevalence of different diseases for doctors with J06.9
 
-doctor_disease_pattern <- "^HAD_ICD10.*DOC$"
+doctor_disease_pattern <- "^HAD_ICD10_(.+)_DOC$"
 disease_prevalence_doc <- prescription_rate %>%
     filter(!is.na(HAD_ICD10_A_DOC)) %>%
     summarize(across(matches(doctor_disease_pattern), ~ mean(.x) * 100)) %>%
     pivot_longer(cols = matches(doctor_disease_pattern), names_to = "DISEASE_HISTORY", values_to = "PREVALENCE") %>%
-    mutate(DISEASE_HISTORY = str_sub(DISEASE_HISTORY, 5, 5))
+    mutate(DISEASE_HISTORY = sub(doctor_disease_pattern, "\\1", DISEASE_HISTORY))
 
 disease_prevalence_doc_plot <- ggplot(disease_prevalence_doc, aes(x = DISEASE_HISTORY, y = PREVALENCE)) +
     geom_bar(stat = "identity") +
@@ -959,7 +959,7 @@ rate_by_diag_history_doc <- prescription_rate %>%
         TOTAL = n(),
     ) %>%
     mutate(PRESCRIBED_RATE = PRESCRIBED / TOTAL * 100) %>%
-    mutate(DISEASE_INDICATOR = str_sub(DISEASE_INDICATOR, 5, 5)) %>%
+    mutate(DISEASE_INDICATOR = sub(doctor_disease_pattern, "\\1", DISEASE_INDICATOR)) %>%
     # Remove both rows for a disease if either INDICATOR_VALUE (0 or 1) has TOTAL < 1000
     group_by(DISEASE_INDICATOR) %>%
     filter(all(TOTAL >= 1000)) %>%
@@ -983,12 +983,12 @@ rate_by_diag_history_doc_plot <- ggplot(rate_by_diag_history_doc, aes(x = reorde
 rate_by_diag_history_doc_plot
 
 # Prevalence of different prescriptions for doctors with J06.9
-doctor_prescription_pattern <- "^GOT_ATC_.*DOC$"
+doctor_prescription_pattern <- "^GOT_ATC_(.+)_DOC$"
 prescription_prevalence_doc <- prescription_rate %>%
     filter(!is.na(GOT_ATC_A_DOC)) %>%
     summarize(across(matches(doctor_prescription_pattern), ~ mean(.x) * 100)) %>%
     pivot_longer(cols = matches(doctor_prescription_pattern), names_to = "PRESCRIPTION_HISTORY", values_to = "PREVALENCE") %>%
-    mutate(PRESCRIPTION_HISTORY = str_sub(PRESCRIPTION_HISTORY, 5, 5))
+    mutate(PRESCRIPTION_HISTORY = sub(doctor_prescription_pattern, "\\1", PRESCRIPTION_HISTORY))
 
 prescription_prevalence_doc_plot <- ggplot(prescription_prevalence_doc, aes(x = PRESCRIPTION_HISTORY, y = PREVALENCE)) +
     geom_bar(stat = "identity") +
@@ -1011,7 +1011,7 @@ rate_by_pres_history_doc <- prescription_rate %>%
         TOTAL = n(),
     ) %>%
     mutate(PRESCRIBED_RATE = PRESCRIBED / TOTAL * 100) %>%
-    mutate(MEDICATION_INDICATOR = str_sub(MEDICATION_INDICATOR, 5, 5)) %>%
+    mutate(MEDICATION_INDICATOR = sub(doctor_prescription_pattern, "\\1", MEDICATION_INDICATOR)) %>%
     add_binom_interval(count_col = "PRESCRIBED", n_col = "TOTAL")
  
 rate_by_pres_history_doc_plot <- ggplot(rate_by_pres_history_doc, aes(x = reorder(MEDICATION_INDICATOR, PRESCRIBED_RATE), y = PRESCRIBED_RATE, fill = factor(INDICATOR_VALUE))) +
