@@ -176,7 +176,7 @@ options(marginaleffects_parallel = TRUE)
 marginal_pkg = avg_slopes(model, variables = "PERIOD")
 
 effect_size = marginal_pkg$estimate
-p_value = marginal_pkg$pvalue
+p_value = marginal_pkg$p.value
 ci_lower = marginal_pkg$conf.low
 ci_upper = marginal_pkg$conf.high
 
