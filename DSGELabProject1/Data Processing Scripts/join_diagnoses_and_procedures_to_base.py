@@ -135,6 +135,7 @@ class DiagnosisDataset(JoinedDataset):
         }
         df = pd.read_csv(file_path, sep=";", encoding=ENCODING, usecols=dtypes.keys(), dtype=dtypes)
         df = df[df[self.class_column] == self.class_value]
+        df = df[df[self.code_column].str.match(r'^[A-Z][0-9]', na=False)]  # Filter out improper ICD10 codes
         df = df[df[self.order_column].isin([0, 1])]
         df_pivot = df.pivot_table(index=self.id_column, columns=self.order_column, values=self.code_column, aggfunc="first").reset_index()
         df_pivot = df_pivot.rename(columns={0: self.new_code_column, 1: self.new_code_column2})

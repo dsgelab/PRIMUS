@@ -19,7 +19,7 @@ all_diagnoses_file <- get_latest_file("AllConnectedDiagnoses")
 all_prescriptions_file <- "/media/volume/Projects/DSGELabProject1/ProcessedData/AllConnectedPrescriptions_20250506.csv"
 current_date <- strftime(Sys.Date(), "%Y%m%d")
 
-all_diagnoses <- fread(all_diagnoses_file)[grepl("^[A-Z]", ICD10_CODE)] # Filter out improper ICD10 codes
+all_diagnoses <- fread(all_diagnoses_file)
 diagnosis <- all_diagnoses[startsWith(ICD10_CODE, icd10_code) | startsWith(ICD10_CODE, icd10_code_no_dot)]
 # Only select the earliest instance of diagnosis for each patient
 diagnosis <- diagnosis %>%
@@ -55,7 +55,7 @@ write.csv(diag_history_pat, diag_history_pat_outfile, row.names = FALSE)
 print(paste0("Patient diagnosis history saved to ", diag_history_pat_outfile))
 rm(all_diagnoses)
 
-all_prescriptions <- fread(all_prescriptions_file)[grepl("^[A-Z]", ATC_CODE)] # Filter out improper ATC codes
+all_prescriptions <- fread(all_prescriptions_file)
 pres_history_pat <- diagnosis %>%
     inner_join(all_prescriptions, by = "PATIENT_ID") %>%
     filter(PRESCRIPTION_DATE < VISIT_DATE) %>%

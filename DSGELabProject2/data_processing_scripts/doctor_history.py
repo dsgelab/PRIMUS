@@ -113,7 +113,6 @@ def save_history(events_filename, events_dtypes, code_column, date_column, histo
 
     # Very large file, so read in chunks
     for chunk in pd.read_csv(events_file, dtype=events_dtypes, usecols=events_dtypes.keys(), chunksize=CHUNK_SIZE):
-        chunk = chunk[chunk[code_column].str.match("^[A-Z]", na=False)]  # Clean up improper codes
         chunk[date_column] = pd.to_datetime(chunk[date_column])
         chunk["CODE_GROUP"] = chunk[code_column].str[0]
         code_groups_set.update(chunk["CODE_GROUP"].unique())
