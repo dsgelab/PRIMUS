@@ -16,37 +16,16 @@ outcome_file="/media/volume/Projects/mattferr/did_pipeline/Outcomes_ForRatio_202
 # ------------------------------------------------
 # DEFINE PAIRS: List of (event_code, outcome_code) pairs
 pairs=(
-    # Prescription & Use of Psychoactive medications
-    "Purch Antidepressants ^N06A Antidepressants ^N06A" 
-    "Purch HypnoticsSedatives ^N05C HypnoticsSedatives ^N05C" 
-    "Purch Anxiolytics ^N05B Anxiolytics ^N05B" 
-    "Purch Antipsychotics ^N05A Antipsychotics ^N05A" 
-    "Purch Psychostimulants ^N06D Psychostimulants ^N06D" 
-    "Purch AntiDementiaDrugs ^N06B AntiDementiaDrugs ^N06B" 
-    # Prescription & Use of Pain-relief medications
-    "Purch Opioids ^N02A Opioids ^N02A"
-    # Diagnosis of non-debiliotating cardiovascular diseases
-    "Diag I9_CHD ^(I20.0|I200|I21|I22) Statins C10AA"
-    "Diag I9_ANGINA ^I20 Statins C10AA"
-    "Diag I9_CORATHER ^(I24|I25|T82.2|T822|Z95.1|Z951) Statins C10AA"
-    "Diag I9_AF ^I48 Statins C10AA"
-    "Diag I9_OTHARR ^I49 Statins C10AA"
-    "Diag I9_ATHSCLE ^I70 Statins C10AA"
-    "Diag I9_PHLETHROMBDVTLOW ^(I80.1|I80.20|I80.29) Statins C10AA"
-    "Diag I9_VEINSOTH ^I87 Statins C10AA"
-    "Diag I9_NSTEMI ^I21.4 Statins C10AA"
-    # Prescription & Use of Cardiovascular medications for primary prevention
-    "Purch Antihypertensives ^C02 Antihypertensives ^C02"
-    "Purch Diuretics ^C03 Diuretics ^C03"
-    "Purch BetaBlockers ^C07 BetaBlockers ^C07"
-    "Purch CalciumChannelBlockers ^C08 CalciumChannelBlockers ^C08"
-    "Purch ACEi ^(C09A|C09B) ACEi ^(C09A|C09B)"
-    "Purch ARBs ^(C09C|C09D) ARBs ^(C09C|C09D)"
-    "Purch Statins ^C10AA Statins ^C10AA"
-    "Purch Fibrates ^C10AB Fibrates ^C10AB"
-    "Purch FactorXaInhibitors ^B01AF FactorXaInhibitors ^B01AF"
-    "Purch VitKantagonist ^B01AA VitKantagonist ^B01AA"
-    "Purch Aspirin ^(B01AC06|B01AC56) Aspirin ^(B01AC06|B01AC56)"
+    # Scenario 1: Diagnosis of CHD impacting the prescription of statins
+    "Diag I9_CHD ^(I20.0|I200|I21|I22) Statins ^C10AA"
+    # Scenario 2: Diagnosis of CHD impacting the prescription of nitrates
+    "Diag I9_CHD ^(I20.0|I200|I21|I22) Nitrates ^C01D"
+    # Scenario 3: Use of nitrates impacting the prescription of nitrates
+    "Purch Nitrate ^C01D Nitrate ^C01D"
+    # Scenario 4: Use of ADHD medications impacting the prescription of ADHD medications
+    "Purch ADHD_medication ^N06B ADHD_medication ^N06B"
+    # Scenario 5: Use of opioid medications impacting the prescription of opioid medications
+    "Purch Opioid_medication ^N02A Opioid_medication ^N02A"
 )
 
 # ------------------------------------------------
@@ -71,20 +50,24 @@ for pair in "${pairs[@]}"; do
     # Record the start time of the pipeline
     start_time=$SECONDS
 
-    # STEP2: Extract desired event 
-    echo "Extracting desired event"
-    step_start_time=$SECONDS
-    if [[ "$event_register" == "Diag" ]]; then
-        echo "ICD10 code: $event_code"
-        python3 $base_dir/DiD_Pipeline/Version5_20250709/ExtractEvents.py --id_list $list_of_doctors_spouses_children --inpath $diagnosis_file --event_register $event_register --outdir $out_dir --event_code $event_code
-    elif [[ "$event_register" == "Purch" ]]; then
-        echo "ATC code: $event_code"
-        python3 $base_dir/DiD_Pipeline/Version5_20250709/ExtractEvents.py --id_list $list_of_doctors_spouses_children --inpath $purchases_file --event_register $event_register --outdir $out_dir --event_code $event_code
+    # STEP2: Extract desired event (skip if Events.csv exists)
+    if [[ -f "$out_dir/Events.csv" ]]; then
+        echo "Events already extracted, SKIP EXTRACTION"
     else
-        echo "Invalid event register"
+        echo "Extracting desired event"
+        step_start_time=$SECONDS
+        if [[ "$event_register" == "Diag" ]]; then
+            echo "ICD10 code: $event_code"
+            python3 $base_dir/DiD_Pipeline/Version5_20250709/ExtractEvents.py --id_list $list_of_doctors_spouses_children --inpath $diagnosis_file --event_register $event_register --outdir $out_dir --event_code $event_code
+        elif [[ "$event_register" == "Purch" ]]; then
+            echo "ATC code: $event_code"
+            python3 $base_dir/DiD_Pipeline/Version5_20250709/ExtractEvents.py --id_list $list_of_doctors_spouses_children --inpath $purchases_file --event_register $event_register --outdir $out_dir --event_code $event_code
+        else
+            echo "Invalid event register"
+        fi
+        step_end_time=$SECONDS
+        echo "Step completed in $(($step_end_time - $step_start_time)) seconds"
     fi
-    step_end_time=$SECONDS
-    echo "Step completed in $(($step_end_time - $step_start_time)) seconds"
 
     # STEP 3: Run Difference-in-Difference analysis
     echo "Running DiD analysis"

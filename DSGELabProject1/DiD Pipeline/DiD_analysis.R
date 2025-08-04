@@ -32,11 +32,12 @@ enrichment_func_outcome <- function(s, df) {
 }
 
 #### Main
+setDTthreads(0)
 
 # Load data
 doctor_ids = fread(doctor_list, header = FALSE)$V1
 events = fread(events_file)
-event_ids = setdiff(unique(events$PATIENT_ID), doctor_ids)
+event_ids = intersect(unique(events$PATIENT_ID), doctor_ids)
 
 # CHECK 1 : if N of events is less than 500, stop the analysis
 cat(paste0("Cases : ", length(event_ids), "\n"))
@@ -159,6 +160,41 @@ p2_birthyear = ggplot(df_birthyear_sex, aes(x = BIRTH_YEAR, y = mean_Y, color = 
 combined_plot2 = p2_general / p2_specialty / p2_birthyear
 ggsave(filename = file.path(outdir, "distribution_outcomes.png"), plot = combined_plot2, width = 10, height = 12)
 
+# check quantiles of N and Y around the event (apply Bayesian adjustment to Y)
+df_plot = df_complete %>% mutate(time = MONTH - EVENT_MONTH, Y_adj = ifelse(!is.na(N),(Ni+mean(df_complete$Y))/(N+1),Y)) %>%
+    filter(!is.na(time)) %>%
+    filter(time >= -36 & time <= 36) # filter to 3 years before and after event
+percentiles_N = df_plot %>%
+    group_by(time = factor(time)) %>%
+    summarise(
+        p25 = quantile(N, 0.25, na.rm = TRUE),
+        p50 = quantile(N, 0.5, na.rm = TRUE),
+        p75 = quantile(N, 0.75, na.rm = TRUE))
+percentiles_Y = df_plot %>%
+    group_by(time = factor(time)) %>%
+    summarise(
+        p25 = quantile(Y_adj, 0.25, na.rm = TRUE),
+        p50 = quantile(Y_adj, 0.5, na.rm = TRUE),
+        p75 = quantile(Y_adj, 0.75, na.rm = TRUE))
+p2_N = ggplot(percentiles_N, aes(x = time, group = 1)) +
+    geom_line(aes(y = p25), color = "gray40", linetype = "dashed") +
+    geom_line(aes(y = p50), color = "black", size = 1) +
+    geom_line(aes(y = p75), color = "gray40", linetype = "dashed") +
+    geom_vline(xintercept = which(levels(percentiles_N$time) == "0"), linetype = "dashed", color = "red") +
+    labs(title = paste0("Number of Prescriptions N (quartiles),\nFocus on ±3 years for cases who prescribed = ", length(unique(df_plot$DOCTOR_ID))),x = "Months from Event", y = "N") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 8))
+p2_Y = ggplot(percentiles_Y, aes(x = time, group = 1)) +
+    geom_line(aes(y = p25), color = "gray40", linetype = "dashed") +
+    geom_line(aes(y = p50), color = "black", size = 1) +
+    geom_line(aes(y = p75), color = "gray40", linetype = "dashed") +
+    geom_vline(xintercept = which(levels(percentiles_Y$time) == "0"), linetype = "dashed", color = "red") +
+    labs(title = paste0("Population Adjusted Prescription Ratio Y (quartiles),\nFocus on ±3 years for cases who prescribed= ", length(unique(df_plot$DOCTOR_ID))), x = "Months from Event", y = "Population Adjusted Y") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 8))
+combined_plot2 = p2_N / p2_Y
+ggsave(filename = file.path(outdir, "quintiles_outcomes.png"), plot = combined_plot2, width = 10, height = 12)
+
 # DiD analysis model
 
 # Model 1: Comparing prescription ratios in Events vs Non-Events
@@ -192,27 +228,95 @@ ggsave(filename = file.path(outdir, "Plot_Model1.png"), plot = p_event_year, wid
 # Model 2: Comparing (average) prescription ratios Before and After Event 
 # - adjusting for age in 2023, sex, specialty + age and year of event
 df_model = df_complete %>%
-    mutate(PERIOD = case_when(
+    mutate(
+        PERIOD = case_when(
             !is.na(EVENT_MONTH) & MONTH < EVENT_MONTH ~ "BEFORE",
             !is.na(EVENT_MONTH) & MONTH > EVENT_MONTH ~ "AFTER",
-            is.na(EVENT_MONTH) ~ NA_character_)) %>% 
-    filter(!is.na(PERIOD)) %>%
+            is.na(EVENT_MONTH) ~ NA_character_),
+        time_from_event = MONTH - EVENT_MONTH
+    ) %>%
+    filter(!is.na(PERIOD), time_from_event >= -36, time_from_event <= 36) %>%
     mutate(
         PERIOD = factor(PERIOD, levels = c("BEFORE", "AFTER")), # set BEFORE as reference
         SPECIALTY = factor(SPECIALTY, levels = c("", setdiff(unique(df_complete$SPECIALTY), ""))), # set no specialty as reference
         SEX = factor(SEX, levels = c(1, 2), labels = c("Male", "Female")) # set male as reference
     )
-model_formula = as.formula("Y ~ AGE_IN_2023 + AGE_AT_EVENT + SEX + SPECIALTY + PERIOD + AGE_IN_2023:PERIOD + AGE_AT_EVENT:PERIOD + SEX:PERIOD + SPECIALTY:PERIOD")
-model = fixest::feols(model_formula, data = df_model)
+model_formula = as.formula("Y ~ PERIOD + MONTH + MONTH**2 + AGE_AT_EVENT + AGE_AT_EVENT**2 + AGE_IN_2023 + AGE_IN_2023**2 + SEX + SPECIALTY + AGE_AT_EVENT:PERIOD + AGE_IN_2023:PERIOD + SEX:PERIOD + SPECIALTY:PERIOD")
+model = fixest::feglm(model_formula, family = binomial("logit"), data = df_model, cluster = ~DOCTOR_ID)
 results = data.frame(summary(model)$coeftable)
 write.csv(results, file = paste0(outdir, "/Coef_Model2.csv"), row.names = TRUE)
 
-# Visualization: usa external function
-source("/media/volume/Projects/DSGELabProject1/DiD_Pipeline/PlotDIDResults.R")
+# PLOT 1: Average prescription ratio (Y) centered on event
+# - sets of averages: non-adjusted (overall) and adjusted (by age,sex & specialty based on the model)
+# - focus on +/- 36 months around the event month
+df_centered <- df_model %>%
+    mutate(time_from_event = MONTH - EVENT_MONTH) %>%
+    filter(time_from_event >= -36 & time_from_event <= 36)
+avg_Y_data <- df_centered %>% 
+    group_by(PERIOD) %>% 
+    summarise(mean_Y = mean(Y, na.rm = TRUE), .groups = 'drop')
+avg_Y_model <- df_centered %>%
+    mutate(predicted_Y = predict(model, newdata = .)) %>%
+    group_by(PERIOD) %>%
+    summarise(mean_Y = mean(predicted_Y, na.rm = TRUE),se_Y = sd(predicted_Y, na.rm = TRUE) / sqrt(n()),.groups = 'drop')
+plot_data <- df_centered %>%
+    mutate(predicted_Y = predict(model, newdata = .)) %>%
+    group_by(time_from_event) %>%
+    summarise(
+        raw_mean_Y = mean(Y, na.rm = TRUE),
+        raw_se_Y = sd(Y, na.rm = TRUE) / sqrt(n()),
+        model_mean_Y = mean(predicted_Y, na.rm = TRUE),
+        model_se_Y = sd(predicted_Y, na.rm = TRUE) / sqrt(n()),
+        .groups = 'drop')
+
+p_centered_subset <- ggplot(plot_data, aes(x = time_from_event)) +
+    geom_ribbon(aes(ymin = model_mean_Y - 1.96 * model_se_Y, ymax = model_mean_Y + 1.96 * model_se_Y), alpha = 0.1, fill = "steelblue") +
+    geom_ribbon(aes(ymin = raw_mean_Y - 1.96 * raw_se_Y, ymax = raw_mean_Y + 1.96 * raw_se_Y), alpha = 0.1, fill = "orange") +
+    geom_line(aes(y = model_mean_Y), size = 1, color = "steelblue", alpha = 1) +
+    geom_line(aes(y = raw_mean_Y), size = 1, color = "orange", alpha = 0.5) +
+    geom_point(aes(y = model_mean_Y), size = 0.8, color = "steelblue", alpha = 1) +
+    geom_point(aes(y = raw_mean_Y), size = 0.8, color = "orange", alpha = 0.5) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+    scale_x_continuous(breaks = seq(-36, 36, 12), labels = seq(-36, 36, 12), limits = c(-36, 36)) +
+    labs(
+        x = "Months from Event",
+        y = "Average Prescription Ratio (Y)",
+        title = "Average Prescription Ratio Before and After Event",
+        subtitle = "Blue: Model-adjusted estimates, Orange: Raw data"
+    ) +
+    theme_minimal()
+ggsave(filename = file.path(outdir, "Plot_Model2_adjusted.png"), plot = p_centered_subset, width = 10, height = 12)
+
+# PLOT 2: Interaction Effects
+source("/media/volume/Projects/DSGELabProject1/DiD_Pipeline/PlotInteractionEffects.R")
 plots <- create_model_visualization(model, df_model, outdir)
 
 ggsave(filename = file.path(outdir, "Model_Results_Comprehensive.png"), plot = plots$combined, width = 16, height = 12, dpi = 300)
-ggsave(filename = file.path(outdir, "Baseline_Differences.png"), plot = plots$baseline, width = 8, height = 6)
-ggsave(filename = file.path(outdir, "Period_Effects.png"), plot = plots$period, width = 8, height = 6)
+ggsave(filename = file.path(outdir, "Specialty_Baseline_Differences.png"), plot = plots$baseline, width = 8, height = 6)
+ggsave(filename = file.path(outdir, "Specialty_Interactions.png"), plot = plots$period, width = 8, height = 6)
 ggsave(filename = file.path(outdir, "Age_Sex_Baseline.png"), plot = plots$age_sex_baseline, width = 8, height = 6)
 ggsave(filename = file.path(outdir, "Age_Sex_Interactions.png"), plot = plots$age_sex_interactions, width = 8, height = 6)
+
+# Export summary of results
+.libPaths("/shared-directory/sd-tools/apps/R/lib/")
+library(marginaleffects)
+
+options(marginaleffects_parallel = TRUE)
+marginal = avg_slopes(model, variables = "PERIOD")
+
+# Save results
+effect_size = marginal$estimate
+p_value = marginal$p.value
+ci_lower = marginal$conf.low
+ci_upper = marginal$conf.high
+n_cases = df_complete %>% filter(EVENT == 1) %>% pull(DOCTOR_ID) %>% unique() %>% length()
+n_controls = df_complete %>% filter(EVENT == 0) %>% pull(DOCTOR_ID) %>% unique() %>% length()
+results_summary = data.frame(
+    effect_size = effect_size,
+    p_value = p_value,
+    ci_lower = ci_lower,
+    ci_upper = ci_upper,
+    n_cases = n_cases,
+    n_controls = n_controls
+)
+write.csv(results_summary, file = paste0(outdir, "/results_summary.csv"), row.names = FALSE)
