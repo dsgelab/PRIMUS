@@ -2349,3 +2349,129 @@ icd_prevalences_matched_cohort %>%
         columns = c(prevalence_doctors, prevalence_nondoctors, factor_doctor_vs_nondoctor),
         decimals = 2
     )
+
+
+# ATC Prevalence for Doctors vs Non-Doctors with the same disease
+# e.g. for matched doctors and non-doctors having the same disease (Type 2 diabetes), check ATC prevalence of antidiabetics
+diabetes_diagnoses <- diagnoses  %>% 
+    filter(grepl("^E11", ICD10_CODE))
+
+# now match doctors to non-doctors within diabetes_diagnoses
+dvv_diabetes <- dvv %>%
+    filter(ID %in% diabetes_diagnoses$PATIENT_ID)
+
+# Match doctors with non-doctors having the same disease
+# Create a matched cohort (sex, birthday) of doctors and non_doctors analogous to the survival analysis
+# Match doctors with general population by age and sex
+set.seed(123)
+
+# 1) Compute how many doctors vs. non‐docs in each (SEX, age) cell,
+#    then keep only strata where both groups exist and record n_match = min(#doc, #non).
+counts_t2d <- dvv_t2d %>%
+    group_by(SEX, BIRTH_DATE) %>%
+    summarize(
+        n_doc   = sum(is_doctor == 1),
+        n_non   = sum(is_doctor == 0),
+        n_match = min(n_doc, n_non),
+        .groups = "drop"
+    ) %>%
+    filter(n_match > 0) %>%
+    select(SEX, BIRTH_DATE, n_match)
+
+# 2) Restrict to rows belonging to those “matchable” strata
+dvv_t2d_2 <- dvv_t2d %>%
+    inner_join(counts_t2d, by = c("SEX", "BIRTH_DATE"))
+
+# 3) From each (SEX, BIRTH_DATE), randomly pick exactly n_match doctors
+matched_docs_t2d <- dvv_t2d_2 %>%
+    filter(is_doctor == 1) %>%
+    group_by(SEX, BIRTH_DATE) %>%
+    mutate(rn = sample(seq_len(n()), n())) %>%
+    ungroup() %>%
+    filter(rn <= n_match)
+
+# 4) From each (SEX, BIRTH_DATE), randomly pick exactly n_match non‐doctors
+matched_nondocs_t2d <- dvv_t2d_2 %>%
+    filter(is_doctor == 0) %>%
+    group_by(SEX, BIRTH_DATE) %>%
+    mutate(rn = sample(seq_len(n()), n())) %>%
+    ungroup() %>%
+    filter(rn <= n_match)
+
+# 4b) Pair each non-doctor to the doctor with the same (SEX, BIRTH_DATE, rn)
+matched_nondocs_t2d <- matched_nondocs_t2d %>%
+    left_join(
+        matched_docs_t2d %>% select(SEX, BIRTH_DATE, rn, matched_doctor_id = ID),
+        by = c("SEX", "BIRTH_DATE", "rn")
+    )
+
+# 5) Stack them together and drop helper columns
+matched_df_t2d <- bind_rows(
+    matched_docs_t2d %>% mutate(matched_doctor_id = ID),
+    matched_nondocs_t2d
+) %>%
+    select(-rn, -n_match)
+
+
+# Prescriptions of cohort:
+prescriptions_cohort_t2d <- prescriptions %>%
+    filter(PATIENT_ID %in% matched_df_t2d$ID)
+
+# Diagnoses of cohort:
+diagnoses_cohort_t2d <- diagnoses %>%
+    filter(PATIENT_ID %in% matched_df_t2d$ID)
+
+N = nrow(doctor_IDs)
+
+# ICD prevalences for doctors and non-doctors with the diabetes
+icd_prevalences_matched_cohort_t2d <- get_icd_prevalence(icd_prefixes, diagnoses_cohort_t2d, N, N) %>%
+    mutate(
+        # ICD = factor(ICD, levels = icd_prefixes),
+        prevalence_doctors = round(prevalence_doctors * 100, 2),
+        prevalence_nondoctors = round(prevalence_nondoctors * 100, 2),
+        factor_doctor_vs_nondoctor = ifelse(prevalence_nondoctors == 0, NA, round(prevalence_doctors / prevalence_nondoctors, 2))
+    )
+
+icd_prevalences_matched_cohort_t2d %>%
+    gt() %>%
+    tab_header(
+        title = "ICD Prevalence: Doctors vs Non-Doctors (Matched Cohort)"
+    ) %>%
+    cols_label(
+        ICD = "ICD Code",
+        n_doctors = "Doctors (n)",
+        prevalence_doctors = "Doctors (%)",
+        n_nondoctors = "Non-Doctors (n)",
+        prevalence_nondoctors = "Non-Doctors (%)",
+        factor_doctor_vs_nondoctor = "Doctor/Non-Doctor Ratio"
+    ) %>%
+    fmt_number(
+        columns = c(prevalence_doctors, prevalence_nondoctors, factor_doctor_vs_nondoctor),
+        decimals = 2
+    )
+
+atc_prevalences_matched_cohort_t2d <- get_atc_prevalence(atc_prefixes, prescriptions_cohort_t2d, N, N) %>%
+    mutate(
+        # ATC = factor(ATC, levels = atc_prefixes),
+        prevalence_doctors = round(prevalence_doctors * 100, 2),
+        prevalence_nondoctors = round(prevalence_nondoctors * 100, 2),
+        factor_doctor_vs_nondoctor = ifelse(prevalence_nondoctors == 0, NA, round(prevalence_doctors / prevalence_nondoctors, 2))
+    ) 
+
+atc_prevalences_matched_cohort_t2d %>%
+    gt() %>%
+    tab_header(
+        title = "ATC Prevalence: Doctors vs Non-Doctors (Matched Cohort)"
+    ) %>%
+    cols_label(
+        ATC = "ATC Code",
+        n_doctors = "Doctors (n)",
+        prevalence_doctors = "Doctors (%)",
+        n_nondoctors = "Non-Doctors (n)",
+        prevalence_nondoctors = "Non-Doctors (%)",
+        factor_doctor_vs_nondoctor = "Doctor/Non-Doctor Ratio"
+    ) %>%
+    fmt_number(
+        columns = c(prevalence_doctors, prevalence_nondoctors, factor_doctor_vs_nondoctor),
+        decimals = 2
+    )
