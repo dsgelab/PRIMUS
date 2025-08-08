@@ -18,14 +18,10 @@ outcome_file="/media/volume/Projects/mattferr/did_pipeline/Outcomes_ForRatio_202
 pairs=(
     # Scenario 1: Diagnosis of CHD impacting the prescription of statins
     "Diag I9_CHD ^(I20.0|I200|I21|I22) Statins ^C10AA"
-    # Scenario 2: Diagnosis of CHD impacting the prescription of nitrates
-    "Diag I9_CHD ^(I20.0|I200|I21|I22) Nitrates ^C01D"
-    # Scenario 3: Use of nitrates impacting the prescription of nitrates
-    "Purch Nitrate ^C01D Nitrate ^C01D"
-    # Scenario 4: Use of ADHD medications impacting the prescription of ADHD medications
+    # Scenario 2: Use of ADHD medications impacting the prescription of ADHD medications
     "Purch ADHD_medication ^N06B ADHD_medication ^N06B"
-    # Scenario 5: Use of opioid medications impacting the prescription of opioid medications
-    "Purch Opioid_medication ^N02A Opioid_medication ^N02A"
+    # Scenario 3: Use of opioid medications impacting the prescription of opioid medications
+    "Purch Opioids ^N02A Opioids ^N02A"
 )
 
 # ------------------------------------------------
@@ -44,7 +40,7 @@ for pair in "${pairs[@]}"; do
         
     # STEP 1: Create experiment directory
     today=$(date '+%Y%m%d')
-    out_dir="$base_dir/DiD_Experiments/Version5/Experiment_${event_code_name}_${outcome_code_name}_$today"
+    out_dir="$base_dir/DiD_Experiments/Version6_base/Experiment_${event_code_name}_${outcome_code_name}_$today"
     mkdir -p $out_dir
 
     # Record the start time of the pipeline
@@ -58,10 +54,10 @@ for pair in "${pairs[@]}"; do
         step_start_time=$SECONDS
         if [[ "$event_register" == "Diag" ]]; then
             echo "ICD10 code: $event_code"
-            python3 $base_dir/DiD_Pipeline/Version5_20250709/ExtractEvents.py --id_list $list_of_doctors_spouses_children --inpath $diagnosis_file --event_register $event_register --outdir $out_dir --event_code $event_code
+            python3 $base_dir/DiD_Pipeline/Version6_20250730/ExtractEvents.py --id_list $list_of_doctors_spouses_children --inpath $diagnosis_file --event_register $event_register --outdir $out_dir --event_code $event_code
         elif [[ "$event_register" == "Purch" ]]; then
             echo "ATC code: $event_code"
-            python3 $base_dir/DiD_Pipeline/Version5_20250709/ExtractEvents.py --id_list $list_of_doctors_spouses_children --inpath $purchases_file --event_register $event_register --outdir $out_dir --event_code $event_code
+            python3 $base_dir/DiD_Pipeline/Version6_20250730/ExtractEvents.py --id_list $list_of_doctors_spouses_children --inpath $purchases_file --event_register $event_register --outdir $out_dir --event_code $event_code
         else
             echo "Invalid event register"
         fi

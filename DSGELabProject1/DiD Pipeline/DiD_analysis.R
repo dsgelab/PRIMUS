@@ -12,7 +12,7 @@ library(ggplot2)
 library(patchwork)
 
 ##### Arguments
-args = commandArgs(trailingOnly = TRUE)
+args = commandArgs(trailingOnly=TRUE)
 doctor_list = args[1]
 events_file = args[2]
 event_code = args[3]
@@ -21,8 +21,10 @@ outcome_code = args[5]
 covariates_file = args[6]
 outdir = args[7]
 
-COLOR_MALE = "blue"
-COLOR_FEMALE = "orange"
+# Global Variables
+N_THREADS = 10
+COLOR_MALE = "blue" 
+COLOR_FEMALE = "orange" 
 
 # Functions
 enrichment_func_outcome <- function(s, df) {
@@ -32,7 +34,7 @@ enrichment_func_outcome <- function(s, df) {
 }
 
 #### Main
-setDTthreads(0)
+setDTthreads(N_THREADS)
 
 # Load data
 doctor_ids = fread(doctor_list, header = FALSE)$V1
@@ -90,6 +92,20 @@ df_merged = df_merged %>%
         EVENT_MONTH = if_else(!is.na(DATE), (as.numeric(format(DATE, "%Y")) - 1998) * 12 + as.numeric(format(DATE, "%m")), NA_real_),
     ) %>%
     select(-DATE)
+
+# exclude events which happened before the first prescription of the outcome / or the last one
+n_before = length(unique(df_merged$DOCTOR_ID))
+df_merged = as.data.table(df_merged)
+df_merged[, `:=`(
+    first_Y_month = min(MONTH[!is.na(Y)], na.rm = TRUE),
+    last_Y_month = max(MONTH[!is.na(Y)], na.rm = TRUE)
+), by = DOCTOR_ID]
+df_merged = df_merged[
+    is.na(EVENT_MONTH) | (EVENT_MONTH >= first_Y_month & EVENT_MONTH <= last_Y_month)]
+removed_ids = unique(df_merged[!(is.na(EVENT_MONTH) | (EVENT_MONTH >= first_Y_month & EVENT_MONTH <= last_Y_month)), DOCTOR_ID])
+df_merged = df_merged[!(DOCTOR_ID %in% removed_ids)]
+n_after = length(unique(df_merged$DOCTOR_ID))
+cat(sprintf("Removed %d doctors with event outside prescription bounds\n", n_before - n_after))
 
 # Prepare  covariates and specialty + merge them in the main dataframe
 covariates_new = covariates %>%
@@ -195,38 +211,28 @@ p2_Y = ggplot(percentiles_Y, aes(x = time, group = 1)) +
 combined_plot2 = p2_N / p2_Y
 ggsave(filename = file.path(outdir, "quintiles_outcomes.png"), plot = combined_plot2, width = 10, height = 12)
 
-# DiD analysis model
 
-# Model 1: Comparing prescription ratios in Events vs Non-Events
-# - adjusting analysis for age, sex and specialty
-# - adding interaction with age and year of event
-model_formula = as.formula("Y ~ AGE_IN_2023 + SEX + factor(SPECIALTY) + EVENT")
-model = fixest::feols(model_formula, data = df_complete, fixef.rm = "none")
-results = data.frame(summary(model)$coeftable)
-write.csv(results, file = paste0(outdir, "/Coef_Model1.csv"), row.names = TRUE)
+###############################################################################################
+#                                                                                             #
+#   =================   DIFFERENCE-IN-DIFFERENCES (DiD) ANALYSIS   =========================  #
+#                                                                                             #
+#   This section implements the core DiD modeling pipeline.                                   #
+#   - It fits a generalized linear model (GLM) to estimate the effect of the event            #
+#     on the outcome of interest, adjusting for relevant covariates such as                   #
+#     age, sex, specialty, and calendar time.                                                 #
+#   - The model includes interaction terms to capture heterogeneous effects                   #
+#     across subgroups and time periods. The model is applied only to cases and               #
+#     focuses on a 3 year period around the event.                                             #
+#   - Model results are exported and visualized, including raw and adjusted                   #
+#     prescription ratios centered on the event, as well as interaction effects.              #
+#   - Additional advanced DiD analyses (e.g., staggered adoption/event-study)                 #
+#     are performed using the 'did' package for robustness and dynamic effect                 #
+#     estimation. The model also compares cases vs controls to assess the causal impact of    #
+#     the event.                                                                              #
+#                                                                                             #
+###############################################################################################
 
-# Visualization: Difference in Y between EVENT and non-EVENT 
-ref_age <- df_complete %>% count(AGE_IN_2023) %>% arrange(desc(n)) %>% slice(1) %>% pull(AGE_IN_2023)
-ref_sex <- df_complete %>% count(SEX) %>% arrange(desc(n)) %>% slice(1) %>% pull(SEX)
-ref_specialty <- df_complete %>% count(SPECIALTY) %>% arrange(desc(n)) %>% slice(1) %>% pull(SPECIALTY)
-df_plot_event_ref = df_complete %>%
-    filter(AGE_IN_2023 == ref_age, SEX == ref_sex, SPECIALTY == ref_specialty) %>%
-    mutate(EVENT = factor(EVENT, levels = c(0, 1), labels = c("No Event", "Event"))) %>%
-    group_by(EVENT, YEAR) %>%
-    summarise(mean_Y = mean(Y, na.rm = TRUE), se_Y = sd(Y, na.rm = TRUE)/sqrt(sum(!is.na(Y)))) %>%
-    ungroup()
-# Plot for reference group: most common age, sex, and specialty in the dataset
-p_event_year = ggplot(df_plot_event_ref, aes(x = YEAR, y = mean_Y, color = EVENT, fill = EVENT)) +
-    geom_line(size = 1) +
-    geom_ribbon(aes(ymin = mean_Y - 1.96 * se_Y, ymax = mean_Y + 1.96 * se_Y), alpha = 0.2, color = NA) +
-    labs(title = paste0("Mean prescription rate (Y) given Event\n","Reference: Age (in 2023) = ", ref_age, ", Sex (1:Male, 2:Female) = ", ref_sex, ", Specialty = ", ref_specialty),x = "Year", y = "Mean Y") +
-    scale_color_manual(values = c("No Event" = "gray70", "Event" = "steelblue")) +
-    scale_fill_manual(values = c("No Event" = "gray70", "Event" = "steelblue")) +
-    theme_minimal()
-ggsave(filename = file.path(outdir, "Plot_Model1.png"), plot = p_event_year, width = 10, height = 12)
-
-# Model 2: Comparing (average) prescription ratios Before and After Event 
-# - adjusting for age in 2023, sex, specialty + age and year of event
+# GLM Model: Comparing (average) prescription ratios Before and After Event 
 df_model = df_complete %>%
     mutate(
         PERIOD = case_when(
@@ -244,11 +250,9 @@ df_model = df_complete %>%
 model_formula = as.formula("Y ~ PERIOD + MONTH + MONTH**2 + AGE_AT_EVENT + AGE_AT_EVENT**2 + AGE_IN_2023 + AGE_IN_2023**2 + SEX + SPECIALTY + AGE_AT_EVENT:PERIOD + AGE_IN_2023:PERIOD + SEX:PERIOD + SPECIALTY:PERIOD")
 model = fixest::feglm(model_formula, family = binomial("logit"), data = df_model, cluster = ~DOCTOR_ID)
 results = data.frame(summary(model)$coeftable)
-write.csv(results, file = paste0(outdir, "/Coef_Model2.csv"), row.names = TRUE)
+write.csv(results, file = paste0(outdir, "/Coef_GLM_Model.csv"), row.names = TRUE)
 
 # PLOT 1: Average prescription ratio (Y) centered on event
-# - sets of averages: non-adjusted (overall) and adjusted (by age,sex & specialty based on the model)
-# - focus on +/- 36 months around the event month
 df_centered <- df_model %>%
     mutate(time_from_event = MONTH - EVENT_MONTH) %>%
     filter(time_from_event >= -36 & time_from_event <= 36)
@@ -285,7 +289,7 @@ p_centered_subset <- ggplot(plot_data, aes(x = time_from_event)) +
         subtitle = "Blue: Model-adjusted estimates, Orange: Raw data"
     ) +
     theme_minimal()
-ggsave(filename = file.path(outdir, "Plot_Model2_adjusted.png"), plot = p_centered_subset, width = 10, height = 12)
+ggsave(filename = file.path(outdir, "Plot_GLM_Model_adjusted.png"), plot = p_centered_subset, width = 10, height = 12)
 
 # PLOT 2: Interaction Effects
 source("/media/volume/Projects/DSGELabProject1/DiD_Pipeline/PlotInteractionEffects.R")
@@ -320,3 +324,103 @@ results_summary = data.frame(
     n_controls = n_controls
 )
 write.csv(results_summary, file = paste0(outdir, "/results_summary.csv"), row.names = FALSE)
+
+# Staggered DiD Analysis: 
+# using the did package developed by Callaway and Sant'Anna
+.libPaths("/shared-directory/sd-tools/apps/R/lib/")
+library(did)
+
+# Use data.table for much faster aggregation
+df_model <- as.data.table(df_complete)[
+    , .(
+        Ni = sum(Ni, na.rm = TRUE),
+        N = sum(N, na.rm = TRUE),
+        Y = if (sum(N, na.rm = TRUE) == 0) NA_real_ else sum(Ni, na.rm = TRUE) / sum(N, na.rm = TRUE),
+        AGE_AT_EVENT = tail(AGE_AT_EVENT, 1),
+        AGE_IN_2023 = tail(AGE_IN_2023, 1),
+        SEX = tail(SEX, 1),
+        SPECIALTY = tail(SPECIALTY, 1),
+        EVENT = tail(EVENT, 1),
+        EVENT_YEAR = tail(EVENT_YEAR, 1),
+        EVENT_MONTH = tail(EVENT_MONTH, 1)
+    ),
+    by = .(DOCTOR_ID, YEAR)
+][
+    , `:=`(
+        SPECIALTY = factor(SPECIALTY, levels = c("", setdiff(unique(df_complete$SPECIALTY), ""))),
+        SEX = factor(SEX, levels = c(1, 2), labels = c("Male", "Female"))
+    )
+]
+
+# Analysis requires only individuals with non-missing Y for all years in the required window
+years_required <- (min(df_model$YEAR, na.rm = TRUE)):(max(df_model$YEAR, na.rm = TRUE))
+ids_with_all_years <- df_model %>%
+    filter(YEAR %in% years_required & !is.na(Y)) %>%
+    group_by(DOCTOR_ID) %>%
+    summarise(n_years = n_distinct(YEAR)) %>%
+    filter(n_years == length(years_required)) %>%
+    pull(DOCTOR_ID)
+
+# Step 1: prepare the model data
+df_model <- df_model %>% filter(DOCTOR_ID %in% ids_with_all_years, YEAR %in% years_required)
+df_model$ID <- as.integer(factor(df_model$DOCTOR_ID))                       # create a numeric ID variable
+df_model$G <- ifelse(is.na(df_model$EVENT_YEAR), 0, df_model$EVENT_YEAR)  # G = group of first treatment year, 0 for never-treated
+df_model$T <- df_model$YEAR                                                # T = time variable
+
+# Step 2: estimate DiD 
+# ATT adjusted for age, sex and specialty (calendar time and age at event will be automatically handled by the model)
+att_gt_res <- att_gt(
+    yname = "Y",
+    tname = "T",
+    idname = "ID",
+    gname = "G",
+    xformla = ~ AGE_IN_2023 + SEX + SPECIALTY,
+    data = df_model,
+    est_method = "dr",                  # doubly robust (for covariate adj.)
+    control_group = "nevertreated",     # use never treated as control group
+    clustervars = "ID",
+    pl = TRUE,                           # parallel processing
+    cores = N_THREADS
+)
+
+# Step 3: aggregate and plot
+
+# ---- Dynamic effects (event-study) ----
+agg_dynamic <- aggte(att_gt_res, type = "dynamic", na.rm = TRUE)
+df_dynamic <- data.frame(
+    time = agg_dynamic$egt,
+    att = agg_dynamic$att.egt,
+    se = agg_dynamic$se.egt
+)
+# Focus on 3 years before and after the event
+df_dynamic_cut <- df_dynamic %>% filter(time >= -3 & time <= 3)
+p_dynamic <- ggplot(df_dynamic_cut, aes(x = time, y = att)) +
+        geom_line(color = "#1f77b4") +
+        geom_point() +
+        geom_errorbar(aes(ymin = att - 1.96 * se, ymax = att + 1.96 * se), width = 0.2, color = "#1f77b4") +
+        geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+        labs(title = "Dynamic ATT (Event Study)",
+                         x = "Years from Event",
+                         y = "ATT (log-odds/probability)") +
+        theme_minimal()
+
+# ---- Calendar time ATT ----
+agg_calendar <- aggte(att_gt_res, type = "calendar", na.rm = TRUE)
+df_calendar <- data.frame(
+    time = agg_calendar$egt,
+    att = agg_calendar$att.egt,
+    se = agg_calendar$se.egt
+)
+p_calendar <- ggplot(df_calendar, aes(x = time, y = att)) +
+    geom_line(color = "#2ca02c") +
+    geom_point() +
+    geom_errorbar(aes(ymin = att - 1.96 * se, ymax = att + 1.96 * se),width = 0.2, color = "#2ca02c") +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+    labs(title = "Calendar Time ATT",
+             x = "Calendar Time",
+             y = "ATT (log-odds/probability)") +
+    theme_minimal()
+
+# ---- Combine into 2x2 panel ----
+p = (p_dynamic / p_calendar)
+ggsave(filename = file.path(outdir, "did_ATT_plots.png"), plot = p, width = 10, height = 8)
