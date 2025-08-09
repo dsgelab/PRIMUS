@@ -106,10 +106,9 @@ df_merged[, `:=`(
     first_Y_month = min(MONTH[!is.na(get(paste0("Y_", outcome_code)))], na.rm = TRUE),
     last_Y_month = max(MONTH[!is.na(get(paste0("Y_", outcome_code)))], na.rm = TRUE)
 ), by = DOCTOR_ID]
-df_merged = df_merged[
-    is.na(EVENT_MONTH) | (EVENT_MONTH >= first_Y_month & EVENT_MONTH <= last_Y_month)]
-removed_ids = unique(df_merged[!(is.na(EVENT_MONTH) | (EVENT_MONTH >= first_Y_month & EVENT_MONTH <= last_Y_month)), DOCTOR_ID])
-df_merged = df_merged[!(DOCTOR_ID %in% removed_ids)]
+df_merged <- df_merged[
+    is.na(EVENT_MONTH) | (EVENT_MONTH >= first_Y_month & EVENT_MONTH <= last_Y_month)
+]
 
 # Prepare covariates 
 covariates[, `:=`(
