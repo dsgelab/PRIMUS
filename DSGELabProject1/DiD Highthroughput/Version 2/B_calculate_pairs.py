@@ -13,10 +13,10 @@ def analyze_events_outcomes(events, outcomes, doctor_ids):
     # Filter events once upfront
     filtered_events = events[events['ID'].isin(doctor_ids_set)]
     
-    # Pre-filter outcomes for relevant IDs and COUNT >= 20
+    # Pre-filter outcomes for relevant IDs and COUNT >= 50
     relevant_outcomes = outcomes[
         (outcomes['ID'].isin(doctor_ids_set)) & 
-        (outcomes['COUNT'] >= 20)
+        (outcomes['COUNT'] >= 50)
     ]
     
     # Group filtered events by CODE to get unique IDs for each event code
@@ -43,13 +43,13 @@ def analyze_events_outcomes(events, outcomes, doctor_ids):
         for outcome_code in outcome_codes:
             # Count intersection of event_ids and outcome_ids (with COUNT >= 20)
             outcome_ids = outcome_groups.get(outcome_code, set())
-            n_cases_20_outcomes = len(event_ids & outcome_ids)
+            n_cases_50_outcomes = len(event_ids & outcome_ids)
             
             results.append({
                 'event_code': event_code,
                 'outcome_code': outcome_code,
                 'N_CASES': n_cases,
-                'N_CASES_20_OUTCOMES': n_cases_20_outcomes
+                'N_CASES_50_OUTCOMES': n_cases_50_outcomes
             })
             
             processed += 1
