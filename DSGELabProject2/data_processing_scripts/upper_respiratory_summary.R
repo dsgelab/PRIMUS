@@ -277,6 +277,26 @@ diag_by_year_pres_plot <- ggplot(visit_year_counts, aes(x = factor(VISIT_YEAR), 
     plot_theme
 diag_by_year_pres_plot
 
+# Yearly prescription rate
+yearly_rate <- prescription_rate %>%
+    mutate(YEAR = lubridate::year(VISIT_DATE)) %>%
+    group_by(YEAR) %>%
+    summarize(
+        PRESCRIBED = sum(PRESCRIBED),
+        TOTAL = n()
+    ) %>%
+    mutate(PRESCRIBED_RATE = PRESCRIBED / TOTAL * 100)
+
+yearly_rate_plot <- ggplot(yearly_rate, aes(x = factor(YEAR), y = PRESCRIBED_RATE)) +
+    geom_bar(stat = "identity") +
+    labs(
+        title = paste("Prescription Rate by Year for", code),
+        x = "Year",
+        y = "Prescription Rate"
+    ) +
+    plot_theme
+yearly_rate_plot
+
 # Distribution of diagnosing and prescribing doctors by specialty
 diag_freq_by_specialty <- prescription_rate %>%
     filter(!is.na(SPECIALTY)) %>%
@@ -325,6 +345,28 @@ freq_by_specialty_plot <- ggplot(freq_by_specialty, aes(x = reorder(SPECIALTY, F
     ) +
     plot_theme
 freq_by_specialty_plot
+
+diag_freq_by_specialty_plot <- ggplot(diag_freq_by_specialty, aes(x = reorder(SPECIALTY, DIAGNOSIS_FREQ), y = DIAGNOSIS_FREQ)) +
+    geom_bar(stat = "identity") +
+    coord_flip() +
+    labs(
+        title = paste("Distribution of", code, "Diagnoses by Specialty"),
+        x = "Specialty",
+        y = "Relative Frequency (%)"
+    ) +
+    plot_theme
+diag_freq_by_specialty_plot
+
+pres_freq_by_specialty_plot <- ggplot(pres_freq_by_specialty, aes(x = reorder(SPECIALTY, PRESCRIPTION_FREQ), y = PRESCRIPTION_FREQ)) +
+    geom_bar(stat = "identity") +
+    coord_flip() +
+    labs(
+        title = paste("Distribution of", code, "Prescriptions by Specialty"),
+        x = "Specialty",
+        y = "Relative Frequency (%)"
+    ) +
+    plot_theme
+pres_freq_by_specialty_plot
 
 add_binom_interval <- function(df, count_col, n_col, conf_level = 0.95) {
   z <- qnorm((1 + conf_level) / 2)
