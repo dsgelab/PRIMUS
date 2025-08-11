@@ -42,7 +42,9 @@ print(paste("Number of J01 (antibiotics) prescriptions:", nrow(prescription)))
 diagnosis <- fread(diagnosis_file) %>%
     as_tibble() %>%
     mutate(across(where(is.character), ~ na_if(., ""))) %>%
-    filter(VISIT_DATE >= min(prescription$PRESCRIPTION_DATE)) # Only include patients from the same time period as prescriptions
+    filter(VISIT_DATE >= min(prescription$PRESCRIPTION_DATE)) %>% # Only include patients from the same time period as prescriptions
+    filter(VISIT_DATE < "2020-01-01") %>% # Only include patients pre-covid
+    filter(VISIT_DATE >= "2016-01-01") # Diagnoses before 2016 have an oddly low number of prescriptions
 
 count <- nrow(diagnosis)
 print(paste("Number of patients (first diagnoses):", count))
