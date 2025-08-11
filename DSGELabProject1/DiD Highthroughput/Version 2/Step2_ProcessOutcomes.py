@@ -32,7 +32,9 @@ def process_outcomes_chunked_with_temp(id_list_path, outcome_file, outcome_codes
     for outcome_code in outcome_codes: 
         (temp_path / outcome_code).mkdir(exist_ok=True)
     # Directory for general counts
-    (temp_path / "general").mkdir(exist_ok=True)  
+    (temp_path / "general").mkdir(exist_ok=True)
+    # Directory for first/last month tracking
+    (temp_path / "first_last").mkdir(exist_ok=True)
     print(f"Temporary files will be stored in: {temp_path}")
     
     # ===== GET TOTAL ROW COUNT FOR PROGRESS TRACKING =====
@@ -142,6 +144,17 @@ def process_and_save_chunk(chunk_df, id_list, outcome_codes, temp_path, chunk_nu
                 
                 temp_file = temp_path / outcome_code / f"chunk_{chunk_num:04d}.parquet"
                 outcome_agg.write_parquet(temp_file)
+                
+                # ===== SAVE FIRST/LAST MONTH DATA FOR THIS OUTCOME =====
+                first_last_agg = outcome_df.group_by("DOCTOR_ID").agg([
+                    pl.min("MONTH").alias("first_month"),
+                    pl.max("MONTH").alias("last_month")
+                ]).with_columns([
+                    pl.lit(outcome_code).alias("CODE")
+                ])
+                
+                temp_first_last_file = temp_path / "first_last" / f"{outcome_code}_chunk_{chunk_num:04d}.parquet"
+                first_last_agg.write_parquet(temp_first_last_file)
         
         # ===== PROCESS GENERAL COUNTS =====
         general_agg = filtered_df.group_by(["DOCTOR_ID", "MONTH", "YEAR"]).agg([
@@ -176,6 +189,25 @@ def combine_temp_files(temp_path, outcome_codes):
     
     final_result = final_general  # Initialize output file with general counts
     
+    # ===== LOAD AND COMBINE FIRST/LAST MONTH DATA =====
+    print("Loading and combining first/last month data...")
+    first_last_data = {}
+    
+    for outcome_code in outcome_codes:
+        first_last_files = list((temp_path / "first_last").glob(f"{outcome_code}_chunk_*.parquet"))
+        
+        if first_last_files:
+            first_last_dfs = [pl.read_parquet(f) for f in first_last_files]
+            combined_first_last = pl.concat(first_last_dfs)
+            
+            # Get the true first and last months across all chunks
+            final_first_last = combined_first_last.group_by("DOCTOR_ID").agg([
+                pl.min("first_month").alias(f"first_month_{outcome_code}"),
+                pl.max("last_month").alias(f"last_month_{outcome_code}")
+            ])
+            
+            first_last_data[outcome_code] = final_first_last
+    
     # ===== PROCESS EACH OUTCOME CODE =====
     for i, outcome_code in enumerate(outcome_codes):
         #print(f"Processing outcome code {i+1}/{len(outcome_codes)}: {outcome_code}")
@@ -206,6 +238,22 @@ def combine_temp_files(temp_path, outcome_codes):
             final_result = final_result.with_columns(
                 pl.lit(0).alias(f"N_{outcome_code}")  # Add zero column for missing outcome
             )
+    
+    # ===== ADD FIRST/LAST MONTH COLUMNS =====
+    print("Adding first/last month columns...")
+    for outcome_code in outcome_codes:
+        if outcome_code in first_last_data:
+            final_result = final_result.join(
+                first_last_data[outcome_code],
+                on="DOCTOR_ID",
+                how="left"
+            )
+        else:
+            # Add null columns for outcomes with no data
+            final_result = final_result.with_columns([
+                pl.lit(None).alias(f"first_month_{outcome_code}"),
+                pl.lit(None).alias(f"last_month_{outcome_code}")
+            ])
     
     # ===== CALCULATE OUTCOME RATIOS =====
     print("Calculating outcome ratios...")
@@ -258,6 +306,24 @@ def process_outcomes_streamlined(id_list_path, outcome_file, outcome_codes_file,
         ((pl.col("DATE").dt.year() - 1998) * 12 + pl.col("DATE").dt.month()).alias("MONTH")  # Months since 1998 (0, .. , 300)
     )
     
+    # ===== CALCULATE FIRST/LAST MONTHS FOR EACH OUTCOME CODE =====
+    print("Calculating first/last months for each outcome code...")
+    first_last_data = {}
+    
+    for outcome_code in outcome_codes:
+        print(f"Processing first/last for outcome code: {outcome_code}")
+        outcome_specific_df = outcome_df.filter(
+            pl.col("CODE").str.starts_with(outcome_code).fill_null(False)
+        )
+        
+        first_last_agg = outcome_specific_df.group_by("DOCTOR_ID").agg([
+            pl.min("MONTH").alias(f"first_month_{outcome_code}"),
+            pl.max("MONTH").alias(f"last_month_{outcome_code}")
+        ]).collect()
+        
+        if len(first_last_agg) > 0:
+            first_last_data[outcome_code] = first_last_agg
+    
     # ===== PROCESS OUTCOME CODES IN BATCHES =====
     batch_size = min(10, len(outcome_codes))  # Process max 10 outcome codes at a time
     all_results = []
@@ -303,6 +369,22 @@ def process_outcomes_streamlined(id_list_path, outcome_file, outcome_codes_file,
                 on=["DOCTOR_ID", "MONTH"], 
                 how="outer"
             )
+    
+    # ===== ADD FIRST/LAST MONTH COLUMNS =====
+    print("Adding first/last month columns...")
+    for outcome_code in outcome_codes:
+        if outcome_code in first_last_data:
+            monthly_outcomes = monthly_outcomes.join(
+                first_last_data[outcome_code],
+                on="DOCTOR_ID",
+                how="left"
+            )
+        else:
+            # Add null columns for outcomes with no data
+            monthly_outcomes = monthly_outcomes.with_columns([
+                pl.lit(None).alias(f"first_month_{outcome_code}"),
+                pl.lit(None).alias(f"last_month_{outcome_code}")
+            ])
     
     # ===== CALCULATE RATIOS =====
     for outcome_code in outcome_codes:

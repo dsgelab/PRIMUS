@@ -41,5 +41,5 @@ pairs_ICD$event_code = paste0("Diag_", pairs_ICD$event_code)
 pairs_ICD <- as.data.frame(pairs_ICD)
 
 # save pairs to a file (no header)
-write.csv(pairs_ATC, sprintf("/media/volume/Projects/DSGELabProject1/DiD_Highthroughput/Version2/GeneratePairs/event_outcome_pairs_ATC_%s.csv", DATE), row.names = FALSE, col.names = FALSE, quote = FALSE)
-write.csv(pairs_ICD, sprintf("/media/volume/Projects/DSGELabProject1/DiD_Highthroughput/Version2/GeneratePairs/event_outcome_pairs_ICD_%s.csv", DATE), row.names = FALSE, col.names = FALSE, quote = FALSE)
+write.table(pairs_ATC, sprintf("/media/volume/Projects/DSGELabProject1/DiD_Highthroughput/Version2/GeneratePairs/event_outcome_pairs_ATC_%s.csv", DATE), row.names = FALSE, col.names = FALSE, quote = FALSE)
+write.table(pairs_ICD, sprintf("/media/volume/Projects/DSGELabProject1/DiD_Highthroughput/Version2/GeneratePairs/event_outcome_pairs_ICD_%s.csv", DATE), row.names = FALSE, col.names = FALSE, quote = FALSE)

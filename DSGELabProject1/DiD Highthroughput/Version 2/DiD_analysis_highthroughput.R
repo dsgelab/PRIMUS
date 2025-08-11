@@ -22,6 +22,7 @@ suppressPackageStartupMessages({
     library(marginaleffects)
     library(ggplot2)
     library(patchwork)
+    library(future.apply)
 })
 
 ##### Arguments
@@ -35,7 +36,8 @@ covariate_file = args[6]
 results_file = args[7]  
 
 #### Main
-setDTthreads(10) 
+N_THREADS = 10
+setDTthreads(N_THREADS) 
 # not using all threads to easily run in background
 
 # Initialize timing
@@ -64,7 +66,7 @@ event_ids = unique(events$PATIENT_ID)
 # STEP 2: Analysis Pre-Checks
 
 # Load outcomes with specific columns only
-outcomes_cols = c("DOCTOR_ID", "MONTH", "YEAR", paste0("N_", outcome_code), paste0("Y_", outcome_code))
+outcomes_cols = c("DOCTOR_ID", "MONTH", "YEAR", paste0("N_", outcome_code), paste0("Y_", outcome_code), paste0("first_month_", outcome_code), paste0("last_month_", outcome_code))
 outcomes = as.data.table(read_parquet(outcomes_file, col_select = outcomes_cols))
 
 # CHECK: only keep doctors with at least 20 prescriptions of the outcome
@@ -102,12 +104,11 @@ df_merged[, EVENT_MONTH := ifelse(!is.na(DATE), (as.numeric(format(DATE, "%Y")) 
 df_merged[, DATE := NULL]
 
 # exclude events which happened before the first prescription of the outcome / or the last one
-df_merged[, `:=`(
-    first_Y_month = min(MONTH[!is.na(get(paste0("Y_", outcome_code)))], na.rm = TRUE),
-    last_Y_month = max(MONTH[!is.na(get(paste0("Y_", outcome_code)))], na.rm = TRUE)
-), by = DOCTOR_ID]
+# Use the pre-calculated first_month and last_month columns
+first_month_col = paste0("first_month_", outcome_code)
+last_month_col = paste0("last_month_", outcome_code)
 df_merged <- df_merged[
-    is.na(EVENT_MONTH) | (EVENT_MONTH >= first_Y_month & EVENT_MONTH <= last_Y_month)
+    is.na(EVENT_MONTH) | (EVENT_MONTH >= get(first_month_col) & EVENT_MONTH <= get(last_month_col))
 ]
 
 # Prepare covariates 
@@ -167,7 +168,7 @@ model = fixest::feols(model_formula, data = df_model_df, vcov = ~DOCTOR_ID)
 
 # STEP 6: Marginal Effects Calculation 
 # step_start <- Sys.time()
-
+plan(multicore, workers = N_THREADS)
 options(marginaleffects_parallel = TRUE)
 marginal_pkg = avg_slopes(model, variables = "PERIOD")
 
