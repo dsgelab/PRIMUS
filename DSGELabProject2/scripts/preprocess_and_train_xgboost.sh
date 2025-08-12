@@ -16,10 +16,10 @@ mode="${2:-test}"
 exec > >(tee "logs/preprocess_and_train_xgboost_${icd10_code_no_dot}.log") 2>&1
 
 # Create csv for patients having a diagnosis with the given icd10 code, and patient diagnosis & prescription history
-Rscript create_diagnoses_and_patient_history.R --icd10_code "$icd10_code"
+Rscript create_patient_diagnoses.R --icd10_code "$icd10_code"
 
 # Create csv for doctor diagnosis and prescription history
-python3 doctor_history.py --icd10_code "$icd10_code"
+python3 doctor_and_patient_history.py --icd10_code "$icd10_code"
 
 # Create csv for patients having a diagnosis with the given icd10 code and a label for whether they were prescribed antibiotics for the given icd10 code
 Rscript create_diagnoses_with_prescriptions.R --icd10_code "$icd10_code"
