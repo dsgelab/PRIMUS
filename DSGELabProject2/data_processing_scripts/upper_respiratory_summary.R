@@ -216,7 +216,7 @@ prescription_rate <- prescription_rate_init %>%
     left_join(diag_history_doc, by = c("DOCTOR_ID", "VISIT_DATE"), suffix = c("_PAT", "_DOC")) %>%
     left_join(pres_history_doc, by = c("DOCTOR_ID", "VISIT_DATE"), suffix = c("_PAT", "_DOC"))
 # write.csv(prescription_rate, paste0(code_no_dot, "DiagnosesWithPrescriptions_", current_date, ".csv"), row.names = FALSE)
-# prescription_rate <- fread(prescription_rate_file) %>% as_tibble
+# prescription_rate <- fread(prescription_rate_file) %>% as_tibble()
 
 # Class imbalance plot
 class_freq <- tibble(
@@ -884,13 +884,15 @@ patient_disease_pattern <- "^HAD_ICD10_(.+)_PAT$"
 disease_prevalence_pat <- prescription_rate %>%
     summarize(across(matches(patient_disease_pattern), ~ mean(.x) * 100)) %>%
     pivot_longer(cols = matches(patient_disease_pattern), names_to = "DISEASE_HISTORY", values_to = "PREVALENCE") %>%
-    mutate(DISEASE_HISTORY = sub(patient_disease_pattern, "\\1", DISEASE_HISTORY))
+    mutate(DISEASE_HISTORY = sub(patient_disease_pattern, "\\1", DISEASE_HISTORY)) %>%
+    filter(PREVALENCE > 5)
 
-disease_prevalence_pat_plot <- ggplot(disease_prevalence_pat, aes(x = DISEASE_HISTORY, y = PREVALENCE)) +
+disease_prevalence_pat_plot <- ggplot(disease_prevalence_pat, aes(x = reorder(DISEASE_HISTORY, PREVALENCE), y = PREVALENCE)) +
     geom_bar(stat = "identity") +
+    coord_flip() +
     labs(
-        title = "Prevalence of Different Diseases for Patients with J06.9",
-        x = "ICD10 Code First Character",
+        title = "Prevalence of Most Common Diseases for Patients with J06.9",
+        x = "ICD10 Code Group",
         y = "Prevalence (%)"
     ) +
     plot_theme
@@ -904,7 +906,9 @@ rate_by_diag_history_pat <- prescription_rate %>%
     summarize(
         PRESCRIBED = sum(PRESCRIBED),
         TOTAL = n(),
+        RELATIVE_FREQ = TOTAL / nrow(prescription_rate) * 100
     ) %>%
+    filter(RELATIVE_FREQ > 1) %>%
     mutate(PRESCRIBED_RATE = PRESCRIBED / TOTAL * 100) %>%
     mutate(DISEASE_INDICATOR = sub(patient_disease_pattern, "\\1", DISEASE_INDICATOR)) %>%
     add_binom_interval(count_col = "PRESCRIBED", n_col = "TOTAL")
