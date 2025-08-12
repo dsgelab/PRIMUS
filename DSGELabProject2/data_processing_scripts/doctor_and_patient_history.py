@@ -11,7 +11,8 @@ from enum import StrEnum
 
 INDIR = Path("/media/volume/Projects/mikael/ProcessedData/")
 OUTDIR = Path("/media/volume/Projects/mikael/ProcessedData/")
-CHUNK_SIZE = 20_000_000
+CHUNK_SIZE = 10_000_000
+MERGE_CHUNK_SIZE = 100_000
 current_date = datetime.now().strftime("%Y%m%d")
 DIAGNOSIS_DTYPES = {"PATIENT_ID": "str", "VISIT_DATE": "str", "ICD10_CODE": "str", "DOCTOR_ID": "str"}
 PRESCRIPTION_DTYPES = {
@@ -53,11 +54,11 @@ def get_size_gb(obj, name):
     return size_gb
 
 
-def count_dates_before(doctor_event_history, doctor_dates):
+def count_dates_before(doctor_event_history, doctor_dates, id_column):
     def count_before(row):
-        doctor_id = row["DOCTOR_ID"]
+        person_id = row[id_column]
         visit_date = row["VISIT_DATE"]
-        dates = doctor_dates.get(doctor_id)
+        dates = doctor_dates.get(person_id)
         if dates is None or len(dates) == 0:
             return 0
         visit_date = np.datetime64(visit_date)
@@ -66,49 +67,51 @@ def count_dates_before(doctor_event_history, doctor_dates):
     return doctor_event_history.apply(count_before, axis=1)
 
 
-def add_mean_past_yearly_column(events_file, events_dtypes, date_column, doctor_event_history, label):
+def add_mean_past_yearly_column(events_file, events_dtypes, event_history, date_column, id_column, event_label, person_label, n_digits):
     """
-    Calculate and add the mean yearly number of past events (prescriptions or diagnoses) for each doctor.
+    Calculate and add the mean yearly number of past events (prescriptions or diagnoses) for each person (patient/doctor).
 
-    For each doctor in the provided event history DataFrame, this function:
-      - Aggregates all past event dates (prescriptions or diagnoses) from a large CSV file, reading in chunks for efficiency.
-      - For each doctor, determines the earliest event date and counts the number of events that occurred before each event in the history.
-      - Computes the mean yearly rate of past events for each doctor up to the current event date, and adds this as a new column to the DataFrame.
+    For each person in the provided event history DataFrame, this function:
+      - Aggregates all past event dates (prescriptions or diagnoses) from a large CSV file (events_file), reading in chunks for efficiency.
+      - For each person, determines the earliest event date and counts the number of events that occurred before each event in the history.
+      - Computes the mean yearly rate of past events for each person up to the current event date, and adds this as a new column to the DataFrame.
 
     Args:
         events_file (str or Path): Path to the CSV file containing all events (prescriptions or diagnoses).
         events_dtypes (dict): Dictionary specifying dtypes for reading the CSV.
+        event_history (pd.DataFrame): All unique diagnosis events by visit date and person id within the selected diagnosis.
         date_column (str): Name of the column containing event dates.
-        doctor_event_history (pd.DataFrame): All doctor diagnosis events (visit date and doctor id) for unique patients within the selected diagnosis.
-        label (str): Either "Diagnosis" or "Prescription", used for naming the new column.
+        id_column (str): Name of the column containing patient or doctor IDs.
+        event_label (str): Either "Diagnosis" or "Prescription", used for naming the new column.
+        person_label (str): Either "Patient" or "Doctor", used for debugging.
 
     Returns:
-        None. Modifies doctor_event_history in place by adding a column 'MEAN_YEARLY_<EVENTS>'.
+        None. Modifies event_history in place by adding a column 'MEAN_YEARLY_<EVENTS>'.
     """
     plurals = {"Diagnosis": "diagnoses", "Prescription": "prescriptions"}
-    doctor_past_dates = {}  # All past prescription or diagnosis dates per doctor
+    past_dates = {}  # All past prescription or diagnosis dates per person
 
     for chunk in pd.read_csv(events_file, dtype=events_dtypes, usecols=events_dtypes.keys(), chunksize=CHUNK_SIZE):
-        # Accumulate all prescription dates per doctor. These are used to calculate the mean yearly past prescriptions.
-        doctor_date_groups = chunk.groupby("DOCTOR_ID")[date_column]
-        for doctor_id, group in doctor_date_groups:
-            doctor_past_dates.setdefault(doctor_id, []).extend(group.tolist())
+        # Accumulate all prescription dates per person. These are used to calculate the mean yearly past prescriptions.
+        date_groups = chunk.groupby(id_column)[date_column]
+        for person_id, group in date_groups:
+            past_dates.setdefault(person_id, []).extend(group.tolist())
 
-    get_size_gb(doctor_past_dates, f"Doctor past {label} dates")
+    get_size_gb(past_dates, f"{person_label} past {event_label} dates")
 
     # Convert accumulated dates to sorted numpy arrays
-    for doctor_id in doctor_past_dates:
-        doctor_past_dates[doctor_id] = np.sort(np.array(doctor_past_dates[doctor_id], dtype="datetime64[ns]"))
-    doctor_earliest_date = {doctor_id: doctor_past_dates[doctor_id][0] for doctor_id in doctor_past_dates}
-    doctor_event_history["EARLIEST_DATE"] = doctor_event_history["DOCTOR_ID"].map(doctor_earliest_date)
+    for person_id in past_dates:
+        past_dates[person_id] = np.sort(np.array(past_dates[person_id], dtype="datetime64[ns]"))
+    person_earliest_dates = {person_id: past_dates[person_id][0] for person_id in past_dates}
+    event_history["EARLIEST_DATE"] = event_history[id_column].map(person_earliest_dates)
 
-    doctor_event_history["N_EVENTS_BEFORE"] = count_dates_before(doctor_event_history, doctor_past_dates)
-    mask_valid = doctor_event_history["EARLIEST_DATE"].notna() & (doctor_event_history["VISIT_DATE"] > doctor_event_history["EARLIEST_DATE"])
-    years = (doctor_event_history["VISIT_DATE"] - doctor_event_history["EARLIEST_DATE"]).dt.days / 365.25
-    yearly_column_name = f"MEAN_YEARLY_{plurals[label].upper()}"
-    doctor_event_history[yearly_column_name] = pd.NA
-    doctor_event_history.loc[mask_valid, yearly_column_name] = (doctor_event_history.loc[mask_valid, "N_EVENTS_BEFORE"] / years[mask_valid]).round(1)
-    doctor_event_history.drop(columns=["N_EVENTS_BEFORE", "EARLIEST_DATE"], inplace=True)
+    event_history["N_EVENTS_BEFORE"] = count_dates_before(event_history, past_dates, id_column)
+    mask_valid = event_history["EARLIEST_DATE"].notna() & (event_history["VISIT_DATE"] > event_history["EARLIEST_DATE"])
+    years = (event_history["VISIT_DATE"] - event_history["EARLIEST_DATE"]).dt.days / 365.25
+    yearly_column_name = f"MEAN_YEARLY_{plurals[event_label].upper()}"
+    event_history[yearly_column_name] = pd.NA
+    event_history.loc[mask_valid, yearly_column_name] = (event_history.loc[mask_valid, "N_EVENTS_BEFORE"] / years[mask_valid]).round(n_digits)
+    event_history.drop(columns=["N_EVENTS_BEFORE", "EARLIEST_DATE"], inplace=True)
 
 
 def expand_code_ranges(code_ranges):
@@ -201,7 +204,9 @@ def calculate_history(events_filename, events_dtypes, code_column, date_column, 
 
     print("Percentage of nans in code groups:", round(n_code_group_nans / nrows * 100, 1))
     code_groups = sorted(code_groups_set)
-    earliest_events_df = pd.DataFrame([{"PATIENT_ID": k[0], "CODE_GROUP": k[1], "EARLIEST_EVENT_DATE": v} for k, v in earliest_events_dict.items()])
+    earliest_events_df = pd.DataFrame(({"PATIENT_ID": k[0], "CODE_GROUP": k[1], "EARLIEST_EVENT_DATE": v} for k, v in earliest_events_dict.items()))
+    del earliest_events_dict
+    earliest_events_df = earliest_events_df.astype({"PATIENT_ID": "category", "CODE_GROUP": "category", "EARLIEST_EVENT_DATE": "datetime64[ns]"})
 
     def get_earliest_events_with_full_index(earliest_events_df, index_column):
         """
@@ -222,35 +227,43 @@ def calculate_history(events_filename, events_dtypes, code_column, date_column, 
 
     def make_doctor_history_columns(earliest_events_df, doctor_diagnosis, code_groups, history_column_prefix):
         earliest_events = get_earliest_events_with_full_index(earliest_events_df, "DOCTOR_ID")
-        doctor_event_history = (
+        doctor_events = (
             doctor_diagnosis[["DOCTOR_ID", "VISIT_DATE"]].drop_duplicates().sort_values(["DOCTOR_ID", "VISIT_DATE"]).reset_index(drop=True)
         )
-        doctor_event_history["VISIT_DATE"] = pd.to_datetime(doctor_event_history["VISIT_DATE"])
+        doctor_events["VISIT_DATE"] = pd.to_datetime(doctor_events["VISIT_DATE"])
 
         new_columns = {}
         for group in code_groups:
             group_history = earliest_events[earliest_events["CODE_GROUP"] == group][["DOCTOR_ID", "EARLIEST_EVENT_DATE"]]
             merged = pd.merge(
-                doctor_event_history,
+                doctor_events,
                 group_history,
                 on="DOCTOR_ID",
                 how="inner",
             )
             new_columns[f"{history_column_prefix}_{group}_DOC"] = (merged["EARLIEST_EVENT_DATE"] < merged["VISIT_DATE"]).astype(int)
 
-        doctor_event_history = pd.concat([doctor_event_history, pd.DataFrame(new_columns)], axis=1)
+        doctor_event_history = pd.concat([doctor_events, pd.DataFrame(new_columns)], axis=1)
         return doctor_event_history
 
     def make_patient_history_columns(earliest_events_df, diagnosis, history_column_prefix):
         earliest_events = get_earliest_events_with_full_index(earliest_events_df, "PATIENT_ID")
         patient_ids = diagnosis["PATIENT_ID"]
-        patient_event_history = (
-            pd.merge(
-                diagnosis,
+        diagnosis_temp_file = Path("diagnosis_temp.csv")
+        diagnosis.to_csv(diagnosis_temp_file, index=False)
+
+        merged_chunks = []
+        for diag_chunk in pd.read_csv(diagnosis_temp_file, chunksize=MERGE_CHUNK_SIZE):
+            merged_chunk = pd.merge(
+                diag_chunk,
                 earliest_events,
                 on="PATIENT_ID",
             )
-            .query("EARLIEST_EVENT_DATE < VISIT_DATE")
+            merged_chunks.append(merged_chunk)
+        patient_event_history = pd.concat(merged_chunks, ignore_index=True)
+
+        patient_event_history = (
+            patient_event_history.query("EARLIEST_EVENT_DATE < VISIT_DATE")
             .assign(present=1)
             .pivot_table(
                 index="PATIENT_ID",
@@ -264,17 +277,25 @@ def calculate_history(events_filename, events_dtypes, code_column, date_column, 
             .reindex(patient_ids, fill_value=0)
             .reset_index()
             .rename_axis(None, axis=1)
+            .merge(diagnosis[["PATIENT_ID", "VISIT_DATE"]], on="PATIENT_ID", how="left")
         )
+
+        diagnosis_temp_file.unlink()
         return patient_event_history
 
     doctor_event_history = make_doctor_history_columns(earliest_events_df, doctor_diagnosis, code_groups, history_column_prefix)
     print("Doctor history columns added.")
 
-    add_mean_past_yearly_column(events_file, events_dtypes, date_column, doctor_event_history, outfile_label)
-    print(f"Mean yearly past {outfile_label.lower()} column added.")
+    add_mean_past_yearly_column(events_file, events_dtypes, doctor_event_history, date_column, "DOCTOR_ID", outfile_label, "Doctor", 0)
+    print(f"Mean yearly past doctor {outfile_label.lower()} column added.")
 
     patient_event_history = make_patient_history_columns(earliest_events_df, diagnosis, history_column_prefix)
     print("Patient history columns added.")
+
+    add_mean_past_yearly_column(events_file, events_dtypes, patient_event_history, date_column, "PATIENT_ID", outfile_label, "Patient", 2)
+    print(f"Mean yearly past patient {outfile_label.lower()} column added.")
+    # As all patients are only diagnosed once, we don't need the visit date to uniquely identify a diagnosis event
+    patient_event_history.drop(columns=["VISIT_DATE"], inplace=True)
 
     def save_history(history, target_group):
         outfile = OUTDIR / f"{icd10_code_no_dot}{target_group}{outfile_label}History_{current_date}.csv"

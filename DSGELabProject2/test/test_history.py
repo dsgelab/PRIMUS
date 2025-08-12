@@ -26,7 +26,7 @@ class File:
         self.path = path
         self.id = None
         self.df = None
-        self.mean_df = None
+        self.mean_df = pd.DataFrame()
 
 
 def get_test_filename(path: Path, mean: bool = False):
@@ -51,6 +51,8 @@ def test():
                 if file.person == "patient":
                     patient_id = file.id[0]
                     mask = chunk["PATIENT_ID"] == patient_id
+
+                    file.mean_df = pd.concat([file.mean_df, chunk[mask]], ignore_index=True)
                 else:
                     doctor_id, date = file.id
                     mask = (chunk["PATIENT_ID"] == doctor_id) & (chunk[file.date_column] < date)
@@ -65,10 +67,10 @@ def test():
             test_file = get_test_filename(file.path)
             file.df.to_csv(test_file, index=False)
             print(f"Test file saved to {test_file}")
-            if file.mean_df is not None:
-                test_file = get_test_filename(file.path, mean=True)
-                file.mean_df.to_csv(test_file, index=False)
-                print(f"Mean test file saved to {test_file}")
+
+            mean_test_file = get_test_filename(file.path, mean=True)
+            file.mean_df.to_csv(mean_test_file, index=False)
+            print(f"Mean test file saved to {mean_test_file}")
 
     diag_history_pat = File(person="patient", date_column="VISIT_DATE", path=diag_history_pat_file)
     diag_history_doc = File(person="doctor", date_column="VISIT_DATE", path=diag_history_doc_file)

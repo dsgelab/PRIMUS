@@ -690,7 +690,7 @@ lang_freq_plot <- ggplot(rate_by_language %>% filter(TOTAL > 1000), aes(x = reor
     geom_bar(stat = "identity") +
     coord_flip() +
     labs(
-        title = "Distribution of Doctor Languages",
+        title = paste("Distribution of Doctor Languages for", code, "Cases"),
         x = "Language",
         y = "Frequency"
     ) +
@@ -1077,44 +1077,44 @@ rate_by_pres_history_doc_plot <- ggplot(rate_by_pres_history_doc, aes(x = reorde
     plot_theme
 rate_by_pres_history_doc_plot
 
-# Histogram of mean yearly past prescriptions
-mean_past_pres_hist <- ggplot(prescription_rate %>% filter(!is.na(MEAN_YEARLY_PRESCRIPTIONS)), aes(x = MEAN_YEARLY_PRESCRIPTIONS)) +
+# Histogram of doctor mean yearly past prescriptions
+mean_past_pres_doc_hist <- ggplot(prescription_rate %>% filter(!is.na(MEAN_YEARLY_PRESCRIPTIONS_DOC)), aes(x = MEAN_YEARLY_PRESCRIPTIONS_DOC)) +
     geom_histogram(binwidth = 100) +
     labs(
-        title = "Histogram of Mean Yearly Past Prescriptions",
-        x = "Mean Yearly Past Prescriptions",
+        title = "Histogram of Doctor Mean Yearly Past Prescriptions",
+        x = "Doctor Mean Yearly Past Prescriptions",
     ) +
     plot_theme
-mean_past_pres_hist
+mean_past_pres_doc_hist
 
-# Mean yearly past prescription by specialty
-past_pres_by_specialty <- prescription_rate %>%
-    filter(!is.na(SPECIALTY) & !is.na(MEAN_YEARLY_PRESCRIPTIONS)) %>%
+# Mean yearly doctor past prescription by specialty
+past_pres_by_specialty_doc <- prescription_rate %>%
+    filter(!is.na(SPECIALTY) & !is.na(MEAN_YEARLY_PRESCRIPTIONS_DOC)) %>%
     group_by(SPECIALTY) %>%
     summarize(
-        MEAN_SPECIALTY_PRESCRIPTIONS = mean(MEAN_YEARLY_PRESCRIPTIONS),
+        MEAN_SPECIALTY_PRESCRIPTIONS = mean(MEAN_YEARLY_PRESCRIPTIONS_DOC),
         TOTAL = n()
     ) %>%
     arrange(desc(MEAN_SPECIALTY_PRESCRIPTIONS))
 
-past_pres_by_specialty_plot <- ggplot(past_pres_by_specialty %>% filter(TOTAL > 1000), aes(x = reorder(SPECIALTY, MEAN_SPECIALTY_PRESCRIPTIONS), y = MEAN_SPECIALTY_PRESCRIPTIONS)) +
+past_pres_by_specialty_doc_plot <- ggplot(past_pres_by_specialty_doc %>% filter(TOTAL > 1000), aes(x = reorder(SPECIALTY, MEAN_SPECIALTY_PRESCRIPTIONS), y = MEAN_SPECIALTY_PRESCRIPTIONS)) +
     geom_bar(stat = "identity") +
     coord_flip() +
     labs(
-        title = "Mean Yearly Past Prescriptions by Specialty",
+        title = "Doctor Mean Yearly Past Prescriptions by Specialty",
         x = "Specialty",
         y = "Mean Yearly Past Prescriptions"
     ) +
     plot_theme
-past_pres_by_specialty_plot
+past_pres_by_specialty_doc_plot
 
-# Prescription rate by mean yearly past prescriptions
-rate_by_past_pres <- prescription_rate %>%
-    filter(!is.na(MEAN_YEARLY_PRESCRIPTIONS)) %>%
+# Prescription rate by doctor mean yearly past prescriptions
+rate_by_past_pres_doc <- prescription_rate %>%
+    filter(!is.na(MEAN_YEARLY_PRESCRIPTIONS_DOC)) %>%
     mutate(
         MEAN_YEARLY_PRESCRIPTIONS_BIN = cut(
-            MEAN_YEARLY_PRESCRIPTIONS,
-            breaks = quantile(MEAN_YEARLY_PRESCRIPTIONS, probs = seq(0, 1, by = 0.1), na.rm = TRUE),
+            MEAN_YEARLY_PRESCRIPTIONS_DOC,
+            breaks = quantile(MEAN_YEARLY_PRESCRIPTIONS_DOC, probs = seq(0, 1, by = 0.1), na.rm = TRUE),
             labels = paste0(seq(0, 90, by = 10), "-", seq(9, 99, by = 10)),
             include.lowest = TRUE,
             dig.lab = 4
@@ -1128,16 +1128,173 @@ rate_by_past_pres <- prescription_rate %>%
     mutate(PRESCRIBED_RATE = PRESCRIBED / TOTAL * 100) %>%
     add_binom_interval(count_col = "PRESCRIBED", n_col = "TOTAL")
 
-rate_by_past_pres_plot <- ggplot(rate_by_past_pres, aes(x = MEAN_YEARLY_PRESCRIPTIONS_BIN, y = PRESCRIBED_RATE)) +
+rate_by_past_pres_doc_plot <- ggplot(rate_by_past_pres_doc, aes(x = MEAN_YEARLY_PRESCRIPTIONS_BIN, y = PRESCRIBED_RATE)) +
     geom_bar(stat = "identity") +
     geom_errorbar(aes(ymin = LOWER_BOUND, ymax = UPPER_BOUND), width = 0.2) +
     labs(
-        title = "Prescription Rate by Mean Yearly Past Prescriptions",
-        x = "Mean Yearly Past Prescription Decile",
+        title = paste(code, "Prescription Rate by Doctor Mean Yearly Past Prescriptions"),
+        x = "Doctor Mean Yearly Past Prescription Decile",
         y = "Prescription Rate (%)"
     ) +
     plot_theme
-rate_by_past_pres_plot
+rate_by_past_pres_doc_plot
+
+# Histogram of doctor mean yearly past diagnoses
+mean_past_diag_doc_hist <- ggplot(prescription_rate %>% filter(!is.na(MEAN_YEARLY_DIAGNOSES_DOC)), aes(x = MEAN_YEARLY_DIAGNOSES_DOC)) +
+    geom_histogram(binwidth = 100) +
+    labs(
+        title = "Histogram of Doctor Mean Yearly Past Diagnoses",
+        x = "Doctor Mean Yearly Past Diagnoses",
+    ) +
+    plot_theme
+mean_past_diag_doc_hist
+
+# Prescription rate by doctor mean yearly past diagnoses
+rate_by_past_diag_doc <- prescription_rate %>%
+    filter(!is.na(MEAN_YEARLY_DIAGNOSES_DOC)) %>%
+    mutate(
+        MEAN_YEARLY_DIAGNOSES_BIN = cut(
+            MEAN_YEARLY_DIAGNOSES_DOC,
+            breaks = quantile(MEAN_YEARLY_DIAGNOSES_DOC, probs = seq(0, 1, by = 0.1), na.rm = TRUE),
+            labels = paste0(seq(0, 90, by = 10), "-", seq(9, 99, by = 10)),
+            include.lowest = TRUE,
+            dig.lab = 4
+        )
+    ) %>%
+    group_by(MEAN_YEARLY_DIAGNOSES_BIN) %>%
+    summarize(
+        PRESCRIBED = sum(PRESCRIBED),
+        TOTAL = n()
+    ) %>%
+    mutate(PRESCRIBED_RATE = PRESCRIBED / TOTAL * 100) %>%
+    add_binom_interval(count_col = "PRESCRIBED", n_col = "TOTAL")
+
+rate_by_past_diag_doc_plot <- ggplot(rate_by_past_diag_doc, aes(x = MEAN_YEARLY_DIAGNOSES_BIN, y = PRESCRIBED_RATE)) +
+    geom_bar(stat = "identity") +
+    geom_errorbar(aes(ymin = LOWER_BOUND, ymax = UPPER_BOUND), width = 0.2) +
+    labs(
+        title = paste(code, "Prescription Rate by Doctor Mean Yearly Past Diagnoses"),
+        x = "Doctor Mean Yearly Past Diagnoses Decile",
+        y = "Prescription Rate (%)"
+    ) +
+    plot_theme
+rate_by_past_diag_doc_plot
+
+# Histogram of patient mean yearly past prescriptions
+mean_past_pres_pat_hist <- ggplot(prescription_rate %>% filter(MEAN_YEARLY_PRESCRIPTIONS_PAT < 100), aes(x = MEAN_YEARLY_PRESCRIPTIONS_PAT)) +
+    geom_histogram(binwidth = 1) +
+    labs(
+        title = "Histogram of Patient Mean Yearly Past Prescriptions",
+        x = "Patient Mean Yearly Past Prescriptions",
+    ) +
+    plot_theme
+mean_past_pres_pat_hist
+
+# Prescription rate by patient mean yearly past prescriptions
+rate_by_past_pres_pat <- prescription_rate %>%
+    filter(!is.na(MEAN_YEARLY_PRESCRIPTIONS_PAT)) %>%
+    mutate(
+        MEAN_YEARLY_PRESCRIPTIONS_BIN = cut(
+            MEAN_YEARLY_PRESCRIPTIONS_PAT,
+            breaks = quantile(MEAN_YEARLY_PRESCRIPTIONS_PAT, probs = seq(0, 1, by = 0.1), na.rm = TRUE),
+            labels = paste0(seq(0, 90, by = 10), "-", seq(9, 99, by = 10)),
+            include.lowest = TRUE,
+            dig.lab = 4
+        )
+    ) %>%
+    group_by(MEAN_YEARLY_PRESCRIPTIONS_BIN) %>%
+    summarize(
+        PRESCRIBED = sum(PRESCRIBED),
+        TOTAL = n()
+    ) %>%
+    mutate(PRESCRIBED_RATE = PRESCRIBED / TOTAL * 100) %>%
+    add_binom_interval(count_col = "PRESCRIBED", n_col = "TOTAL")
+
+rate_by_past_pres_pat_plot <- ggplot(rate_by_past_pres_pat, aes(x = MEAN_YEARLY_PRESCRIPTIONS_BIN, y = PRESCRIBED_RATE)) +
+    geom_bar(stat = "identity") +
+    geom_errorbar(aes(ymin = LOWER_BOUND, ymax = UPPER_BOUND), width = 0.2) +
+    labs(
+        title = paste(code, "Prescription Rate by Patient Mean Yearly Past Prescriptions"),
+        x = "Patient Mean Yearly Past Prescription Decile",
+        y = "Prescription Rate (%)"
+    ) +
+    plot_theme
+rate_by_past_pres_pat_plot
+
+# Histogram of patient mean yearly past diagnoses
+mean_past_diag_pat_hist <- ggplot(prescription_rate %>% filter(MEAN_YEARLY_DIAGNOSES_PAT < 100), aes(x = MEAN_YEARLY_DIAGNOSES_PAT)) +
+    geom_histogram(binwidth = 1) +
+    labs(
+        title = "Histogram of Patient Mean Yearly Past Diagnoses",
+        x = "Patient Mean Yearly Past Diagnoses",
+    ) +
+    plot_theme
+mean_past_diag_pat_hist
+
+# Prescription rate by patient mean yearly past diagnoses
+rate_by_past_diag_pat <- prescription_rate %>%
+    filter(!is.na(MEAN_YEARLY_DIAGNOSES_PAT)) %>%
+    mutate(
+        MEAN_YEARLY_DIAGNOSES_BIN = cut(
+            MEAN_YEARLY_DIAGNOSES_PAT,
+            breaks = quantile(MEAN_YEARLY_DIAGNOSES_PAT, probs = seq(0, 1, by = 0.1), na.rm = TRUE),
+            labels = paste0(seq(0, 90, by = 10), "-", seq(9, 99, by = 10)),
+            include.lowest = TRUE,
+            dig.lab = 4
+        )
+    ) %>%
+    group_by(MEAN_YEARLY_DIAGNOSES_BIN) %>%
+    summarize(
+        PRESCRIBED = sum(PRESCRIBED),
+        TOTAL = n()
+    ) %>%
+    mutate(PRESCRIBED_RATE = PRESCRIBED / TOTAL * 100) %>%
+    add_binom_interval(count_col = "PRESCRIBED", n_col = "TOTAL")
+
+rate_by_past_diag_pat_plot <- ggplot(rate_by_past_diag_pat, aes(x = MEAN_YEARLY_DIAGNOSES_BIN, y = PRESCRIBED_RATE)) +
+    geom_bar(stat = "identity") +
+    geom_errorbar(aes(ymin = LOWER_BOUND, ymax = UPPER_BOUND), width = 0.2) +
+    labs(
+        title = paste(code, "Prescription Rate by Patient Mean Yearly Past Diagnoses"),
+        x = "Patient Mean Yearly Past Diagnoses Decile",
+        y = "Prescription Rate (%)"
+    ) +
+    plot_theme
+rate_by_past_diag_pat_plot
+
+# Patient mean yearly prescriptions vs age, colored by prescription
+mean_past_pres_pat_vs_age_plot <- ggplot(prescription_rate, aes(x = MEAN_YEARLY_PRESCRIPTIONS_PAT, y = AGE_AT_VISIT_PAT, color = factor(PRESCRIBED))) +
+    geom_point() +
+    geom_smooth(method = "lm", se = FALSE) +
+    scale_color_manual(
+        values = c("0" = "#f4c0bd", "1" = "#91dddf"),
+        labels = c("0" = "Did not prescribe", "1" = "Prescribed")
+    ) +
+    labs(
+        title = paste(code, "Patient Mean Yearly Past Prescriptions vs. Age"),
+        x = "Patient Mean Yearly Past Prescriptions",
+        y = "Patient Age at Visit",
+        color = "Prescribed"
+    ) +
+    plot_theme
+mean_past_pres_pat_vs_age_plot
+
+# Doctor mean yearly prescription vs age, colored by prescription
+mean_past_pres_doc_vs_age_plot <- ggplot(prescription_rate, aes(x = MEAN_YEARLY_PRESCRIPTIONS_DOC, y = AGE_AT_VISIT_DOC, color = factor(PRESCRIBED))) +
+    geom_point() +
+    geom_smooth(method = "lm", se = FALSE) +
+    scale_color_manual(
+        values = c("0" = "#f4c0bd", "1" = "#91dddf"),
+        labels = c("0" = "Did not prescribe", "1" = "Prescribed")
+    ) +
+    labs(
+        title = paste(code, "Doctor Mean Yearly Past Prescriptions vs. Age"),
+        x = "Doctor Mean Yearly Past Prescriptions",
+        y = "Doctor Age at Visit",
+        color = "Prescribed"
+    ) +
+    plot_theme
+mean_past_pres_doc_vs_age_plot
 
 # Scatter plot of doctor age vs. visit date, colored by prescription
 age_doc_vs_visitdate_sample <- prescription_rate %>%
