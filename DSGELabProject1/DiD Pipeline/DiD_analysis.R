@@ -39,6 +39,7 @@ setDTthreads(N_THREADS)
 # Load data
 doctor_ids = fread(doctor_list, header = FALSE)$V1
 events = fread(events_file)
+events = events[grepl(paste0("^", event_code), CODE)]
 event_ids = intersect(unique(events$PATIENT_ID), doctor_ids)
 
 # CHECK 1 : if N of events is less than 500, stop the analysis
