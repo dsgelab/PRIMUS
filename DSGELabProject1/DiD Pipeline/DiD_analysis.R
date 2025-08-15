@@ -126,6 +126,28 @@ df_complete = df_complete %>%
     filter(!(DOCTOR_ID %in% events_after65)) %>% # remove people which experiment the event after pension (age 65)
     filter(AGE <= 65) # remove all prescriptions done after pension (age 65)
 
+# remove doctors with incomplete information about prescriptions (i.e., keep only those with complete monthly data)
+months_per_doctor <- df_complete %>%
+    group_by(DOCTOR_ID) %>%
+    summarise(
+        min_month = min(MONTH, na.rm = TRUE),
+        max_month = max(MONTH, na.rm = TRUE),
+        n_months = n_distinct(MONTH)
+    ) %>%
+    mutate(expected_months = max_month - min_month + 1) %>%
+    filter(n_months == expected_months)
+df_complete <- df_complete %>% filter(DOCTOR_ID %in% months_per_doctor$DOCTOR_ID)
+
+# If N of doctor in specialty is <5 then put in Specialty "Other"
+specialty_counts <- df_complete[, .(n = uniqueN(DOCTOR_ID)), by = SPECIALTY]
+df_complete <- merge(df_complete, specialty_counts, by = "SPECIALTY", all.x = TRUE)
+df_complete[, SPECIALTY := ifelse(n < 5, "Other", SPECIALTY)]
+df_complete[, n := NULL]
+
+# print specialties that have been removed
+removed_specialties <- specialty_counts[SPECIALTY %in% df_complete$SPECIALTY & n < 5, SPECIALTY]
+cat("Removed specialties:", paste(removed_specialties, collapse = ", "), "\n")
+
 # check distribution of events over the years
 df_plot = df_complete %>% distinct(DOCTOR_ID, .keep_all = TRUE) %>% na.omit(EVENT_YEAR)
 p1_general = ggplot(df_plot, aes(x = factor(EVENT_YEAR))) +
