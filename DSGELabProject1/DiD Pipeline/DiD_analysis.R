@@ -138,6 +138,12 @@ months_per_doctor <- df_complete %>%
     filter(n_months == expected_months)
 df_complete <- df_complete %>% filter(DOCTOR_ID %in% months_per_doctor$DOCTOR_ID)
 
+# print new number of cases and controls\
+n_cases <- df_complete[EVENT == 1, uniqueN(DOCTOR_ID)]
+n_controls <- df_complete[EVENT == 0, uniqueN(DOCTOR_ID)]
+cat(sprintf("Number of cases: %d\n", n_cases))
+cat(sprintf("Number of controls: %d\n", n_controls))
+
 # If N of doctor in specialty is <5 then put in Specialty "Other"
 specialty_counts <- df_complete[, .(n = uniqueN(DOCTOR_ID)), by = SPECIALTY]
 df_complete <- merge(df_complete, specialty_counts, by = "SPECIALTY", all.x = TRUE)
