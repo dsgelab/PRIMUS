@@ -134,66 +134,65 @@ df_complete = df_complete %>%
 # ============================================================================
 
 # ============================================================================
-# 1. FWHM CALCULATION FUNCTION
-# This function calculates the Full Width at Half Maximum (FWHM) of a dip
+# 1. FULL WIDTH AT BASELINE (FWB) CALCULATION FUNCTION
+# This function calculates the Full Width at Baseline (FWB) of a dip
 # ============================================================================
 
-calculate_fwhm <- function(data, baseline, height) {
-  half_max_threshold <- baseline - height / 2
-  below_threshold <- data$N < half_max_threshold
+calculate_fwb <- function(data, baseline) {
+  below_threshold <- data$N < baseline
   
   if (any(below_threshold)) {
-    # Find continuous region around time=0 that's below threshold
+    # Find continuous region around time=0 that's below baseline
     below_indices <- which(below_threshold)
     center_idx <- which.min(abs(data$time))  # index closest to time=0
-    
+
     if (center_idx %in% below_indices) {
       # Find continuous region containing center
       left_idx <- center_idx
       right_idx <- center_idx
-      
+
       # Expand left
       while (left_idx > 1 && below_threshold[left_idx - 1]) {
         left_idx <- left_idx - 1
       }
-      
+
       # Expand right
       while (right_idx < nrow(data) && below_threshold[right_idx + 1]) {
         right_idx <- right_idx + 1
       }
-      
-      fwhm_left <- data$time[left_idx]
-      fwhm_right <- data$time[right_idx]
-      fwhm <- fwhm_right - fwhm_left + 1
+
+      fwb_left <- data$time[left_idx]
+      fwb_right <- data$time[right_idx]
+      fwb <- fwb_right - fwb_left + 1
     } else {
       # Find region around minimum
-      min_idx <- which.min(data$Y)
+      min_idx <- which.min(data$N)
       left_idx <- min_idx
       right_idx <- min_idx
-      
+
       while (left_idx > 1 && below_threshold[left_idx - 1]) {
         left_idx <- left_idx - 1
       }
-      
+
       while (right_idx < nrow(data) && below_threshold[right_idx + 1]) {
         right_idx <- right_idx + 1
       }
-      
-      fwhm_left <- data$time[left_idx]
-      fwhm_right <- data$time[right_idx]
-      fwhm <- fwhm_right - fwhm_left + 1
+
+      fwb_left <- data$time[left_idx]
+      fwb_right <- data$time[right_idx]
+      fwb <- fwb_right - fwb_left + 1
     }
   } else {
-    fwhm <- 0
-    fwhm_left <- NA
-    fwhm_right <- NA
+    fwb <- 0
+    fwb_left <- NA
+    fwb_right <- NA
   }
-  
+
   return(list(
-    fwhm = fwhm,
-    fwhm_left = fwhm_left,
-    fwhm_right = fwhm_right,
-    half_max_threshold = half_max_threshold
+    fwb = fwb,
+    fwb_left = fwb_left,
+    fwb_right = fwb_right,
+    baseline_threshold = baseline
   ))
 }
 
@@ -201,92 +200,94 @@ calculate_fwhm <- function(data, baseline, height) {
 # 2. ANALYZE DATA
 # ============================================================================
 
+df_model = df_complete %>%
+    mutate(
+        PERIOD = case_when(
+            !is.na(EVENT_MONTH) & MONTH < EVENT_MONTH ~ "BEFORE",
+            !is.na(EVENT_MONTH) & MONTH > EVENT_MONTH ~ "AFTER",
+            is.na(EVENT_MONTH) ~ NA_character_),
+        time = MONTH - EVENT_MONTH
+    ) %>%
+    filter(!is.na(PERIOD), time >= -36, time <= 36) %>%
+    mutate(
+        PERIOD = factor(PERIOD, levels = c("BEFORE", "AFTER")), # set BEFORE as reference
+        SPECIALTY = factor(SPECIALTY, levels = c("", setdiff(unique(df_complete$SPECIALTY), ""))), # set no specialty as reference
+        SEX = factor(SEX, levels = c(1, 2), labels = c("Male", "Female")) # set male as reference
+    )
+
 # Set buffer for baseline calculation
 buffer <- 12 # 1 year
 
 # Calculate baseline (average outside buffer zone)
-baseline_data <- data %>% filter(time < -buffer | time > buffer)
+baseline_data <- df_model %>% filter(time < -buffer | time > buffer)
 baseline <- mean(baseline_data$N, na.rm = TRUE)
 
 # Calculate height (baseline - minimum)
-minimum_value <- min(data$N, na.rm = TRUE)
+event_period_data <- df_model %>% filter(time >= -buffer, time <= buffer)
+avg_N_by_time <- event_period_data %>%
+  group_by(time) %>%
+  summarise(mean_N = mean(N, na.rm = TRUE)) %>%
+  ungroup()
+
+# Extract the minimum value from the averaged vector (should be length 24 for -12:11 if buffer=12)
+minimum_value <- min(avg_N_by_time$mean_N, na.rm = TRUE)
 height <- baseline - minimum_value
 
-# Calculate width using FWHM formula
-fwhm_results <- calculate_fwhm(data, baseline, height)
+# Calculate width using new recovery width (FWB) formula
+fwb_results <- calculate_fwb(avg_N_by_time, baseline)
 
 # ============================================================================
 # 3. EXPORT RESULTS TO CSV
 # ============================================================================
 
-# Create results dataframe
 results_df <- data.frame(
-  metric = c("baseline", "minimum", "height", "fwhm", "fwhm_left", "fwhm_right"),
-  value = c(baseline, minimum_value, height, fwhm_results$fwhm, fwhm_results$fwhm_left, fwhm_results$fwhm_right)
+  metric = c("baseline", "minimum", "height", "fwb", "fwb_left", "fwb_right"),
+  value = c(baseline, minimum_value, height, fwb_results$fwb, fwb_results$fwb_left, fwb_results$fwb_right)
 )
-
-# Export to CSV
 write.csv(results_df, file = file.path(outdir, "dip_analysis_results.csv"), row.names = FALSE)
-
-# Print results
-cat(sprintf("Baseline: %.3f\n", baseline))
-cat(sprintf("Minimum: %.3f\n", minimum_value))
-cat(sprintf("Height: %.3f\n", height))
-cat(sprintf("FWHM: %.1f\n", fwhm_results$fwhm))
 
 # ============================================================================
 # 4. VISUALIZATION WITH GGPLOT2
 # ============================================================================
 
-# Main time series plot
-p1 <- ggplot(data, aes(x = time, y = Y)) +
+# Main time series plot (average N over time)
+avg_N_by_time <- df_model %>%
+  group_by(time) %>%
+  summarise(mean_N = mean(N, na.rm = TRUE)) %>%
+  ungroup()
+
+p1 <- ggplot(avg_N_by_time, aes(x = time, y = mean_N)) +
   geom_line(color = "blue", size = 0.8) +
-  geom_hline(yintercept = baseline, color = "green", linetype = "dashed", size = 0.8) +
-  geom_hline(yintercept = fwhm_results$half_max_threshold, color = "orange", linetype = "dashed", size = 0.8) +
-  geom_point(data = data[which.min(data$Y), ], aes(x = time, y = Y), color = "red", size = 3) +
-  geom_vline(xintercept = 0, color = "black", linetype = "dotted", alpha = 0.7) +
+  geom_vline(xintercept = 0, color = "black", size = 0.8) +
+  geom_hline(yintercept = baseline, linetype = "dashed", color = "darkgray", size = 1) +
+  # Height segment (vertical)
+  geom_segment(
+    aes(
+      x = results_df$value[results_df$metric == "fwb_left"],
+      xend = results_df$value[results_df$metric == "fwb_left"],
+      y = results_df$value[results_df$metric == "minimum"],
+      yend = results_df$value[results_df$metric == "baseline"]
+    ),
+    color = "red", size = 1.2
+  ) +
+  # Width segment (horizontal)
+  geom_segment(
+    aes(
+      x = results_df$value[results_df$metric == "fwb_left"],
+      xend = results_df$value[results_df$metric == "fwb_right"],
+      y = results_df$value[results_df$metric == "minimum"],
+      yend = results_df$value[results_df$metric == "minimum"]
+    ),
+    color = "orange", size = 1.2
+  ) +
   labs(
     title = "Analysis of Overall Drop in Total Prescriptions",
     x = "Time",
     y = "N",
-    subtitle = sprintf("Height: %.3f, FWHM: %.1f", height, fwhm_results$fwhm)
+    subtitle = sprintf("Height: %.3f, FWB: %.1f", height, fwb_results$fwb)
   ) +
   theme_minimal() +
   theme(plot.title = element_text(hjust = 0.5), plot.subtitle = element_text(hjust = 0.5))
 
-# Add FWHM shading if applicable
-if (fwhm_results$fwhm > 0) {
-  p1 <- p1 + annotate("rect", xmin = fwhm_results$fwhm_left, xmax = fwhm_results$fwhm_right,ymin = -Inf, ymax = Inf, alpha = 0.2, fill = "red")
-}
-
-# Summary metrics plot
-metrics_plot_data <- data.frame(
-  metric = c("Height", "FWHM"),
-  value = c(height, fwhm_results$fwhm)
-)
-
-p2 <- ggplot(metrics_plot_data, aes(x = metric, y = value, fill = metric)) +
-  geom_col(width = 0.6) +
-  geom_text(aes(label = sprintf("%.2f", value)), vjust = -0.3, size = 4) +
-  labs(
-    title = "Dip Metrics Summary",
-    x = "Metric",
-    y = "Value"
-  ) +
-  theme_minimal() +
-  theme(
-    plot.title = element_text(hjust = 0.5),
-    legend.position = "none"
-  ) +
-  scale_fill_manual(values = c("Height" = "steelblue", "FWHM" = "coral"))
-
-# Display plots
-print(p1)
-print(p2)
-
-# Save plots in outdir
-ggsave(file.path(outdir, "dip_timeseries.png"), p1, width = 12, height = 6, dpi = 300)
-ggsave(file.path(outdir, "dip_metrics.png"), p2, width = 8, height = 6, dpi = 300)
-
-cat("\nAnalysis complete. Results saved to 'dip_analysis_results.csv'\n")
-cat("Plots saved as 'dip_timeseries.png' and 'dip_metrics.png'\n")
+# Save plot
+ggsave(filename = file.path(outdir, "overall_drop_plot.png"), plot = p1, width = 8, height = 5, dpi = 300)
