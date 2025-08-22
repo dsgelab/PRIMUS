@@ -24,6 +24,7 @@ diagnosis <- all_diagnoses[startsWith(ICD10_CODE, icd10_code) | startsWith(ICD10
 # Only select the earliest instance of diagnosis for each patient
 diagnosis <- diagnosis %>%
     as_tibble() %>%
+    filter(!is.na(DOCTOR_ID)) %>%
     arrange(PATIENT_ID, VISIT_DATE) %>%
     group_by(PATIENT_ID) %>%
     slice(1) %>%
