@@ -36,7 +36,10 @@ diagnosis <- fread(diagnosis_file) %>%
     as_tibble() %>%
     mutate(across(where(is.character), ~ na_if(., ""))) %>%
     select(PATIENT_ID, VISIT_DATE, ICD10_CODE, SOURCE, DOCTOR_ID) %>%
-    filter(VISIT_DATE >= min(prescription$PRESCRIPTION_DATE)) # Only include patients from the same time period as prescriptions
+    filter(!is.na(DOCTOR_ID)) %>%
+    filter(VISIT_DATE >= min(prescription$PRESCRIPTION_DATE)) %>% # Only include patients from the same time period as prescriptions
+    filter(VISIT_DATE < "2020-01-01") %>% # Only include patients pre-covid
+    filter(VISIT_DATE >= "2016-01-01") # Diagnoses before 2016 have an oddly low number of prescriptions
 
 count <- nrow(diagnosis)
 print(paste("Number of patients (first diagnoses):", count))
@@ -91,10 +94,7 @@ prescription_rate_init <- diagnosis %>%
   ungroup()
 
 pr <- prescription_rate_init
- # Use if unknown diagnosing doctors are imputed from prescribing doctors
-prescribed_condition <- pr$VISIT_DATE == pr$PRESCRIPTION_DATE & (is.na(pr$DOCTOR_ID_DIAG) | pr$DOCTOR_ID_DIAG == pr$DOCTOR_ID_PRES)
-# Use if unknown diagnosing doctors are not imputed from prescribing doctors
-prescribed_condition_strict <- pr$VISIT_DATE == pr$PRESCRIPTION_DATE & pr$DOCTOR_ID_DIAG == pr$DOCTOR_ID_PRES
+prescribed_condition <- pr$VISIT_DATE == pr$PRESCRIPTION_DATE & pr$DOCTOR_ID_DIAG == pr$DOCTOR_ID_PRES
 
 calc_age <- function(birth_date, current_date) {
     as.numeric(difftime(current_date, birth_date, units = "days") / 365.25)
@@ -103,11 +103,10 @@ calc_age <- function(birth_date, current_date) {
 # Filter out unclear prescriptions from further analysis. Impute diagnosing doctor from prescribing doctor. Add
 # doctor and patient characteristics.
 prescription_rate <- prescription_rate_init %>%
-    filter(prescribed_condition_strict | UNCLEAR_OR_PRES == 0) %>%
+    filter(prescribed_condition | UNCLEAR_OR_PRES == 0) %>%
     rename(PRESCRIBED = UNCLEAR_OR_PRES) %>%
     mutate(PRESCRIBED = as.numeric(PRESCRIBED)) %>%
-    #mutate(DOCTOR_ID = ifelse(PRESCRIBED == 1, DOCTOR_ID_PRES, DOCTOR_ID_DIAG)) %>%  # Use if unknown diagnosing doctors are imputed from prescribing doctors
-    mutate(DOCTOR_ID = DOCTOR_ID_DIAG) %>% # Use if unknown diagnosing doctors are not imputed from prescribing doctors
+    mutate(DOCTOR_ID = DOCTOR_ID_DIAG) %>%
     left_join(doctor, by = "DOCTOR_ID") %>%
     left_join(patient, by = c("DOCTOR_ID" = "PATIENT_ID")) %>%  # Doctors are also patients
     left_join(patient, by = "PATIENT_ID", suffix = c("_DOC", "_PAT")) %>%
