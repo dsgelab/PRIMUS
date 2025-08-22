@@ -701,12 +701,27 @@ rate_by_lang_plot <- ggplot(rate_by_language %>% filter(TOTAL > 10000), aes(x = 
     geom_errorbar(aes(ymin = LOWER_BOUND, ymax = UPPER_BOUND), width = 0.2) +
     coord_flip() +
     labs(
-        title = "Prescription Rate by Doctor Language",
+        title = paste(code, "Prescription Rate by Doctor Language"),
         x = "Language",
         y = "Prescription Rate (%)"
     ) +
     plot_theme
 rate_by_lang_plot
+
+# Distribution of doctor ages by language
+age_by_lang_plot <- ggplot(prescription_rate %>% filter(!is.na(AGE_AT_VISIT_DOC) & LANGUAGE_DOC %in% c("fi", "ru")), aes(x = AGE_AT_VISIT_DOC, fill = factor(LANGUAGE_DOC))) +
+    geom_density(alpha = 0.4) +
+    scale_fill_manual(
+        values = c("fi" = "#f4c0bd", "ru" = "#91dddf"),
+        labels = c("fi" = "Finnish", "ru" = "Russian")
+    ) +
+    labs(
+        title = paste("Age Distribution of", code, "Doctors by Language"),
+        x = "Age",
+        y = "Probability density",
+        fill = "Language"
+    ) +
+    plot_theme
 
 # Histogram of patient ages
 age_pat_freq_plot <- ggplot(prescription_rate %>% filter(!is.na(AGE_AT_VISIT_PAT)), aes(x = AGE_AT_VISIT_PAT)) +

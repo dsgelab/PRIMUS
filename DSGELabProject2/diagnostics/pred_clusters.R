@@ -5,25 +5,37 @@ library(tidyr)
 setwd("/media/volume/Projects/mikael/XGBoost/results")
 source("/media/volume/Projects/mikael/utils.R")
 
-pred <- fread("xgb_predictions_2025-07-07-0657.csv") %>% as_tibble()
+pred <- fread("xgb_extensive_predictions_2025-08-14-1958.csv") %>% as_tibble()
 pos_rate <- round(mean(pred$PRESCRIBED), 3)
 
+# PRED_CLASS_LABELS <- c(
+#   "Prescribed, 0 <= pred <= 0.2",
+#   "Prescribed, 0.2 < pred <= 0.8",
+#   "Prescribed, 0.8 < pred <= 1",
+#   paste0("Not Prescribed, pred <= ", pos_rate),
+#   paste0("Not Prescribed, pred > ", pos_rate)
+# )
 PRED_CLASS_LABELS <- c(
-  "Prescribed, 0 <= pred <= 0.2",
-  "Prescribed, 0.2 < pred <= 0.8",
-  "Prescribed, 0.8 < pred <= 1",
-  paste0("Not Prescribed, pred <= ", pos_rate),
-  paste0("Not Prescribed, pred > ", pos_rate)
+  "0 <= pred <= 0.2",
+  "0.6 <= pred <= 1"
 )
 
+# pred <- pred %>%
+#   mutate(
+#     PRED_CLASS = factor(case_when(
+#       PRESCRIBED == 1 & XGB_PRED <= 0.2 ~ PRED_CLASS_LABELS[1],
+#       PRESCRIBED == 1 & XGB_PRED > 0.2 & XGB_PRED <= 0.8 ~ PRED_CLASS_LABELS[2],
+#       PRESCRIBED == 1 & XGB_PRED > 0.8 & XGB_PRED <= 1 ~ PRED_CLASS_LABELS[3],
+#       PRESCRIBED == 0 & XGB_PRED <= pos_rate ~ PRED_CLASS_LABELS[4],
+#       PRESCRIBED == 0 & XGB_PRED > pos_rate ~ PRED_CLASS_LABELS[5],
+#       TRUE ~ NA_character_
+#     ), levels = PRED_CLASS_LABELS)
+#   )
 pred <- pred %>%
   mutate(
     PRED_CLASS = factor(case_when(
-      PRESCRIBED == 1 & XGB_PRED <= 0.2 ~ PRED_CLASS_LABELS[1],
-      PRESCRIBED == 1 & XGB_PRED > 0.2 & XGB_PRED <= 0.8 ~ PRED_CLASS_LABELS[2],
-      PRESCRIBED == 1 & XGB_PRED > 0.8 & XGB_PRED <= 1 ~ PRED_CLASS_LABELS[3],
-      PRESCRIBED == 0 & XGB_PRED <= pos_rate ~ PRED_CLASS_LABELS[4],
-      PRESCRIBED == 0 & XGB_PRED > pos_rate ~ PRED_CLASS_LABELS[5],
+      XGB_PRED <= 0.2 ~ PRED_CLASS_LABELS[1],
+      XGB_PRED >= 0.6 ~ PRED_CLASS_LABELS[2],
       TRUE ~ NA_character_
     ), levels = PRED_CLASS_LABELS)
   )
@@ -64,7 +76,7 @@ feature_hist_by_pred_class <- function (feature, label) {
   )
 
   ggplot(
-    pred_combined %>% filter(!is.na(.data[[feature]])),
+    pred_combined %>% filter(!is.na(.data[[feature]]) & !is.na(PRED_CLASS)),
     aes(x = if (is_categorical) as.factor(.data[[feature]]) else .data[[feature]])
   ) +
     {
@@ -84,7 +96,7 @@ feature_hist_by_pred_class <- function (feature, label) {
     } +
     facet_wrap(~ PRED_CLASS, nrow = 2, ncol = 3, scales = "free_y") +
     labs(
-      title = paste0("Distribution of ", label, " by True Label and Predicted Probability"),
+      title = paste0("Distribution of ", label, " by Predicted Probability"),
       x = label,
       y = "Frequency"
     ) +
@@ -93,8 +105,9 @@ feature_hist_by_pred_class <- function (feature, label) {
 
 # Most important features according to shap values
 feature_cols <- c(
-  "AGE_AT_VISIT_DOC", "AGE_AT_VISIT_PAT", "HAD_ICD10_O_DOC", "SPECIALTY_No_Specialty", "GOT_ATC_G_DOC", "GOT_ATC_C_DOC", "SEX_DOC_female", "GOT_ATC_E_DOC", "GOT_ATC_B_DOC", "HAD_ICD10_C_DOC", "SPECIALTY_General_Medicine",
-  "GOT_ATC_P_DOC", "GOT_ATC_J_PAT", "HAD_ICD10_J_DOC", "GOT_ATC_R_PAT", "GOT_ATC_H_DOC", "MONTH", "HAD_ICD10_K_DOC", "LANGUAGE_DOC_fi"
+  "BIRTH_YEAR_DOC", "BIRTH_YEAR_PAT", "AGE_AT_VISIT_PAT", "MEAN_YEARLY_PRESCRIPTIONS_DOC", "AGE_AT_VISIT_DOC", "MEAN_YEARLY_PRESCRIPTIONS_PAT",
+  "HOME_REGION_DOC_Uusimaa", "MEAN_YEARLY_DIAGNOSES_DOC", "LANGUAGE_DOC_fi", "MEAN_YEARLY_DIAGNOSES_PAT", "GOT_ATC_J01_PAT", "MONTH",
+  "HOME_REGION_DOC_Pirkanmaa", "LANGUAGE_DOC_ru", "WEEKDAY", "LANGUAGE_DOC_other", "GOT_ATC_R01_DOC", "SPECIALTY_General_Medicine", "SEX_DOC_male"
 )
 
 feature_means <- pred %>%
@@ -128,10 +141,10 @@ feature_mean_vars <- pred %>%
   ) %>%
   arrange(desc(SCALED_VARIANCE))
 
-feature_hist_by_pred_class("AGE_AT_VISIT_DOC", "Doctor Age")
-feature_hist_by_pred_class("AGE_AT_VISIT_PAT", "Patient Age")
-feature_hist_by_pred_class("SEX_DOC_female", "Doctor Sex = Female")
-feature_hist_by_pred_class("SEX_PAT_female", "Patient Sex = Female")
-feature_hist_by_pred_class("HAD_ICD10_O_DOC", "Doctor had O Diagnosis")
-feature_hist_by_pred_class("SPECIALTY_No_Specialty", "Doctor has no specialty")
-feature_hist_by_pred_class("GOT_ATC_R_PAT", "Patient was prescribed R")
+feature_hist_by_pred_class("BIRTH_YEAR_DOC", "Doctor Birth Year")
+feature_hist_by_pred_class("BIRTH_YEAR_PAT", "Patient Birth Year")
+feature_hist_by_pred_class("MEAN_YEARLY_PRESCRIPTIONS_DOC", "Doctor Mean Yearly Prescriptions")
+feature_hist_by_pred_class("MEAN_YEARLY_PRESCRIPTIONS_PAT", "Patient Mean Yearly Prescriptions")
+feature_hist_by_pred_class("HOME_REGION_DOC_Uusimaa", "Doctor Home Region = Uusimaa")
+feature_hist_by_pred_class("MEAN_YEARLY_DIAGNOSES_DOC", "Doctor Mean Yearly Diagnoses")
+feature_hist_by_pred_class("MEAN_YEARLY_DIAGNOSES_PAT", "Patient Mean Yearly Diagnoses")
