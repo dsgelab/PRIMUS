@@ -511,7 +511,7 @@ def train():
     # Shap values
     shap_values = None
     n_shap = None
-    shap_max_display = 25
+    shap_max_display = 20
     if args.shap == 1:
         n_shap = get_shap_sample_size(len(X_test), args.shapdsize)
         X_test_shap = X_test.sample(n=n_shap, random_state=seed)
