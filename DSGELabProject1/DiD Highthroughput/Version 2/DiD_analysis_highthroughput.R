@@ -35,6 +35,20 @@ doctor_list = args[5]
 covariate_file = args[6]
 results_file = args[7]  
 
+#### Extra checks
+
+# remove medications with expected guideline changes
+medications_to_skip = c("N02BE","N02AJ","N02AA","M01AX","M01AE","J01FA","J01DB","J01DA") 
+if (outcome_code %in% medications_to_skip) {
+    stop(paste0("Outcome code expected to have a guideline change. Skipping the analysis."))
+}
+
+# remove diagnosis related to pregnancy or similar
+diagnoses_to_skip = c("Diag_O", "Diag_P","Diag_Z3")
+if (any(startsWith(event_code, diagnoses_to_skip))) {
+    stop(paste0("Event code related to pregnancy. Skipping the analysis."))
+}
+
 #### Main
 N_THREADS = 10
 setDTthreads(N_THREADS) 
