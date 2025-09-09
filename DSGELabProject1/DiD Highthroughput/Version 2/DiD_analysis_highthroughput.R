@@ -160,22 +160,21 @@ df_model[, `:=`(
 # Convert to data.frame for fixest
 df_model_df = as.data.frame(df_model)
 outcome_var = paste0("Y_", outcome_code)
-model_formula = as.formula(paste0(outcome_var, " ~ PERIOD + MONTH + AGE_IN_2023 + AGE_AT_EVENT + SEX + SPECIALTY + AGE_IN_2023:PERIOD + AGE_AT_EVENT:PERIOD + SEX:PERIOD + SPECIALTY:PERIOD"))
+model_formula = as.formula(paste0(outcome_var, " ~ PERIOD + MONTH + MONTH**2 + AGE_AT_EVENT + AGE_AT_EVENT**2 + AGE_IN_2023 + AGE_IN_2023**2 + SEX"))
 model = fixest::feols(model_formula, data = df_model_df, vcov = ~DOCTOR_ID)
 
 #step_times[["model_estimation"]] <- difftime(Sys.time(), step_start, units = "secs")
 #cat(paste0("Step 5 - Model Estimation: ", round(step_times[["model_estimation"]], 2), " seconds\n"))
 
-# STEP 6: Marginal Effects Calculation 
-# step_start <- Sys.time()
-plan(multicore, workers = N_THREADS)
-options(marginaleffects_parallel = TRUE)
-marginal_pkg = avg_slopes(model, variables = "PERIOD")
-
-effect_size = marginal_pkg$estimate
-p_value = marginal_pkg$p.value
-ci_lower = marginal_pkg$conf.low
-ci_upper = marginal_pkg$conf.high
+# STEP 6: Estimate effect size from PERIOD variable coefficient
+period_coef = coef(model)["PERIODAFTER"]
+period_se = sqrt(vcov(model)["PERIODAFTER", "PERIODAFTER"])
+effect_size = period_coef
+# 95% CI
+ci_lower = effect_size - 1.96 * period_se
+ci_upper = effect_size + 1.96 * period_se
+# p-value (two-sided)
+p_value = 2 * (1 - pnorm(abs(effect_size / period_se)))
 
 # step_times[["pkg_marginal"]] <- difftime(Sys.time(), step_start, units = "secs")
 # cat(paste0("Step 6 - Marginal Effects Calculation: ", round(step_times[["pkg_marginal"]], 2), " seconds\n"))

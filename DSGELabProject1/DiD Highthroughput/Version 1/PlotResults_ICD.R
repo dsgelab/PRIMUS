@@ -112,58 +112,55 @@ manhattan_data <- manhattan_data %>%
 threshold_05 = -log10(0.05)
 threshold_bonferroni = -log10(bonferroni_threshold)
 
-# Create the Manhattan plot
-cat("Creating Manhattan plot...\n")
-p_manhattan <- ggplot(manhattan_data, aes(x = outcome_pos, y = neg_log10_p)) +
-    # Add threshold lines
-    geom_hline(yintercept = threshold_05, color = "blue", linetype = "dashed", size = 1, alpha = 0.7) +
-    geom_hline(yintercept = threshold_bonferroni, color = "red", linetype = "dashed", size = 1, alpha = 0.7) +
-    # Add points colored by significance
-    geom_point(aes(color = significance_level), alpha = 0.7, size = 1.5) +
-    # Color scheme
-    scale_color_manual(
-        values = c(
-            "Bonferroni Significant" = "red",
-            "Nominally Significant" = "orange", 
-            "Not Significant" = "grey60"
-        ),
-        name = "Significance Level"
+# Create heatmap of effect sizes with significance symbols
+cat("Creating heatmap...\n")
+
+# Prepare data for heatmap: x = event_code, y = outcome_code
+heatmap_data <- manhattan_data %>%
+    mutate(
+        significance_symbol = case_when(
+            p_value < bonferroni_threshold ~ "**",    # Bonferroni significant
+            p_value < 0.05 ~ "*",                    # Nominally significant
+            TRUE ~ ""
+        )
+    )
+
+# Order axes for readability (optional: alphabetically)
+heatmap_data$event_code <- factor(heatmap_data$event_code, levels = sort(unique(heatmap_data$event_code)))
+heatmap_data$outcome_code <- factor(heatmap_data$outcome_code, levels = sort(unique(heatmap_data$outcome_code)))
+
+p_heatmap <- ggplot(heatmap_data, aes(x = event_code, y = outcome_code, fill = effect_size)) +
+    geom_tile(color = "white") +
+    scale_fill_gradient2(
+        low = "blue", mid = "white", high = "red",
+        midpoint = 0, name = "Effect Size"
     ) +
-    # Styling
-    theme_minimal() +
+    geom_text(aes(label = significance_symbol), color = "black", size = 4, fontface = "bold") +
+    theme_minimal(base_size = 12) +
     theme(
-        axis.text.x = element_blank(),  # Remove x-axis labels as requested
-        axis.ticks.x = element_blank(),
-        axis.text.y = element_text(size = 10),
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 8),
+        axis.text.y = element_text(size = 8),
         axis.title = element_text(size = 12, face = "bold"),
         plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
         plot.subtitle = element_text(size = 10, hjust = 0.5),
         legend.title = element_text(size = 10, face = "bold"),
         legend.text = element_text(size = 9),
-        panel.grid.major.x = element_blank(),
-        panel.grid.minor.x = element_blank(),
         plot.margin = margin(20, 20, 20, 20)
     ) +
     labs(
-        title = "Manhattan Plot: ICD10 Diagnosis × ATC Prescription Associations",
+        title = "Effect Size Heatmap: ICD10 Diagnosis × ATC Prescription",
         subtitle = paste0(
-            "Blue line: p = 0.05  |  Red line: Bonferroni corrected (p = ", 
-            format(bonferroni_threshold, scientific = TRUE, digits = 3), 
-            ")  |  Total pairs: ", total_pairs
+            "*: p < 0.05   **: Bonferroni significant (p < ", 
+            format(bonferroni_threshold, scientific = TRUE, digits = 2), 
+            ")   |   Total pairs: ", total_pairs
         ),
-        x = "Outcome Codes (ATC Prescription Codes)",
-        y = "-log₁₀(p-value)"
-    ) +
-    # Add annotations for threshold lines
-    annotate("text", x = max(manhattan_data$outcome_pos) * 0.95, y = threshold_05 + 0.5, 
-             label = "p = 0.05", color = "blue", fontface = "bold", hjust = 1) +
-    annotate("text", x = max(manhattan_data$outcome_pos) * 0.95, y = threshold_bonferroni + 0.5, 
-             label = paste0("Bonferroni\n(p = ", format(bonferroni_threshold, scientific = TRUE, digits = 2), ")"), 
-             color = "red", fontface = "bold", hjust = 1)
+        x = "Event Codes (ICD10 Diagnosis Codes)",
+        y = "Outcome Codes (ATC Prescription Codes)"
+    )
 
-# Save static plot
-cat(paste("Saving Manhattan plot to", output_file, "...\n"))
-ggsave(output_file, plot = p_manhattan, width = width, height = height, dpi = 300, bg = "white")
+# Save static heatmap
+cat(paste("Saving heatmap to", output_file, "...\n"))
+ggsave(output_file, plot = p_heatmap, width = width, height = height, dpi = 300, bg = "white")
 
 # Create interactive version with plotly
 cat("Creating interactive Manhattan plot...\n")
