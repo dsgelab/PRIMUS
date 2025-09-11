@@ -126,34 +126,6 @@ df_complete = df_complete %>%
     filter(!(DOCTOR_ID %in% events_after65)) %>% # remove people which experiment the event after pension (age 65)
     filter(AGE <= 65) # remove all prescriptions done after pension (age 65)
 
-# remove doctors with incomplete information about prescriptions (i.e., keep only those with complete monthly data)
-months_per_doctor <- df_complete %>%
-    group_by(DOCTOR_ID) %>%
-    summarise(
-        min_month = min(MONTH, na.rm = TRUE),
-        max_month = max(MONTH, na.rm = TRUE),
-        n_months = n_distinct(MONTH)
-    ) %>%
-    mutate(expected_months = max_month - min_month + 1) %>%
-    filter(n_months == expected_months)
-df_complete <- df_complete %>% filter(DOCTOR_ID %in% months_per_doctor$DOCTOR_ID)
-
-# print new number of cases and controls\
-n_cases <- df_complete[EVENT == 1, uniqueN(DOCTOR_ID)]
-n_controls <- df_complete[EVENT == 0, uniqueN(DOCTOR_ID)]
-cat(sprintf("Number of cases: %d\n", n_cases))
-cat(sprintf("Number of controls: %d\n", n_controls))
-
-# If N of doctor in specialty is <5 then put in Specialty "Other"
-specialty_counts <- df_complete[, .(n = uniqueN(DOCTOR_ID)), by = SPECIALTY]
-df_complete <- merge(df_complete, specialty_counts, by = "SPECIALTY", all.x = TRUE)
-df_complete[, SPECIALTY := ifelse(n < 5, "Other", SPECIALTY)]
-df_complete[, n := NULL]
-
-# print specialties that have been removed
-removed_specialties <- specialty_counts[SPECIALTY %in% df_complete$SPECIALTY & n < 5, SPECIALTY]
-cat("Removed specialties:", paste(removed_specialties, collapse = ", "), "\n")
-
 # check distribution of events over the years
 df_plot = df_complete %>% distinct(DOCTOR_ID, .keep_all = TRUE) %>% na.omit(EVENT_YEAR)
 p1_general = ggplot(df_plot, aes(x = factor(EVENT_YEAR))) +
@@ -221,7 +193,7 @@ percentiles_Y = df_plot %>%
         p25 = quantile(Y_adj, 0.25, na.rm = TRUE),
         p50 = quantile(Y_adj, 0.5, na.rm = TRUE),
         p75 = quantile(Y_adj, 0.75, na.rm = TRUE))
-p2_N = ggplot(percentiles_N, aes(x = time, group = 1)) +
+p3_N = ggplot(percentiles_N, aes(x = time, group = 1)) +
     geom_line(aes(y = p25), color = "gray40", linetype = "dashed") +
     geom_line(aes(y = p50), color = "black", size = 1) +
     geom_line(aes(y = p75), color = "gray40", linetype = "dashed") +
@@ -229,7 +201,7 @@ p2_N = ggplot(percentiles_N, aes(x = time, group = 1)) +
     labs(title = paste0("Number of Prescriptions N (quartiles),\nFocus on ±3 years for cases who prescribed = ", length(unique(df_plot$DOCTOR_ID))),x = "Months from Event", y = "N") +
     theme_minimal() +
     theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 8))
-p2_Y = ggplot(percentiles_Y, aes(x = time, group = 1)) +
+p3_Y = ggplot(percentiles_Y, aes(x = time, group = 1)) +
     geom_line(aes(y = p25), color = "gray40", linetype = "dashed") +
     geom_line(aes(y = p50), color = "black", size = 1) +
     geom_line(aes(y = p75), color = "gray40", linetype = "dashed") +
@@ -237,8 +209,8 @@ p2_Y = ggplot(percentiles_Y, aes(x = time, group = 1)) +
     labs(title = paste0("Population Adjusted Prescription Ratio Y (quartiles),\nFocus on ±3 years for cases who prescribed= ", length(unique(df_plot$DOCTOR_ID))), x = "Months from Event", y = "Population Adjusted Y") +
     theme_minimal() +
     theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 8))
-combined_plot2 = p2_N / p2_Y
-ggsave(filename = file.path(outdir, "quintiles_outcomes.png"), plot = combined_plot2, width = 10, height = 12)
+combined_plot3 = p3_N / p3_Y
+ggsave(filename = file.path(outdir, "quintiles_outcomes.png"), plot = combined_plot3, width = 10, height = 12)
 
 
 ###############################################################################################
@@ -276,7 +248,7 @@ df_model = df_complete %>%
         SPECIALTY = factor(SPECIALTY, levels = c("", setdiff(unique(df_complete$SPECIALTY), ""))), # set no specialty as reference
         SEX = factor(SEX, levels = c(1, 2), labels = c("Male", "Female")) # set male as reference
     )
-model_formula = as.formula("Y ~ PERIOD + MONTH + MONTH**2 + AGE_AT_EVENT + AGE_AT_EVENT**2 + AGE_IN_2023 + AGE_IN_2023**2 + SEX + SPECIALTY + AGE_AT_EVENT:PERIOD + AGE_IN_2023:PERIOD + SEX:PERIOD + SPECIALTY:PERIOD")
+model_formula = as.formula("Y ~ PERIOD + MONTH + MONTH**2 + AGE_AT_EVENT + AGE_AT_EVENT**2 + AGE_IN_2023 + AGE_IN_2023**2 + SEX")
 model = fixest::feglm(model_formula, family = binomial("logit"), data = df_model, cluster = ~DOCTOR_ID)
 results = data.frame(summary(model)$coeftable)
 write.csv(results, file = paste0(outdir, "/Coef_GLM_Model.csv"), row.names = TRUE)
@@ -320,28 +292,13 @@ p_centered_subset <- ggplot(plot_data, aes(x = time_from_event)) +
     theme_minimal()
 ggsave(filename = file.path(outdir, "Plot_GLM_Model_adjusted.png"), plot = p_centered_subset, width = 10, height = 12)
 
-# PLOT 2: Interaction Effects
-source("/media/volume/Projects/DSGELabProject1/DiD_Pipeline/PlotInteractionEffects.R")
-plots <- create_model_visualization(model, df_model, outdir)
-
-ggsave(filename = file.path(outdir, "Model_Results_Comprehensive.png"), plot = plots$combined, width = 16, height = 12, dpi = 300)
-ggsave(filename = file.path(outdir, "Specialty_Baseline_Differences.png"), plot = plots$baseline, width = 8, height = 6)
-ggsave(filename = file.path(outdir, "Specialty_Interactions.png"), plot = plots$period, width = 8, height = 6)
-ggsave(filename = file.path(outdir, "Age_Sex_Baseline.png"), plot = plots$age_sex_baseline, width = 8, height = 6)
-ggsave(filename = file.path(outdir, "Age_Sex_Interactions.png"), plot = plots$age_sex_interactions, width = 8, height = 6)
-
 # Export summary of results
-.libPaths("/shared-directory/sd-tools/apps/R/lib/")
-library(marginaleffects)
-
-options(marginaleffects_parallel = TRUE)
-marginal = avg_slopes(model, variables = "PERIOD")
-
-# Save results
-effect_size = marginal$estimate
-p_value = marginal$p.value
-ci_lower = marginal$conf.low
-ci_upper = marginal$conf.high
+period_coef = coef(model)["PERIODAFTER"]
+period_se = sqrt(vcov(model)["PERIODAFTER", "PERIODAFTER"])
+effect_size = period_coef
+ci_lower = effect_size - 1.96 * period_se
+ci_upper = effect_size + 1.96 * period_se
+p_value = 2 * (1 - pnorm(abs(effect_size / period_se)))
 n_cases = df_complete %>% filter(EVENT == 1) %>% pull(DOCTOR_ID) %>% unique() %>% length()
 n_controls = df_complete %>% filter(EVENT == 0) %>% pull(DOCTOR_ID) %>% unique() %>% length()
 results_summary = data.frame(
