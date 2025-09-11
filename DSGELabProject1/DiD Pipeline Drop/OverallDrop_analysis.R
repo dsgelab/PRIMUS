@@ -134,66 +134,17 @@ df_complete = df_complete %>%
 # ============================================================================
 
 # ============================================================================
-# 1. FULL WIDTH AT BASELINE (FWB) CALCULATION FUNCTION
-# This function calculates the Full Width at Baseline (FWB) of a dip
+# 1. TIME TO RECOVER (TTR) CALCULATION FUNCTION
+# This function calculates the time required to return to baseline levels after a dip
 # ============================================================================
 
-calculate_fwb <- function(data, baseline) {
-  below_threshold <- data$N < baseline
-  
-  if (any(below_threshold)) {
-    # Find continuous region around time=0 that's below baseline
-    below_indices <- which(below_threshold)
-    center_idx <- which.min(abs(data$time))  # index closest to time=0
-
-    if (center_idx %in% below_indices) {
-      # Find continuous region containing center
-      left_idx <- center_idx
-      right_idx <- center_idx
-
-      # Expand left
-      while (left_idx > 1 && below_threshold[left_idx - 1]) {
-        left_idx <- left_idx - 1
-      }
-
-      # Expand right
-      while (right_idx < nrow(data) && below_threshold[right_idx + 1]) {
-        right_idx <- right_idx + 1
-      }
-
-      fwb_left <- data$time[left_idx]
-      fwb_right <- data$time[right_idx]
-      fwb <- fwb_right - fwb_left + 1
-    } else {
-      # Find region around minimum
-      min_idx <- which.min(data$N)
-      left_idx <- min_idx
-      right_idx <- min_idx
-
-      while (left_idx > 1 && below_threshold[left_idx - 1]) {
-        left_idx <- left_idx - 1
-      }
-
-      while (right_idx < nrow(data) && below_threshold[right_idx + 1]) {
-        right_idx <- right_idx + 1
-      }
-
-      fwb_left <- data$time[left_idx]
-      fwb_right <- data$time[right_idx]
-      fwb <- fwb_right - fwb_left + 1
-    }
+calculate_ttr <- function(mean_N, baseline) {
+  ttr <- which(mean_N >= baseline)[1]
+  if (is.na(ttr)) {
+    return(-1)
   } else {
-    fwb <- 0
-    fwb_left <- NA
-    fwb_right <- NA
+    return(ttr)
   }
-
-  return(list(
-    fwb = fwb,
-    fwb_left = fwb_left,
-    fwb_right = fwb_right,
-    baseline_threshold = baseline
-  ))
 }
 
 # ============================================================================
@@ -215,11 +166,11 @@ df_model = df_complete %>%
         SEX = factor(SEX, levels = c(1, 2), labels = c("Male", "Female")) # set male as reference
     )
 
-# Set buffer for baseline calculation
+# Set buffer (in months) for baseline calculation
 buffer <- 12 # 1 year
 
-# Calculate baseline (average outside buffer zone)
-baseline_data <- df_model %>% filter(time < -buffer | time > buffer)
+# Calculate baseline
+baseline_data <- df_model %>% filter(time < -buffer)
 baseline <- mean(baseline_data$N, na.rm = TRUE)
 
 # Calculate height (baseline - minimum)
@@ -229,20 +180,20 @@ avg_N_by_time <- event_period_data %>%
   summarise(mean_N = mean(N, na.rm = TRUE)) %>%
   ungroup()
 
-# Extract the minimum value from the averaged vector (should be length 24 for -12:11 if buffer=12)
+# Extract the minimum value
 minimum_value <- min(avg_N_by_time$mean_N, na.rm = TRUE)
 height <- baseline - minimum_value
 
-# Calculate width using new recovery width (FWB) formula
-fwb_results <- calculate_fwb(avg_N_by_time, baseline)
+# Calculate width using recovery width (FWB) formula
+ttr <- calculate_ttr(avg_N_by_time, baseline)
 
 # ============================================================================
 # 3. EXPORT RESULTS TO CSV
 # ============================================================================
 
 results_df <- data.frame(
-  metric = c("baseline", "minimum", "height", "fwb", "fwb_left", "fwb_right"),
-  value = c(baseline, minimum_value, height, fwb_results$fwb, fwb_results$fwb_left, fwb_results$fwb_right)
+  metric = c("baseline", "minimum", "height", "ttr"),
+  value = c(baseline, minimum_value, height, ttr)
 )
 write.csv(results_df, file = file.path(outdir, "dip_analysis_results.csv"), row.names = FALSE)
 
@@ -256,38 +207,27 @@ avg_N_by_time <- df_model %>%
   summarise(mean_N = mean(N, na.rm = TRUE)) %>%
   ungroup()
 
-p1 <- ggplot(avg_N_by_time, aes(x = time, y = mean_N)) +
+p <- ggplot(avg_N_by_time, aes(x = time, y = mean_N)) +
   geom_line(color = "blue", size = 0.8) +
   geom_vline(xintercept = 0, color = "black", size = 0.8) +
   geom_hline(yintercept = baseline, linetype = "dashed", color = "darkgray", size = 1) +
-  # Height segment (vertical)
   geom_segment(
     aes(
-      x = results_df$value[results_df$metric == "fwb_left"],
-      xend = results_df$value[results_df$metric == "fwb_left"],
-      y = results_df$value[results_df$metric == "minimum"],
-      yend = results_df$value[results_df$metric == "baseline"]
-    ),
-    color = "red", size = 1.2
-  ) +
-  # Width segment (horizontal)
-  geom_segment(
-    aes(
-      x = results_df$value[results_df$metric == "fwb_left"],
-      xend = results_df$value[results_df$metric == "fwb_right"],
-      y = results_df$value[results_df$metric == "minimum"],
-      yend = results_df$value[results_df$metric == "minimum"]
+      x = 0,
+      xend = ttr,
+      y = minimum_value,
+      yend = minimum_value
     ),
     color = "orange", size = 1.2
   ) +
   labs(
     title = "Analysis of Overall Drop in Total Prescriptions",
-    x = "Time",
-    y = "N",
-    subtitle = sprintf("Height: %.3f, FWB: %.1f", height, fwb_results$fwb)
+    x = "Time (months from event)",
+    y = "Mean N",
+    subtitle = sprintf("Dip height: %d, Time to Recover (TTR): %d (months)", as.integer(height), as.integer(ttr))
   ) +
   theme_minimal() +
   theme(plot.title = element_text(hjust = 0.5), plot.subtitle = element_text(hjust = 0.5))
 
 # Save plot
-ggsave(filename = file.path(outdir, "overall_drop_plot.png"), plot = p1, width = 8, height = 5, dpi = 300)
+ggsave(filename = file.path(outdir, "overall_drop_plot.png"), plot = p, width = 8, height = 5, dpi = 300)
