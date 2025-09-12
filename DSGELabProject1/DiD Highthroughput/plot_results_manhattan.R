@@ -55,7 +55,6 @@ manhattan_data <- dataset_clean %>%
     ) %>%
     complete(event_code = event_codes, outcome_code = outcome_codes) %>%
     mutate(
-        significance = create_significance_label(p_value, bonferroni_threshold),
         log10_p = -log10(p_value),
         event_group = substr(gsub(paste0(TYPE, "_"), "", event_code), 1, 1),
         bonferroni_label = ifelse(!is.na(p_value) & p_value < bonferroni_threshold, outcome_code, NA)
@@ -125,7 +124,7 @@ cat(paste("Significant at p < 0.05:", significance_summary$significant_05, "\n")
 cat(paste("Bonferroni significant:", significance_summary$bonferroni_significant, "\n"))
 
 # List Bonferroni significant pairs
-bonferroni_pairs <- heatmap_data %>%
+bonferroni_pairs <- manhattan_data %>%
     filter(!is.na(p_value), p_value < bonferroni_threshold) %>%
     select(event_code, outcome_code, effect_size, p_value)
 
