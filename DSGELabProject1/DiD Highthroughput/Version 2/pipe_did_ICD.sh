@@ -13,9 +13,9 @@ outcome_file="/media/volume/Projects/mattferr/did_pipeline/Outcomes_ForRatio_202
 covariates="$base_dir/doctor_characteristics_20250520.csv"
 
 # Event and outcome codes
-event_codes_file="$base_dir/DiD_Highthroughput/Version2/GeneratePairs/event_codes_ATC.csv"
-outcome_codes_file="$base_dir/DiD_Highthroughput/Version2/GeneratePairs/outcome_codes_ATC.csv"
-pairs_file="$base_dir/DiD_Highthroughput/Version2/GeneratePairs/event_outcome_pairs_ATC.csv"
+event_codes_file="$base_dir/DiD_Highthroughput/Version2/GeneratePairs/event_codes_ICD_20250809.csv"
+outcome_codes_file="$base_dir/DiD_Highthroughput/Version2/GeneratePairs/outcome_codes_ICD_20250809.csv"
+pairs_file="$base_dir/DiD_Highthroughput/Version2/GeneratePairs/event_outcome_pairs_ICD_20250809.csv"
 
 # Output directories
 today=$(date '+%Y%m%d')
@@ -107,7 +107,7 @@ total_pairs=${#event_codes[@]}
 echo "Total pairs to analyze: $total_pairs"
 
 # Initialize results file as CSV
-results_file="$results_dir/Results_${today}.csv"
+results_file="$results_dir/Results_ICD_${today}.csv"
 echo "EVENT_CODE,OUTCOME_CODE,EFFECT_SIZE,P_VALUE,CI_LOWER,CI_UPPER,N_CASES,N_CONTROLS" > "$results_file"
 
 successful_pairs=0
