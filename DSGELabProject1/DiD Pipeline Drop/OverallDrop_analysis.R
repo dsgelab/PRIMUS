@@ -26,13 +26,6 @@ N_THREADS = 10
 COLOR_MALE = "blue" 
 COLOR_FEMALE = "orange" 
 
-# Functions
-enrichment_func_outcome <- function(s, df) {
-    mean_Y_s = df$mean_Y[df$SPECIALTY == s]
-    mean_Y_others = mean(df$mean_Y[df$SPECIALTY != s], na.rm = TRUE)
-    ifelse(mean_Y_others == 0, NA, mean_Y_s / mean_Y_others)
-}
-
 #### Main
 setDTthreads(N_THREADS)
 
@@ -40,11 +33,13 @@ setDTthreads(N_THREADS)
 doctor_ids = fread(doctor_list, header = FALSE)$V1
 events = fread(events_file)
 events = events[grepl(paste0("^", event_code), CODE)]
+
 event_ids = intersect(unique(events$PATIENT_ID), doctor_ids)
+control_ids <- setdiff(doctor_ids, event_ids)
 
 # CHECK 1 : if N of events is less than 500, stop the analysis
 cat(paste0("Cases : ", length(event_ids), "\n"))
-cat(paste0("Controls : ", length(doctor_ids)-length(event_ids), "\n"))
+cat(paste0("Controls : ", length(control_ids), "\n"))
 if (length(event_ids) < 500) {
     stop("Number of events (CHECK 1) is less than 500, SKIP ANALYSIS.")
 }
@@ -52,32 +47,13 @@ if (length(event_ids) < 500) {
 outcomes = fread(outcomes_file)
 covariates = fread(covariates_file)
 
-# CHECK 2 : if doctor has less than 20 prescriptions for the outcome of interest, remove doctor from analysis
-prescriptions_per_doctor <- outcomes[grepl(paste0("^", outcome_code), CODE), .N, by = DOCTOR_ID]
-write.csv(prescriptions_per_doctor, file = file.path(outdir, "Outcomes.csv"), row.names = FALSE)
-doctors_to_keep <- prescriptions_per_doctor[N >= 20, DOCTOR_ID]
-event_ids <- intersect(intersect(unique(events$PATIENT_ID), doctors_to_keep), doctor_ids)
-control_ids <- setdiff(intersect(doctor_ids, doctors_to_keep), event_ids)
-
-# CHECK 1 (again) : if N of events is less than 500, stop the analysis
-cat(paste0("Cases, with at least 20 prescriptions of outcome: ", length(event_ids), "\n"))
-cat(paste0("Controls, with at least 20 prescriptions of outcome: ", length(control_ids), "\n"))
-if (length(event_ids) < 500) {
-    stop("Number of events (post CHECK 2) is less than 500, SKIP ANALYSIS.")
-}
-doctor_ids = c(event_ids, control_ids) 
-
 # prepare outcomes for DiD analysis
 outcomes = outcomes[outcomes$DOCTOR_ID != outcomes$PATIENT_ID, ] # remove self-prescriptions
 outcomes = outcomes[DOCTOR_ID %in% doctor_ids,] # QC : only selected doctors 
 outcomes = outcomes[!is.na(CODE) & !is.na(DATE)]
 outcomes = outcomes[DATE >= as.Date("1998-01-01")] # QC: remove events before 1998
 outcomes[, MONTH := (as.numeric(format(DATE, "%Y")) - 1998) * 12 + as.numeric(format(DATE, "%m"))]
-outcomes = outcomes[, .(
-    Ni = sum(grepl(paste0("^", outcome_code), CODE)),
-    N = .N
-), by = .(DOCTOR_ID, MONTH)]
-outcomes[, Y := fifelse(N == 0, NA_real_, Ni / N)]
+outcomes = outcomes[, .(N = .N), by = .(DOCTOR_ID, MONTH)]
 outcomes[, YEAR := 1998 + (MONTH - 1) %/% 12]
 
 # prepare events for DiD analysis + merge with outcomes
@@ -93,20 +69,6 @@ df_merged = df_merged %>%
         EVENT_MONTH = if_else(!is.na(DATE), (as.numeric(format(DATE, "%Y")) - 1998) * 12 + as.numeric(format(DATE, "%m")), NA_real_),
     ) %>%
     select(-DATE)
-
-# exclude events which happened before the first prescription of the outcome / or the last one
-n_before = length(unique(df_merged$DOCTOR_ID))
-df_merged = as.data.table(df_merged)
-df_merged[, `:=`(
-    first_Y_month = min(MONTH[!is.na(Y)], na.rm = TRUE),
-    last_Y_month = max(MONTH[!is.na(Y)], na.rm = TRUE)
-), by = DOCTOR_ID]
-df_merged = df_merged[
-    is.na(EVENT_MONTH) | (EVENT_MONTH >= first_Y_month & EVENT_MONTH <= last_Y_month)]
-removed_ids = unique(df_merged[!(is.na(EVENT_MONTH) | (EVENT_MONTH >= first_Y_month & EVENT_MONTH <= last_Y_month)), DOCTOR_ID])
-df_merged = df_merged[!(DOCTOR_ID %in% removed_ids)]
-n_after = length(unique(df_merged$DOCTOR_ID))
-cat(sprintf("Removed %d doctors with event outside prescription bounds\n", n_before - n_after))
 
 # Prepare  covariates and specialty + merge them in the main dataframe
 covariates_new = covariates %>%
@@ -224,7 +186,7 @@ p <- ggplot(avg_N_by_time, aes(x = time, y = mean_N)) +
     title = "Analysis of Overall Drop in Total Prescriptions",
     x = "Time (months from event)",
     y = "Mean N",
-    subtitle = sprintf("Dip height: %d, Time to Recover (TTR): %d (months)", as.integer(height), as.integer(ttr))
+    subtitle = sprintf("Dip height: %.1f, Time to Recover (TTR): %.1f (months)", height, ttr)
   ) +
   theme_minimal() +
   theme(plot.title = element_text(hjust = 0.5), plot.subtitle = element_text(hjust = 0.5))
