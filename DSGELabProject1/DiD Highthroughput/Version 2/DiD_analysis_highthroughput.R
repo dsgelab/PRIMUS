@@ -43,10 +43,16 @@ if (outcome_code %in% medications_to_skip) {
     stop(paste0("Outcome code expected to have a guideline change. Skipping the analysis."))
 }
 
-# remove diagnosis related to pregnancy or similar
-diagnoses_to_skip = c("Diag_O", "Diag_P","Diag_Z3")
+# skip events which are medications with expected guideline changes
+medications_to_skip_purch = paste0("Purch_", medications_to_skip)
+if (event_code %in% medications_to_skip_purch) {
+    stop(paste0("Event code expected to have a guideline change (including purchases). Skipping the analysis."))
+}
+
+# remove diagnosis related to pregnancy (or similar) and COVID (or similar) 
+diagnoses_to_skip = c("Diag_O", "Diag_P","Diag_Z3","Diag_U07","Diag_Z20","Diag_Z25")
 if (any(startsWith(event_code, diagnoses_to_skip))) {
-    stop(paste0("Event code related to pregnancy. Skipping the analysis."))
+    stop(paste0("Event code related to pregnancy or COVID. Skipping the analysis."))
 }
 
 #### Main
