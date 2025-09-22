@@ -104,11 +104,11 @@ df_complete = df_complete %>%
 # ============================================================================
 
 calculate_ttr <- function(mean_N, baseline) {
-  ttr <- which(mean_N >= baseline)[1]
+  ttr <- which(mean_N >= baseline)[1] # first cell in (post event) ordered vector which equals or exceeds baseline
   if (is.na(ttr)) {
     return(-1)
   } else {
-    return(ttr)
+    return(ttr) 
   }
 }
 
@@ -132,25 +132,27 @@ df_model = df_complete %>%
     )
 
 # Set buffer (in months) for baseline calculation
-buffer <- 12 # 1 year
+buffer <- 3
 
 # Calculate baseline
+# Consider the period BEFORE the event (using buffer)
 baseline_data <- df_model %>% filter(time < -buffer)
 baseline <- mean(baseline_data$N, na.rm = TRUE)
 
-# Calculate height (baseline - minimum)
+# Calculate height drop (baseline - minimum)
+# Consider the period around the event (using buffer)
 event_period_data <- df_model %>% filter(time >= -buffer, time <= buffer)
 avg_N_by_time <- event_period_data %>%
   group_by(time) %>%
   summarise(mean_N = mean(N, na.rm = TRUE)) %>%
   ungroup()
-
-# Extract the minimum value
 minimum_value <- min(avg_N_by_time$mean_N, na.rm = TRUE)
 height <- baseline - minimum_value
 
-# Calculate width using recovery width (FWB) formula
-ttr <- calculate_ttr(avg_N_by_time, baseline)
+# Calculate width of drop using Time to Recovery (TTR) formula
+# Consider the period AFTER the event (not using buffer)
+after_event_data <- avg_N_by_time %>% filter(time > 0)
+ttr <- calculate_ttr(after_event_data$mean_N, baseline)
 
 # ============================================================================
 # 3. EXPORT RESULTS TO CSV
