@@ -35,12 +35,10 @@ for pair in "${pairs[@]}"; do
     event_register=$(echo $pair | cut -d' ' -f1)
     event_code_name=$(echo $pair | cut -d' ' -f2)
     event_code=$(echo $pair | cut -d' ' -f3)
-    outcome_code_name=$(echo $pair | cut -d' ' -f4)
-    outcome_code=$(echo $pair | cut -d' ' -f5)
         
     # STEP 1: Create experiment directory
     today=$(date '+%Y%m%d')
-    out_dir="$base_dir/DiD_Experiments/Version1_drop/Experiment_${event_code_name}_${outcome_code_name}_$today"
+    out_dir="$base_dir/DiD_Experiments/Version1_base_drop/Experiment_${event_code_name}_$today"
     mkdir -p $out_dir
 
     # Record the start time of the pipeline
@@ -54,10 +52,10 @@ for pair in "${pairs[@]}"; do
         step_start_time=$SECONDS
         if [[ "$event_register" == "Diag" ]]; then
             echo "ICD10 code: $event_code"
-            python3 $base_dir/DiD_Drop/Version1_20250911/ExtractEvents.py --id_list $list_of_doctors_spouses_children --inpath $diagnosis_file --event_register $event_register --outdir $out_dir --event_code $event_code
+            python3 $base_dir/DiD_base/DiD_Drop_Version1/ExtractEvents.py --id_list $list_of_doctors_spouses_children --inpath $diagnosis_file --event_register $event_register --outdir $out_dir --event_code $event_code
         elif [[ "$event_register" == "Purch" ]]; then
             echo "ATC code: $event_code"
-            python3 $base_dir/DiD_Drop/Version1_20250911/ExtractEvents.py --id_list $list_of_doctors_spouses_children --inpath $purchases_file --event_register $event_register --outdir $out_dir --event_code $event_code
+            python3 $base_dir/DiD_base/DiD_Drop_Version1/ExtractEvents.py --id_list $list_of_doctors_spouses_children --inpath $purchases_file --event_register $event_register --outdir $out_dir --event_code $event_code
         else
             echo "Invalid event register"
         fi
@@ -68,7 +66,7 @@ for pair in "${pairs[@]}"; do
     # STEP 3: Run Difference-in-Difference analysis
     echo "Running DiD analysis"
     step_start_time=$SECONDS
-    Rscript --vanilla OverallDrop_analysis.R $list_of_doctors $out_dir/Events.csv $event_code $outcome_file $outcome_code $covariates $out_dir
+    Rscript --vanilla DropAnalysis.R $list_of_doctors $out_dir/Events.csv $event_code $outcome_file $covariates $out_dir
     step_end_time=$SECONDS
     echo "Step completed in $(($step_end_time - $step_start_time)) seconds"
 
