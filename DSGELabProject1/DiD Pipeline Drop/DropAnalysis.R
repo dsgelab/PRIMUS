@@ -1,25 +1,28 @@
+
 #### Info:
 # This script takes as input a list of doctor ids (cases + controls) and two datasets Events.csv and Outcomes.csv
 # It then performs a difference-in-differences analysis based on the input data
 
 #### Libraries:
-library(data.table)
-library(dplyr)
-library(tidyr)
-library(lubridate)
-library(fixest)
-library(ggplot2)
-library(patchwork)
+suppressPackageStartupMessages({
+    library(data.table)
+    library(dplyr)
+    library(tidyr)
+    library(lubridate)
+    library(fixest)
+    library(ggplot2)
+    library(patchwork)
+    library(arrow)
+})
 
 ##### Arguments
-args = commandArgs(trailingOnly=TRUE)
+args = commandArgs(trailingOnly = TRUE)
 doctor_list = args[1]
 events_file = args[2]
 event_code = args[3]
 outcomes_file = args[4]
-outcome_code = args[5]
-covariates_file = args[6]
-outdir = args[7]
+covariates_file = args[5]
+outfile = args[6]
 
 # Global Variables
 N_THREADS = 10
@@ -31,9 +34,14 @@ setDTthreads(N_THREADS)
 
 # Load data
 doctor_ids = fread(doctor_list, header = FALSE)$V1
-events = fread(events_file)
-events = events[grepl(paste0("^", event_code), CODE)]
 
+events = as.data.table(read_parquet(events_file))
+event_code_parts = strsplit(event_code, "_")[[1]]
+event_source = event_code_parts[1]
+event_actual_code = event_code_parts[2]
+
+# Filter events based on the event code
+events = events[SOURCE == event_source & startsWith(as.character(CODE), event_actual_code), ]
 event_ids = intersect(unique(events$PATIENT_ID), doctor_ids)
 control_ids <- setdiff(doctor_ids, event_ids)
 
@@ -44,21 +52,17 @@ if (length(event_ids) < 500) {
     stop("Number of events (CHECK 1) is less than 500, SKIP ANALYSIS.")
 }
 
-outcomes = fread(outcomes_file)
+outcomes = as.data.table(read_parquet(outcomes_file))
 covariates = fread(covariates_file)
 
 # prepare outcomes for DiD analysis
-outcomes = outcomes[outcomes$DOCTOR_ID != outcomes$PATIENT_ID, ] # remove self-prescriptions
+# now done with ProcessOutcomes.py
 outcomes = outcomes[DOCTOR_ID %in% doctor_ids,] # QC : only selected doctors 
-outcomes = outcomes[!is.na(CODE) & !is.na(DATE)]
-outcomes = outcomes[DATE >= as.Date("1998-01-01")] # QC: remove events before 1998
-outcomes[, MONTH := (as.numeric(format(DATE, "%Y")) - 1998) * 12 + as.numeric(format(DATE, "%m"))]
-outcomes = outcomes[, .(N = .N), by = .(DOCTOR_ID, MONTH)]
-outcomes[, YEAR := 1998 + (MONTH - 1) %/% 12]
 
 # prepare events for DiD analysis + merge with outcomes
 events = events[, .(PATIENT_ID, CODE, DATE)]
 events = events[PATIENT_ID %in% doctor_ids,] # QC : only selected doctors
+events$DATE <- as.Date(events$DATE)
 events = events[events[, .I[which.min(DATE)], by = .(PATIENT_ID, CODE)]$V1] # only use first event
 events = events[, c("PATIENT_ID", "DATE")] %>% rename("DOCTOR_ID" = "PATIENT_ID")
 df_merged = left_join(outcomes, events, by = "DOCTOR_ID")
