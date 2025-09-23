@@ -6,10 +6,11 @@ library(tidyr)
 library(scales)
 
 # Global Variables
-DATE = "20250909"
-TYPE = "Diag" # "Diag" or "Purch" 
-dataset_file <- sprintf('/media/volume/Projects/DSGELabProject1/DiD_Experiments/Version2_Highthroughput/Results/Results_%s.csv', DATE)
-output_file <- sprintf('/media/volume/Projects/DSGELabProject1/DiD_Experiments/Version2_Highthroughput/Results/Heatmap_%s_%s.png', TYPE, DATE)
+DATE = "20250921"
+TYPE = "ICD" # "ICD" or "ATC"
+TYPE2 = "Diag" # "Diag" or "Purch" 
+dataset_file <- sprintf('/media/volume/Projects/DSGELabProject1/DiD_Experiments/Version2_Highthroughput/Results/Results_%s_%s.csv', TYPE, DATE)
+output_file <- sprintf('/media/volume/Projects/DSGELabProject1/DiD_Experiments/Version2_Highthroughput/Results/Heatmap_%s_%s.png', TYPE2, DATE)
 
 # Functions
 create_significance_label <- function(p_value, bonferroni_threshold) {
@@ -101,7 +102,7 @@ p <- ggplot(heatmap_data, aes(x = event_code, y = outcome_code)) +
         subtitle = paste0(
         "○ p < 0.05  |  ⊗ Bonferroni corrected (p < ", format(bonferroni_threshold, scientific = TRUE, digits = 3), ")  |  Matrix size: ", length(event_codes), "×", length(outcome_codes)
         ),
-        x = if (TYPE == "diag") "Event Code (ICD10 - 3 chars)" else if (TYPE == "Purch") "Event Code (ATC - 5 chars)" else "Event Code",
+        x = if (TYPE2 == "diag") "Event Code (ICD10 - 3 chars)" else if (TYPE2 == "Purch") "Event Code (ATC - 5 chars)" else "Event Code",
         y = "Outcome Code"
     ) +
     coord_fixed()
