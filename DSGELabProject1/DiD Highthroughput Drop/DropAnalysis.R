@@ -154,24 +154,53 @@ after_event_data <- avg_N_by_time %>% filter(time > 0)
 ttr <- calculate_ttr(after_event_data$mean_N, baseline)
 
 # ============================================================================
+# Additional metrics by age at event (quartiles)
+# ============================================================================
+
+age_event <- df_model %>% filter(!is.na(AGE_AT_EVENT)) %>% pull(AGE_AT_EVENT)
+quartiles <- quantile(age_event, probs = c(0, 0.25, 0.5, 0.75, 1), na.rm = TRUE)
+
+ttr_age_q <- c()
+for (i in 1:4) {
+    age_min <- quartiles[i]
+    age_max <- quartiles[i+1]
+    age_data <- df_model %>% filter(AGE_AT_EVENT >= age_min, AGE_AT_EVENT < age_max)
+    
+    # Calculate baseline for age group
+    baseline_age_data <- age_data %>% filter(time >= -36, time < -buffer)
+    baseline_age <- mean(baseline_age_data$N, na.rm = TRUE)
+    
+    # Calculate TTR for age group
+    after_event_age <- age_data %>% filter(time > 0) %>%
+        group_by(time) %>%
+        summarise(mean_N = mean(N, na.rm = TRUE)) %>%
+        ungroup()
+    ttr_age <- calculate_ttr(after_event_age$mean_N, baseline_age)
+    ttr_age_q[i] <- ttr_age
+}
+
+# ============================================================================
 # 3. EXPORT RESULTS TO CSV
 # ============================================================================
 
 # Append summary row to outfile
 summary_row <- data.frame(
-    event_code = event_code,
-    baseline = baseline,
-    height = height,
-    ttr = ttr,
-    n_cases = length(event_ids),
-    n_controls = length(control_ids)
+        event_code = event_code,
+        baseline = baseline,
+        ttr = ttr,
+        ttr_age_q1 = ttr_age_q[1],
+        ttr_age_q2 = ttr_age_q[2],
+        ttr_age_q3 = ttr_age_q[3],
+        ttr_age_q4 = ttr_age_q[4],
+        n_cases = length(event_ids),
+        n_controls = length(control_ids)
 )
 
 write.table(
-    summary_row,
-    file = outfile,
-    sep = ",",
-    row.names = FALSE,
-    col.names = FALSE,
-    append = TRUE
+        summary_row,
+        file = outfile,
+        sep = ",",
+        row.names = FALSE,
+        col.names = FALSE,
+        append = TRUE
 )

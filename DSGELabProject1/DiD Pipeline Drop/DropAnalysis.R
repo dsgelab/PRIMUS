@@ -162,7 +162,7 @@ results_df <- data.frame(
   metric = c("baseline", "minimum", "height", "ttr"),
   value = c(baseline, minimum_value, height, ttr)
 )
-write.csv(results_df, file = file.path(outdir, "dip_analysis_results.csv"), row.names = FALSE)
+write.csv(results_df, file = file.path(outdir, "drop_analysis_results.csv"), row.names = FALSE)
 
 # ============================================================================
 # 4. VISUALIZATION WITH GGPLOT2
