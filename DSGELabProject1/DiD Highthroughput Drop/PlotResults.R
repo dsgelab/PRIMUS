@@ -17,7 +17,7 @@ ttr_to_ym <- function(m) {
 }
 
 # Load data
-DATE = "20250919"
+DATE = "20250922"
 data <- read.csv(paste0("/media/volume/Projects/DSGELabProject1/DiD_Experiments/Version1_Highthroughput_drop/Results/DropAnalysisResults_", DATE, ".csv"))
 OutDir <- paste0("/media/volume/Projects/DSGELabProject1/DiD_Experiments/Version1_Highthroughput_drop/Results/PlotResults_", DATE, "/")
 if (!dir.exists(OutDir)) {dir.create(OutDir, recursive = TRUE)}
@@ -136,30 +136,63 @@ ggsave(filename = paste0(OutDir, "DropPlot_C_", DATE, ".png"), plot = p5, width 
 # Examine recovery patterns and identify events with no recovery
 # ============================================================================
 
-# 3.A Time to recovery by event (excluding never-recovered cases)
+# 3.A Time to recovery by event (excluding never-recovered cases) - Boxplot
 data_recovered <- data %>% filter(TTR != -1)
 avg_ttr <- mean(data_recovered$TTR, na.rm = TRUE)
-p6 <- ggplot(data_recovered, aes(x = reorder(EVENT_CODE, TTR), y = TTR)) +
-  geom_col(fill = "gray", alpha = 0.7) +
+p6 <- ggplot(data_recovered, aes(x = 1, y = TTR)) +
+  geom_boxplot(fill = "gray", alpha = 0.7, width = 0.3) +
+  geom_jitter(width = 0.1, alpha = 0.5, color = "black", size = 2) +
   geom_hline(yintercept = avg_ttr, color = "red", linetype = "dashed", size = 1) +
-  geom_hline(yintercept = 12, color = "black", linetype = "solid", size = 0.8) +
-  geom_hline(yintercept = 24, color = "black", linetype = "solid", size = 0.8) +
-  annotate("text", x = 1, y = 12, label = "1 year", vjust = -1, hjust = 0, color = "black", size = 4) +
-  annotate("text", x = 1, y = 24, label = "2 years", vjust = -1, hjust = 0, color = "black", size = 4) +
   labs(
-    title = "Time to Recovery by Event Type (Recovered Cases Only)",
+    title = "Time to Recovery Distribution (Recovered Cases Only)",
     subtitle = paste(
-      "Average recovery time:",
-      round(avg_ttr, 2), "months (", ttr_to_ym(avg_ttr), ")"
+      "Average recovery time:", round(avg_ttr, 2), "months"
     ),
-    x = "Event Code",
+    x = "",
     y = "Time to Recovery (months)"
   ) +
   theme_minimal() +
-  theme(axis.text.x = element_blank())
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) +
+  scale_y_continuous(limits = c(0, NA))
 ggsave(filename = paste0(OutDir, "TTRPlot_A_", DATE, ".png"), plot = p6, width = 8, height = 5)
 
-# 3.B Recovery status stratified by medications and diagnosis (patchwork, stacked vertically)
+# 3.B Time to recovery by event, stratified by medication and diagnosis chapters (boxplots)
+data_recovered <- data %>% filter(TTR != -1)
+data_med <- data_recovered %>% filter(grepl("^Purch", EVENT_CODE))
+data_diag <- data_recovered %>% filter(grepl("^Diag", EVENT_CODE))
+all_med_groups <- data %>% filter(grepl("^Purch", EVENT_CODE)) %>% pull(GROUP) %>% unique() %>% sort()
+all_diag_groups <- data %>% filter(grepl("^Diag", EVENT_CODE)) %>% pull(GROUP) %>% unique() %>% sort()
+# Medication chapter boxplot
+p7_med <- ggplot(data_med, aes(x = GROUP, y = TTR, fill = GROUP)) +
+  geom_boxplot(alpha = 0.7) +
+  scale_x_discrete(limits = all_med_groups) +
+  scale_y_continuous(limits = c(0, NA)) +
+  labs(
+    title = "Time to Recovery by Medication Chapter (Recovered Cases Only)",
+    x = "Medication Chapter",
+    y = "Time to Recovery (months)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+# Diagnosis chapter boxplot
+p7_diag <- ggplot(data_diag, aes(x = GROUP, y = TTR, fill = GROUP)) +
+  geom_boxplot(alpha = 0.7) +
+  scale_x_discrete(limits = all_diag_groups) +
+  scale_y_continuous(limits = c(0, NA)) +
+  labs(
+    title = "Time to Recovery by Diagnosis Chapter (Recovered Cases Only)",
+    x = "Diagnosis Chapter",
+    y = "Time to Recovery (months)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+# Arrange plots side by side and save
+p7 <- p7_med / p7_diag
+ggsave(filename = paste0(OutDir, "TTRPlot_B_", DATE, ".png"), plot = p7, width = 12, height = 5)
+
+
+# 3.C Recovery status, stratified by medications and diagnosis
 data$RECOVERY_STATUS <- ifelse(data$TTR == -1, "Never Recovered", "Recovered")
 data_med <- data %>% filter(grepl("^Purch", EVENT_CODE))
 data_diag <- data %>% filter(grepl("^Diag", EVENT_CODE))
@@ -172,7 +205,7 @@ diag_never <- sum(data_diag$RECOVERY_STATUS == "Never Recovered", na.rm = TRUE)
 med_counts <- data_med %>%
   group_by(GROUP, RECOVERY_STATUS) %>%
   summarise(Count = n())
-p7_med <- ggplot(med_counts, aes(x = GROUP, y = Count, fill = RECOVERY_STATUS)) +
+p8_med <- ggplot(med_counts, aes(x = GROUP, y = Count, fill = RECOVERY_STATUS)) +
   geom_col(position = "dodge", alpha = 0.8) +
   labs(
     title = "Recovery Status by Medication Chapter",
@@ -186,7 +219,7 @@ p7_med <- ggplot(med_counts, aes(x = GROUP, y = Count, fill = RECOVERY_STATUS)) 
 diag_counts <- data_diag %>%
   group_by(GROUP, RECOVERY_STATUS) %>%
   summarise(Count = n())
-p7_diag <- ggplot(diag_counts, aes(x = GROUP, y = Count, fill = RECOVERY_STATUS)) +
+p8_diag <- ggplot(diag_counts, aes(x = GROUP, y = Count, fill = RECOVERY_STATUS)) +
   geom_col(position = "dodge", alpha = 0.8) +
   labs(
     title = "Recovery Status by Diagnosis Chapter",
@@ -197,8 +230,8 @@ p7_diag <- ggplot(diag_counts, aes(x = GROUP, y = Count, fill = RECOVERY_STATUS)
   scale_fill_manual(values = c("Never Recovered" = "orange", "Recovered" = "blue")) +
   theme_minimal()
 # Stack plots vertically, and save
-p7 <- p7_med / p7_diag
-ggsave(filename = paste0(OutDir, "TTRPlot_B_", DATE, ".png"), plot = p7, width = 10, height = 10)
+p8 <- p8_med / p8_diag
+ggsave(filename = paste0(OutDir, "TTRPlot_C_", DATE, ".png"), plot = p8, width = 10, height = 10)
 
 # ============================================================================
 # SECTION 4: EXTRA ANALYSIS
@@ -206,7 +239,7 @@ ggsave(filename = paste0(OutDir, "TTRPlot_B_", DATE, ".png"), plot = p7, width =
 # ============================================================================
 
 # 4.A TTR vs. Relative Drop relationship (for recovered cases only)
-p8 <- ggplot(data_recovered, aes(x = REL_DROP, y = TTR)) +
+p9 <- ggplot(data_recovered, aes(x = REL_DROP, y = TTR)) +
   geom_point(alpha = 0.7, size = 3, color = "darkgreen") +
   geom_smooth(method = "lm", se = TRUE, color = "red") +
   labs(title = "Time to Recovery vs. Relative Prescription Drop",
@@ -214,12 +247,12 @@ p8 <- ggplot(data_recovered, aes(x = REL_DROP, y = TTR)) +
        y = "Time to Recovery (months)") +
   scale_x_continuous(labels = scales::percent_format(scale = 1)) +
   theme_minimal()
-ggsave(filename = paste0(OutDir, "ExtraPlot_A_", DATE, ".png"), plot = p8, width = 8, height = 5)
+ggsave(filename = paste0(OutDir, "ExtraPlot_A_", DATE, ".png"), plot = p9, width = 8, height = 5)
 
 # 4.B TTR vs. Relative Drop relationship (including never-recovered cases)
 data$recovery_status <- ifelse(data$TTR == -1, "Never Recovered", "Recovered")
 data$TTR_display <- ifelse(data$TTR == -1, NA, data$TTR)
-p9 <- ggplot(data, aes(x = REL_DROP)) +
+p10 <- ggplot(data, aes(x = REL_DROP)) +
   # Points for recovered cases
   geom_point(data = subset(data, recovery_status == "Recovered"),
              aes(y = TTR_display, color = "Recovered"), 
@@ -242,4 +275,4 @@ p9 <- ggplot(data, aes(x = REL_DROP)) +
        color = "Recovery Status") +
   theme_minimal() +
   theme(legend.position = "bottom")
-ggsave(filename = paste0(OutDir, "ExtraPlot_B_", DATE, ".png"), plot = p9, width = 8, height = 5)
+ggsave(filename = paste0(OutDir, "ExtraPlot_B_", DATE, ".png"), plot = p10, width = 8, height = 5)
