@@ -124,7 +124,6 @@ df_model = df_complete %>%
             is.na(EVENT_MONTH) ~ NA_character_),
         time = MONTH - EVENT_MONTH
     ) %>%
-    filter(!is.na(PERIOD), time >= -36, time <= 36) %>%
     mutate(
         PERIOD = factor(PERIOD, levels = c("BEFORE", "AFTER")), # set BEFORE as reference
         SPECIALTY = factor(SPECIALTY, levels = c("", setdiff(unique(df_complete$SPECIALTY), ""))), # set no specialty as reference
@@ -135,8 +134,8 @@ df_model = df_complete %>%
 buffer <- 3
 
 # Calculate baseline
-# Consider the period BEFORE the event (using buffer)
-baseline_data <- df_model %>% filter(time < -buffer)
+# Consider the period BEFORE the event, only focus on 3 years - buffer
+baseline_data <- df_model %>% filter(time >= -36, time < -buffer)
 baseline <- mean(baseline_data$N, na.rm = TRUE)
 
 # Calculate height drop (baseline - minimum)
