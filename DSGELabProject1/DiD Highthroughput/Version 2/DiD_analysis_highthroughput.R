@@ -146,9 +146,9 @@ df_complete[, `:=`(
     AGE_AT_EVENT = fifelse(is.na(EVENT_YEAR), NA_real_, EVENT_YEAR - BIRTH_YEAR)
 )]
 
-# Filter out events after 65 and prescriptions after 65
-events_after65 = df_complete[AGE_AT_EVENT > 65 & !is.na(AGE_AT_EVENT), unique(DOCTOR_ID)]
-df_complete = df_complete[!(DOCTOR_ID %in% events_after65) & AGE <= 65]
+# Filter out events after 60 and prescriptions after 60
+events_after60 = df_complete[AGE_AT_EVENT > 60 & !is.na(AGE_AT_EVENT), unique(DOCTOR_ID)]
+df_complete = df_complete[!(DOCTOR_ID %in% events_after60) & AGE <= 60]
 
 # step_times[["data_prep"]] <- difftime(Sys.time(), step_start, units = "secs")
 # cat(paste0("Step 3 - Data Preparation: ", round(step_times[["data_prep"]], 2), " seconds\n"))

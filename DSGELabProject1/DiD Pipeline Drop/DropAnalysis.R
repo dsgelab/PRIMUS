@@ -86,10 +86,10 @@ df_complete = df_complete %>%
         AGE_IN_2023 = 2023 - BIRTH_YEAR,
         AGE_AT_EVENT = if_else(is.na(EVENT_YEAR), NA_real_, EVENT_YEAR - BIRTH_YEAR)
     )
-events_after65 = df_complete %>% filter(AGE_AT_EVENT > 65) %>% pull(DOCTOR_ID) %>% unique()
+events_after60 = df_complete %>% filter(AGE_AT_EVENT > 60) %>% pull(DOCTOR_ID) %>% unique()
 df_complete = df_complete %>% 
-    filter(!(DOCTOR_ID %in% events_after65)) %>% # remove people which experiment the event after pension (age 65)
-    filter(AGE <= 65) # remove all prescriptions done after pension (age 65)
+  filter(!(DOCTOR_ID %in% events_after60)) %>% # remove people which experiment the event after pension (age 60)
+  filter(AGE <= 60) # remove all prescriptions done after pension (age 60)
 
 # ============================================================================
 # MAIN
