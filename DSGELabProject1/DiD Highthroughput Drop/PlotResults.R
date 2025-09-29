@@ -4,6 +4,7 @@
 # Load required libraries
 library(ggplot2)
 library(dplyr)
+library(tidyr)
 library(scales)
 library(gridExtra)
 library(patchwork)
@@ -139,14 +140,17 @@ ggsave(filename = paste0(OutDir, "DropPlot_C_", DATE, ".png"), plot = p5, width 
 # 3.A Time to recovery by event (excluding never-recovered cases) - Boxplot
 data_recovered <- data %>% filter(TTR != -1)
 avg_ttr <- mean(data_recovered$TTR, na.rm = TRUE)
+n_total <- nrow(data)
+n_recovered <- nrow(data_recovered)
 p6 <- ggplot(data_recovered, aes(x = 1, y = TTR)) +
   geom_boxplot(fill = "gray", alpha = 0.7, width = 0.3) +
-  geom_jitter(width = 0.1, alpha = 0.5, color = "black", size = 2) +
+  geom_jitter(width = 0.1, height = 0, alpha = 0.5, color = "black", size = 2) +
   geom_hline(yintercept = avg_ttr, color = "red", linetype = "dashed", size = 1) +
   labs(
     title = "Time to Recovery Distribution (Recovered Cases Only)",
     subtitle = paste(
-      "Average recovery time:", round(avg_ttr, 2), "months"
+      "Average recovery time:", round(avg_ttr, 2), "months |",
+      "Recovered events:", n_recovered, "of", n_total
     ),
     x = "",
     y = "Time to Recovery (months)"
@@ -232,6 +236,60 @@ p8_diag <- ggplot(diag_counts, aes(x = GROUP, y = Count, fill = RECOVERY_STATUS)
 # Stack plots vertically, and save
 p8 <- p8_med / p8_diag
 ggsave(filename = paste0(OutDir, "TTRPlot_C_", DATE, ".png"), plot = p8, width = 10, height = 10)
+
+
+# 3.D TTR stratified by age at event
+ttr_age_long <- data %>%
+  select(EVENT_CODE, starts_with("TTR_AGE_Q")) %>%
+  pivot_longer(
+    cols = starts_with("TTR_AGE_Q"),
+    names_to = "AGE_QUARTILE",
+    values_to = "TTR"
+  ) %>%
+  mutate(
+    AGE_QUARTILE = factor(
+      AGE_QUARTILE,
+      levels = c("TTR_AGE_Q1", "TTR_AGE_Q2", "TTR_AGE_Q3", "TTR_AGE_Q4"),
+      labels = c("Q1 (Youngest)", "Q2", "Q3", "Q4 (Oldest)")
+    )
+  )
+# Boxplot of TTR by age quartile, keep outliers printed
+data_plot <- ttr_age_long[!is.na(ttr_age_long$TTR) & ttr_age_long$TTR != -1, ]
+p_ttr_age_boxplot <- ggplot(data_plot, aes(x = AGE_QUARTILE, y = TTR, fill = AGE_QUARTILE)) +
+  geom_boxplot(alpha = 0.7) +
+  coord_cartesian(ylim = quantile(data_plot$TTR, c(0.05, 0.95), na.rm = TRUE)) +
+  labs(
+    title = "Time to Recovery by Age Quartile at Event",
+    x = "Age Quartile",
+    y = "Time to Recovery (months)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+recov_summary <- ttr_age_long %>%
+  mutate(RECOVERY_STATUS = ifelse(TTR == -1, "Never Recovered", "Recovered")) %>%
+  group_by(AGE_QUARTILE) %>%
+  summarise(
+    N = n(),
+    Recovered = sum(RECOVERY_STATUS == "Recovered"),
+    Perc_Recovered = Recovered / N * 100
+  )
+# Barplot: percentage of recovered events by age quartile, with N on top
+p_ttr_age_recov <- ggplot(recov_summary, aes(x = AGE_QUARTILE, y = Perc_Recovered, fill = AGE_QUARTILE)) +
+  geom_col(alpha = 0.8, width = 0.7) +
+  geom_text(aes(label = paste0("N=", N)), vjust = -0.5, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format(scale = 1), limits = c(0, 100)) +
+  labs(
+    title = "Percentage of Recovered Events by Age Quartile",
+    x = "Age Quartile",
+    y = "% Recovered"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# Combine boxplot and barplot vertically
+p_ttr_age <- p_ttr_age_boxplot / p_ttr_age_recov + plot_layout(heights = c(2, 1))
+ggsave(filename = paste0(OutDir, "TTRPlot_D_AgeQuartile_", DATE, ".png"), plot = p_ttr_age, width = 8, height = 5)
 
 # ============================================================================
 # SECTION 4: EXTRA ANALYSIS
