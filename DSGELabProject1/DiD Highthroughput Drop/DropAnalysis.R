@@ -187,6 +187,7 @@ for (i in 1:4) {
 summary_row <- data.frame(
         event_code = event_code,
         baseline = baseline,
+        drop = height,
         ttr = ttr,
         ttr_age_q1 = ttr_age_q[1],
         ttr_age_q2 = ttr_age_q[2],

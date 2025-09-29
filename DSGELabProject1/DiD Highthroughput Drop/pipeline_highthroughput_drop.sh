@@ -95,7 +95,7 @@ echo "Total event codes to analyze: $total_events"
 
 # Initialize results file with correct header
 results_file="$results_dir/DropAnalysisResults_${today}.csv"
-echo "EVENT_CODE,BASELINE,TTR,TTR_AGE_Q1,TTR_AGE_Q2,TTR_AGE_Q3,TTR_AGE_Q4,N_CASES,N_CONTROLS" > "$results_file"
+echo "EVENT_CODE,BASELINE,DROP,TTR,TTR_AGE_Q1,TTR_AGE_Q2,TTR_AGE_Q3,TTR_AGE_Q4,N_CASES,N_CONTROLS" > "$results_file"
 
 successful_events=0
 failed_events=0
