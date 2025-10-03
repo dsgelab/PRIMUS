@@ -37,18 +37,6 @@ results_file = args[7]
 
 #### Extra checks
 
-# remove medications with expected guideline changes
-medications_to_skip = c("N02BE","N02AJ","N02AA","M01AX","M01AE","J01FA","J01DB","J01DA") 
-if (outcome_code %in% medications_to_skip) {
-    stop(paste0("Outcome code expected to have a guideline change. Skipping the analysis."))
-}
-
-# skip events which are medications with expected guideline changes
-medications_to_skip_purch = paste0("Purch_", medications_to_skip)
-if (event_code %in% medications_to_skip_purch) {
-    stop(paste0("Event code expected to have a guideline change (including purchases). Skipping the analysis."))
-}
-
 # remove diagnosis related to pregnancy (or similar) and COVID (or similar) 
 diagnoses_to_skip = c("Diag_O", "Diag_P","Diag_Z3","Diag_U07","Diag_Z20","Diag_Z25")
 if (any(startsWith(event_code, diagnoses_to_skip))) {
@@ -123,12 +111,27 @@ df_merged[, EVENT_YEAR := ifelse(!is.na(DATE), as.numeric(format(DATE, "%Y")), N
 df_merged[, EVENT_MONTH := ifelse(!is.na(DATE), (as.numeric(format(DATE, "%Y")) - 1998) * 12 + as.numeric(format(DATE, "%m")), NA_real_)]
 df_merged[, DATE := NULL]
 
-# exclude events which happened before the first prescription of the outcome / or the last one
-# Use the pre-calculated first_month and last_month columns
-first_month_col = paste0("first_month_", outcome_code)
-last_month_col = paste0("last_month_", outcome_code)
+# Process prescription timeframe
+# 1. Calculate original min and max month in the cohort (range of prescriptions)
+df_merged[, original_min_month := min(get(paste0("first_month_", outcome_code)), na.rm = TRUE), by = DOCTOR_ID]
+df_merged[, original_max_month := max(get(paste0("last_month_", outcome_code)), na.rm = TRUE), by = DOCTOR_ID]
+# 2. Add buffer to min and max month to avoid bias due to medications entering or exiting the market
+buffer_months = 12
+df_merged[, buffered_min_month := original_min_month + buffer_months]
+df_merged[, buffered_max_month := original_max_month - buffer_months]
+cat(sprintf("Original range of outcomes: %d-%d | Buffered range of outcomes: %d-%d\n",
+    min(df_merged$original_min_month, na.rm = TRUE),
+    max(df_merged$original_max_month, na.rm = TRUE),
+    min(df_merged$buffered_min_month, na.rm = TRUE),
+    max(df_merged$buffered_max_month, na.rm = TRUE)
+))
+# Remove all information outside of buffered range
 df_merged <- df_merged[
-    is.na(EVENT_MONTH) | (EVENT_MONTH >= get(first_month_col) & EVENT_MONTH <= get(last_month_col))
+    MONTH >= buffered_min_month & MONTH <= buffered_max_month
+]
+# 3. Exclude events which happened before the first prescription of the outcome / or after the last one (using buffered range)
+df_merged <- df_merged[
+    is.na(EVENT_MONTH) | (EVENT_MONTH >= buffered_min_month & EVENT_MONTH <= buffered_max_month)
 ]
 
 # Prepare covariates 
