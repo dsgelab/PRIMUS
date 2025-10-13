@@ -6,17 +6,15 @@ library(scales)
 
 # Global variables
 base_dir = "/media/volume/Data_20250430/Kela/"
-file1 = "FD_2698_165_522_2023_ELAKKEEN_SAAJAT_1998_2019.csv"
-file2 = "FD_2698_165_522_2023_ELAKKEEN_SAAJAT_2020_2022.csv"
-cols_of_interest1 = c('FID', 'TKYVALPV', 'TKYVLOPV', 'SAIR')
-cols_of_interest2 = c('FID', 'ETUUSJAKSO_ALPV', 'ETUUSJAKSO_LOPV', 'SAIRAUSDIAGNOOSI1')
+file = "FD_2698_165_522_2023_SAIRAUSPAIVARAHA_KAUDET.csv"
+cols_of_interest1 = c('FID', 'MAKSU_ALPV', 'MAKSU_LOPV', 'DIAGNOOSI_KOODI')
 
 doctor_list = "/media/volume/Projects/DSGELabProject1/doctors_20250424.csv"
 
 out_dir = "/media/volume/Projects/DSGELabProject1/ProcessedData/"
-log_dir = "/media/volume/Projects/DSGELabProject1/Logs/SickLeaveData_20251007/"
+log_dir = "/media/volume/Projects/DSGELabProject1/Logs/SickLeaveData_20251013/"
 if (!dir.exists(log_dir)) dir.create(log_dir, recursive = TRUE)
-log_file <- file.path(log_dir, "processing_log_20251007.txt")
+log_file <- file.path(log_dir, "processing_log_20251013.txt")
 
 N_THREADS = 10
 setDTthreads(N_THREADS)
@@ -24,34 +22,22 @@ setDTthreads(N_THREADS)
 # MAIN
 
 # load data
-dt1 = fread(paste0(base_dir, file1))
-dt2 = fread(paste0(base_dir, file2))
+dt = fread(paste0(base_dir, file))
 
 # filter columns of interest
-dt1 = dt1[, ..cols_of_interest1]
-dt2 = dt2[, ..cols_of_interest2]
+dt = dt[, ..cols_of_interest1]
 
 # translate names
-setnames(dt1, old = c('FID', 'TKYVALPV', 'TKYVLOPV', 'SAIR'), new = c('PATIENT_ID', 'SICK_LEAVE_START', 'SICK_LEAVE_END', 'SICK_LEAVE_DIAG'))
-setnames(dt2, old = c('FID', 'ETUUSJAKSO_ALPV', 'ETUUSJAKSO_LOPV', 'SAIRAUSDIAGNOOSI1'), new = c('PATIENT_ID', 'SICK_LEAVE_START', 'SICK_LEAVE_END', 'SICK_LEAVE_DIAG'))
+setnames(dt, old = c('FID', 'MAKSU_ALPV', 'MAKSU_LOPV', 'DIAGNOOSI_KOODI'), new = c('PATIENT_ID', 'SICK_LEAVE_START', 'SICK_LEAVE_END', 'SICK_LEAVE_DIAG'))
 
-# remove missing dates 
-orig_nrow_dt1 <- nrow(dt1)
-orig_nrow_dt2 <- nrow(dt2)
-
-dt1 <- dt1[!is.na(SICK_LEAVE_START) & !is.na(SICK_LEAVE_END)]
-dt2 <- dt2[!is.na(SICK_LEAVE_START) & !is.na(SICK_LEAVE_END)]
-
-removed_dt1 <- orig_nrow_dt1 - nrow(dt1)
-removed_dt2 <- orig_nrow_dt2 - nrow(dt2)
+# remove missing dates
+orig_nrow_dt <- nrow(dt)
+dt <- dt[!is.na(SICK_LEAVE_START) & !is.na(SICK_LEAVE_END)]
+removed_dt <- orig_nrow_dt - nrow(dt)
 
 sink(log_file, append = TRUE)
-cat(sprintf("dt1: removed %d rows (%.2f%%)\n", removed_dt1, 100 * removed_dt1 / orig_nrow_dt1))
-cat(sprintf("dt2: removed %d rows (%.2f%%)\n", removed_dt2, 100 * removed_dt2 / orig_nrow_dt2))
+cat(sprintf("Rows with missing start or end date: removed %d rows (%.2f%%)\n", removed_dt, 100 * removed_dt / orig_nrow_dt))
 sink()
-
-# combine datasets
-dt <- rbind(dt1, dt2)
 
 # process dates
 dt[, SICK_LEAVE_START := as.IDate(SICK_LEAVE_START, format = "%Y-%m-%d")]
@@ -75,23 +61,11 @@ dt <- dt[SICK_LEAVE_START <= SICK_LEAVE_END]
 n_future <- dt[SICK_LEAVE_END > as.IDate("2023-12-31"), .N]
 future_rows <- dt[SICK_LEAVE_END > as.IDate("2023-12-31")]
 future_dates <- sort(unique(future_rows$SICK_LEAVE_END))
-future_diag <- future_rows[, .N, by = SICK_LEAVE_DIAG][order(-N)]
 sink(log_file, append = TRUE)
 cat(sprintf("Rows with SICK_LEAVE_END after 31-12-2023: %d (%.2f%%)\n", n_future, 100 * n_future / nrow(dt)))
 cat("Future SICK_LEAVE_END dates found:\n")
 cat(paste(as.character(future_dates), collapse = ", "), "\n")
-cat("Composition by SICK_LEAVE_DIAG:\n")
-print(future_diag)
 sink()
-# will not remove these rows, as they might represent ongoing sick leave
-# dt <- dt[SICK_LEAVE_END <= as.IDate("2023-12-31")]
-
-# QC 4. Check for SICK_LEAVE_END == 9999-12-29 or 9999-12-31 (placeholder for ongoing sick leave)
-n_9999 <- dt[SICK_LEAVE_END %in% as.IDate(c("9999-12-29", "9999-12-31")), .N]
-sink(log_file, append = TRUE)
-cat(sprintf("Rows with SICK_LEAVE_END == 9999-12-29 or 9999-12-31: %d (%.2f%%)\n", n_9999, 100 * n_9999 / nrow(dt)))
-sink()
-dt <- dt[!SICK_LEAVE_END %in% as.IDate(c("9999-12-29", "9999-12-31"))]
 
 # remove duplicates
 orig_nrow <- nrow(dt)
@@ -111,15 +85,31 @@ cat("Summary of SICK_LEAVE_DURATION:\n")
 print(duration_summary)
 sink()
 
-# filter only data about cohorts of doctors
-doctors <- fread(doctor_list)
-dt <- dt[PATIENT_ID %in% doctors]
-# No data found, will not save file 
+# summary of unique patients
+n_unique_patients <- length(unique(dt$PATIENT_ID))
+sink(log_file, append = TRUE)
+cat(sprintf("Unique patients in data: %d\n", n_unique_patients))
+sink()
 
-# If general data needed, comment the above lines and uncomment below
+# If general data needed, uncomment below
 # fwrite(dt, file = paste0(out_dir, "SickLeaveData_ALL_20251007.csv"))
 
+# filter only data about cohorts of doctors
+doctors <- fread(doctor_list, header = FALSE)$V1
+dt_doctors <- dt[PATIENT_ID %in% doctors]
+n_doctors_found <- length(unique(dt_doctors$PATIENT_ID))
+n_total_doctors <- length(unique(doctors))
+sink(log_file, append = TRUE)
+cat(sprintf("Doctors found in data: %d out of %d (%.2f%%)\n", n_doctors_found, n_total_doctors, 100 * n_doctors_found / n_total_doctors))
+sink()
+
+# If doctor data needed, uncomment below
+# fwrite(dt_doctors, file = paste0(out_dir, "SickLeaveData_DOCTORS_20251007.csv"))
+
+
 # Plots:
+# dt = dt_doctors # uncomment to plot only doctors data
+
 # 1. Density of sick leave start dates
 p1 <- ggplot(dt, aes(x = SICK_LEAVE_START)) +
     geom_density(fill = "steelblue", alpha = 0.6) +
@@ -145,7 +135,10 @@ p3 <- ggplot(dt, aes(x = SICK_LEAVE_DURATION)) +
 
 # Stack plots & save
 combined_plot <- p1 / p2 / p3
-ggsave(filename = paste0(log_dir, "sick_leave_distributions.png"), plot = combined_plot, width = 10, height = 15)
+ggsave(filename = paste0(log_dir, "sick_leave_distributions_ALL_20251013.png"), plot = combined_plot, width = 10, height = 15)
+
+# uncomment to save doctors-only plot
+#ggsave(filename = paste0(log_dir, "sick_leave_distributions_DOCTORS_20251013.png"), plot = combined_plot, width = 10, height = 15)
 
 
 # END
