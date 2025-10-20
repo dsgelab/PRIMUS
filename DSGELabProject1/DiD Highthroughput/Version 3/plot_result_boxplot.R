@@ -13,13 +13,29 @@ output_file <- sprintf('/media/volume/Projects/DSGELabProject1/DiD_Experiments/V
 # Main 
 dataset <- read_csv(dataset_file, show_col_types = FALSE)
 
-# Calculate difference between AVG_EFFECT_AFTER and AVG_EFFECT_BEFORE
+# Calculate p-values from z-scores
 dataset <- dataset %>%
     mutate(
         EFFECT_DIFF = AVG_EFFECT_AFTER - AVG_EFFECT_BEFORE,
-        EFFECT_DIFF_SE = sqrt(AVG_SE_AFTER^2 + AVG_SE_BEFORE^2), 
-        SIGNIFICANT = abs(EFFECT_DIFF) > 1.96 * EFFECT_DIFF_SE
+        EFFECT_DIFF_SE = sqrt(AVG_SE_AFTER^2 + AVG_SE_BEFORE^2),
+        Z_SCORE = EFFECT_DIFF / EFFECT_DIFF_SE,
+        PVAL = 2 * (1 - pnorm(abs(Z_SCORE)))
     )
+
+# Apply multiple testing corrections
+dataset$PVAL_ADJ_BONFERRONI <- p.adjust(dataset$PVAL, method = "bonferroni")
+dataset$PVAL_ADJ_FDR <- p.adjust(dataset$PVAL, method = "fdr")
+dataset$SIGNIFICANT_BONFERRONI <- dataset$PVAL_ADJ_BONFERRONI < 0.05
+dataset$SIGNIFICANT_FDR <- dataset$PVAL_ADJ_FDR < 0.05
+
+# Create a combined significance variable
+dataset$SIG_TYPE <- case_when(
+  dataset$SIGNIFICANT_BONFERRONI & dataset$SIGNIFICANT_FDR ~ "Both",
+  dataset$SIGNIFICANT_BONFERRONI ~ "Bonferroni",
+  dataset$SIGNIFICANT_FDR ~ "FDR",
+  TRUE ~ "Not Significant"
+)
+dataset$SIG_TYPE <- factor(dataset$SIG_TYPE, levels = c("Both", "Bonferroni", "FDR", "Not Significant"))
 
 # Extract medication chapter from OUTCOME_CODE
 dataset <- dataset %>%
@@ -27,19 +43,13 @@ dataset <- dataset %>%
 
 # Boxplot of EFFECT_DIFF stratified by medication chapter, colored by chapter
 p <- ggplot(dataset, aes(x = MED_CHAPTER, y = EFFECT_DIFF, fill = MED_CHAPTER)) +
-    geom_boxplot(outlier.shape = NA, show.legend = FALSE) +
-    geom_jitter(
-        aes(color = SIGNIFICANT, alpha = SIGNIFICANT),
-        width = 0.2, size = 2
-    ) +
+    geom_boxplot(alpha = 0.7, outlier.shape = NA, show.legend = FALSE) +
+    geom_jitter(aes(color = SIG_TYPE),width = 0.2, size = 2, alpha = 0.5, show.legend = TRUE) +
+    geom_text(data = filter(dataset, SIGNIFICANT_BONFERRONI | SIGNIFICANT_FDR), aes(label = EVENT_CODE), vjust = 0, hjust = 1.2, size = 3) +
     scale_color_manual(
         name = "Significance",
-        values = c("TRUE" = "red", "FALSE" = "grey70"),
-        labels = c("TRUE" = "Significant", "FALSE" = "Not Significant")
-    ) +
-    scale_alpha_manual(
-        values = c("TRUE" = 1, "FALSE" = 0.3),
-        guide = "none"
+        values = c("Both" = "darkgreen", "Bonferroni" = "blue", "FDR" = "red", "Not Significant" = "grey"),
+        labels = c("Both" = "Both (Bonferroni & FDR)", "Bonferroni" = "Bonferroni only", "FDR" = "FDR only", "Not Significant" = "Not Significant")
     ) +
     labs(
         title = "Difference in average prescription behaviour 3 years before vs after event",
@@ -47,14 +57,13 @@ p <- ggplot(dataset, aes(x = MED_CHAPTER, y = EFFECT_DIFF, fill = MED_CHAPTER)) 
         x = "Medication ATC Chapter",
         y = "average ATT difference"
     ) +
-    theme_minimal() +
-    theme(legend.position = "right") +
-    geom_text(
-        data = dataset %>% filter(SIGNIFICANT),
-        aes(label = OUTCOME_CODE),
-        hjust = -0.1, vjust = -0.5, size = 3, color = "black",
-        show.legend = FALSE
-    )
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    legend.title = element_text(),
+    legend.text = element_text()
+  ) +
+  guides(fill = "none") + 
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red")
 
 ggsave(output_file, plot = p, width = 10, height = 6)
-
