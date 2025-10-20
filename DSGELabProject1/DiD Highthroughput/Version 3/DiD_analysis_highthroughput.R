@@ -84,18 +84,18 @@ df_merged[, EVENT_YEAR := ifelse(!is.na(DATE), as.numeric(format(DATE, "%Y")), N
 df_merged[, DATE := NULL]
 
 # Process prescription timeframe
-# 1. Calculate original min and max year in the cohort (range of prescriptions)
-df_merged[, original_min_year := min(get(paste0("first_year_", outcome_code)), na.rm = TRUE), by = DOCTOR_ID]
-df_merged[, original_max_year := max(get(paste0("last_year_", outcome_code)), na.rm = TRUE), by = DOCTOR_ID]
+# 1. Calculate original min and max year across all doctors in the cohort
+original_min_year <- min(df_merged[[paste0("first_year_", outcome_code)]], na.rm = TRUE)
+original_max_year <- max(df_merged[[paste0("last_year_", outcome_code)]], na.rm = TRUE)
 # 2. Add buffer to min and max year to avoid bias due to medications entering or exiting the market
 buffer_years = 1
-df_merged[, buffered_min_year := original_min_year + buffer_years]
-df_merged[, buffered_max_year := original_max_year - buffer_years]
+buffered_min_year <- original_min_year + buffer_years
+buffered_max_year <- original_max_year - buffer_years
 cat(sprintf("Original range of outcomes: %d-%d | Buffered range of outcomes: %d-%d\n",
-    min(df_merged$original_min_year, na.rm = TRUE),
-    max(df_merged$original_max_year, na.rm = TRUE),
-    min(df_merged$buffered_min_year, na.rm = TRUE),
-    max(df_merged$buffered_max_year, na.rm = TRUE)
+    original_min_year,
+    original_max_year,
+    buffered_min_year,
+    buffered_max_year
 ))
 # Remove all information outside of buffered range
 df_merged <- df_merged[
