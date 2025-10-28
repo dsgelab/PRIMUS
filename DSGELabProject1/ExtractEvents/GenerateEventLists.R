@@ -40,10 +40,6 @@ threshold_long <- melt(threshold_results, id.vars = "threshold", variable.name =
 p <- ggplot(threshold_long[threshold <= 10000], aes(x = threshold, y = count, color = code_type)) +
     geom_line(linewidth = 1) +
     geom_point(size = 2) +
-    geom_vline(xintercept = 1000, linetype = "solid", color = "black", linewidth = 0.5) +
-    annotate("text", x = 1000, y = max(threshold_long[threshold <= 10000]$count) * 0.95, label = "N = 1000", hjust = -0.1, size = 3.5) +
-    geom_vline(xintercept = 500, linetype = "solid", color = "black", linewidth = 0.5) +
-    annotate("text", x = 500, y = max(threshold_long[threshold <= 10000]$count) * 0.90, label = "N = 500", hjust = -0.1, size = 3.5) +
     labs(x = "Minimum N of events required (thresholds)", y = "Number of Codes Retained ",color = "Code Type") +
     theme_minimal() +
     theme(axis.text.x = element_text(angle = 45, hjust = 1))
@@ -62,6 +58,11 @@ cat("Processing ICD codes...\n")
 icd <- fread(icd_file)
 icd_filtered <- icd[UNIQUE_ID_COUNT >= THRESHOLD & CODE != ""]
 fwrite(icd_filtered[, .(CODE)], icd_output, col.names = FALSE, quote = FALSE)
+
+# Use this section to generate the input for drop analysis if needed
+# icd_filtered$NewCode <- paste0("Diag_", icd_filtered$CODE)
+# outfile = file.path("/media/volume/Projects/DSGELabProject1/DiD_Highthroughput/Version2_drop/list_of_codes_20251028.csv")
+# fwrite(icd_filtered[, .(NewCode)], outfile, col.names = FALSE, quote = FALSE)
 
 # Generate event pairs 
 cat("Generating ATC event pairs...\n")
