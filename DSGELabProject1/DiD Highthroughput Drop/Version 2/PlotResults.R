@@ -35,29 +35,33 @@ data_diag$SIG_TYPE <- ifelse(data_diag$SIGNIFICANT_FDR, "Significant", "Not Sign
 data_diag$GROUP <- factor(data_diag$GROUP, levels = sort(unique(data_diag$GROUP)))
 
 # ICD-10 Chapter names mapping
+# based on this: https://icd.who.int/browse10/2019/en
 icd10_chapter_map <- c(
-  "A" = "Infectious diseases",
-  "C" = "Neoplasms",
-  "D" = "Blood disorders",
-  "E" = "Endocrine/metabolic",
-  "F" = "Mental disorders",
-  "G" = "Nervous system",
-  "H" = "Eye/ear diseases",
-  "I" = "Circulatory system",
-  "J" = "Respiratory system",
-  "K" = "Digestive system",
-  "L" = "Skin diseases",
-  "M" = "Musculoskeletal",
-  "N" = "Genitourinary",
-  "O" = "Pregnancy/childbirth",
-  "P" = "Perinatal conditions",
-  "Q" = "Congenital anomalies",
-  "R" = "Symptoms/signs",
+  "A" = "Certain infectious and parasitic diseases",
+  "B" = "Certain infectious and parasitic diseases",
+  "C" = "Malignant neoplasms",
+  "D" = "Benign or uncertain neoplasms",
+  "E" = "Endocrine, nutritional and metabolic diseases",
+  "F" = "Mental and behavioural disorders",
+  "G" = "Diseases of the nervous system",
+  "H" = "Diseases of the eye and ear",
+  "I" = "Diseases of the circulatory system",
+  "J" = "Diseases of the respiratory system",
+  "K" = "Diseases of the digestive system",
+  "L" = "Diseases of the skin and subcutaneous tissue",
+  "M" = "Diseases of the musculoskeletal system and connective tissue",
+  "N" = "Diseases of the genitourinary system",
+  "O" = "Pregnancy, childbirth and the puerperium",
+  "P" = "Certain conditions originating in the perinatal period",
+  "Q" = "Congenital malformations, deformations and chromosomal abnormalities",
+  "R" = "Symptoms, signs and abnormal clinical and laboratory findings, not elsewhere classified",
   "S" = "Injuries",
-  "T" = "Poisoning/injuries",
+  "T" = "Poisoning and certain other consequences of external causes",
   "U" = "Codes for special purposes",
-  "V" = "External causes",
-  "Z" = "Health status factors"
+  "V" = "Transport accidents",
+  "W" = "Other external causes of accidental injury",
+  "X" = "Other external causes of accidental injury",
+  "Z" = "Factors influencing health status and contact with health services"
 )
 
 # Map chapter letters to full names
