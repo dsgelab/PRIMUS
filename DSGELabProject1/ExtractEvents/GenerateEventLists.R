@@ -13,10 +13,8 @@ atc_file <- file.path(INPUT_DIR, "ATC_AllCounts.csv")
 icd_file <- file.path(INPUT_DIR, "ICD_AllCounts.csv")
 
 # Output files
-atc_output <- file.path(OUTPUT_DIR, paste0("event_codes_ATC_20251028_0707.csv"))
-icd_output <- file.path(OUTPUT_DIR, paste0("event_codes_ICD_20251028_0707.csv"))
-pairs_output <- file.path(OUTPUT_DIR, paste0("event_outcome_pairs_ATC_20251028_0707.csv"))
-
+atc_output <- file.path(OUTPUT_DIR, paste0("ATC_codes_20251028_0707.csv"))
+icd_output <- file.path(OUTPUT_DIR, paste0("ICD_codes_20251028_0707.csv"))
 
 # Plot impact of different thresholds on amount of events retained
 cat("Loading data for threshold analysis...\n")
@@ -60,12 +58,15 @@ icd_filtered <- icd[UNIQUE_ID_COUNT >= THRESHOLD & CODE != ""]
 fwrite(icd_filtered[, .(CODE)], icd_output, col.names = FALSE, quote = FALSE)
 
 # Use this section to generate the input for drop analysis if needed
-# icd_filtered$NewCode <- paste0("Diag_", icd_filtered$CODE)
-# outfile = file.path("/media/volume/Projects/DSGELabProject1/DiD_Highthroughput/Version2_drop/list_of_codes_20251028.csv")
-# fwrite(icd_filtered[, .(NewCode)], outfile, col.names = FALSE, quote = FALSE)
+icd_filtered$NewCode <- paste0("Diag_", icd_filtered$CODE)
+outfile = file.path("/media/volume/Projects/DSGELabProject1/DiD_Highthroughput/Version2_drop/list_of_codes_20251028.csv")
+fwrite(icd_filtered[, .(NewCode)], outfile, col.names = FALSE, quote = FALSE)
 
-# Generate event pairs 
-cat("Generating ATC event pairs...\n")
+# Use this section to generate event-outcome pairs for change in behaviour analysis
+event_output <- file.path(OUTPUT_DIR, paste0("event_codes_ATC_20251028_0707.csv"))
+pairs_output <- file.path(OUTPUT_DIR, paste0("event_outcome_pairs_ATC_20251028_0707.csv"))
+atc_events <- data.table(event = paste0("Purch_", atc_filtered$CODE))
+fwrite(atc_events, event_output, col.names = FALSE, quote = FALSE)
 atc_pairs <- data.table(
     event = paste0("Purch_", atc_filtered$CODE),
     outcome = atc_filtered$CODE
