@@ -5,9 +5,10 @@ library(readr)
 library(tidyr)
 library(scales)
 library(patchwork)
+library(ggrepel)
 
 # Global Variables
-DATE = "20251029"
+DATE = "20251030"
 dataset_file <- sprintf('/media/volume/Projects/DSGELabProject1/DiD_Experiments/Version3_Highthroughput/Results/Results_ATC_%s.csv', DATE)
 output_file <- sprintf('/media/volume/Projects/DSGELabProject1/DiD_Experiments/Version3_Highthroughput/Results/Plot_%s.png', DATE)
 
@@ -29,8 +30,15 @@ dataset$PVAL_ADJ_FDR <- p.adjust(dataset$PVAL, method = "fdr")
 dataset$SIGNIFICANT_BONFERRONI <- dataset$PVAL_ADJ_BONFERRONI < 0.05
 dataset$SIGNIFICANT_FDR <- dataset$PVAL_ADJ_FDR < 0.05
 
-# Create a combined significance variable for FDR
-dataset$SIG_TYPE <- ifelse(dataset$SIGNIFICANT_FDR, "Significant", "Not Significant")
+# Create a combined significance variable with three levels
+dataset$SIG_TYPE <- case_when(
+  dataset$SIGNIFICANT_FDR ~ "FDR Significant",
+  dataset$PVAL < 0.05 ~ "P-value Significant",
+  TRUE ~ "Not Significant"
+)
+
+# Convert to factor with explicit levels to avoid alphabetical sorting
+dataset$SIG_TYPE <- factor(dataset$SIG_TYPE, levels = c("FDR Significant", "P-value Significant", "Not Significant"))
 
 # Extract medication chapter from OUTCOME_CODE
 dataset <- dataset %>%
@@ -58,9 +66,9 @@ atc_chapter_map <- c(
   "V" = "Various"
 )
 
-# Map chapter letters to full names
-dataset$CHAPTER_NAME <- factor(atc_chapter_map[as.character(dataset$MED_CHAPTER)], 
-                               levels = atc_chapter_map[sort(unique(as.character(dataset$MED_CHAPTER)))])
+# Map chapter letters to full names, remove unknown levels
+dataset$CHAPTER_NAME <- factor(atc_chapter_map[as.character(dataset$MED_CHAPTER)], levels = atc_chapter_map[sort(unique(as.character(dataset$MED_CHAPTER)))])
+dataset <- dataset %>% filter(!is.na(CHAPTER_NAME))
 
 # Calculate chapter-level averages with proper weighting by SE
 chapter_summary <- dataset %>%
@@ -79,12 +87,49 @@ cb_palette <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2",
                 "#1B9E77", "#D95F02", "#7570B3", "#E7298A", "#66A61E", "#E6AB02")
 
 # Left plot: Individual points
-p_left <- ggplot(dataset, aes(x = CHAPTER_NAME, y = EFFECT_DIFF, color = CHAPTER_NAME)) +
-  geom_jitter(aes(alpha = SIG_TYPE), width = 0.2, size = 3) +
+# Identify top 10 extreme values by absolute EFFECT_DIFF OR significant ones
+top_extreme <- dataset %>%
+  filter(abs(EFFECT_DIFF) >= sort(abs(EFFECT_DIFF), decreasing = TRUE)[10] | PVAL < 0.05)
+
+# Set seed for reproducible jittering
+set.seed(42)
+
+# Add jittered positions to both datasets
+dataset$x_jittered <- as.numeric(dataset$CHAPTER_NAME) + runif(nrow(dataset), -0.2, 0.2)
+top_extreme$x_jittered <- dataset$x_jittered[match(interaction(top_extreme$CHAPTER_NAME, top_extreme$OUTCOME_CODE), 
+                                                     interaction(dataset$CHAPTER_NAME, dataset$OUTCOME_CODE))]
+
+p_left <- ggplot(dataset, aes(x = x_jittered, y = EFFECT_DIFF, color = CHAPTER_NAME)) +
+  geom_point(aes(shape = SIG_TYPE, size = SIG_TYPE, alpha = SIG_TYPE, fill = SIG_TYPE)) +
+  geom_text_repel(data = top_extreme, aes(label = OUTCOME_CODE), 
+            size = 2.5, 
+            show.legend = FALSE,
+            max.overlaps = Inf,
+            min.segment.length = 0,
+            box.padding = 0.5,
+            point.padding = 0.3,
+            force = 2,
+            force_pull = 0.5) +
+  scale_x_continuous(
+    breaks = 1:length(levels(dataset$CHAPTER_NAME)),
+    labels = levels(dataset$CHAPTER_NAME)
+  ) +
   scale_color_manual(values = cb_palette, name = "Chapter", guide = "none") +
+  scale_fill_manual(
+    values = c("FDR Significant" = "black", "P-value Significant" = "black", "Not Significant" = "gray70"),
+    guide = "none"
+  ) +
+  scale_shape_manual(
+    name = "Significance",
+    values = c("FDR Significant" = 17, "P-value Significant" = 16, "Not Significant" = 16)
+  ) +
+  scale_size_manual(
+    name = "Significance",
+    values = c("FDR Significant" = 4, "P-value Significant" = 3, "Not Significant" = 3)
+  ) +
   scale_alpha_manual(
-    name = "Significance\n(FDR < 0.05)",
-    values = c("Significant" = 1, "Not Significant" = 0.2)
+    name = "Significance",
+    values = c("FDR Significant" = 1, "P-value Significant" = 1, "Not Significant" = 0.2)
   ) +
   labs(
     title = "Individual Medications",
@@ -96,6 +141,7 @@ p_left <- ggplot(dataset, aes(x = CHAPTER_NAME, y = EFFECT_DIFF, color = CHAPTER
     axis.text.x = element_text(angle = 45, hjust = 1),
     legend.position = "right" 
   ) +
+  guides(shape = guide_legend(override.aes = list(size = c(4, 3, 3), alpha = c(1, 1, 0.2), fill = c("black", "black", "gray70")))) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "red")
 
 # Right plot: Chapter averages
