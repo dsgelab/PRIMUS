@@ -29,6 +29,7 @@ outcome_code = args[4]
 doctor_list = args[5]
 covariate_file = args[6]
 results_file = args[7]  
+renamed_ATC_file = "/media/volume/Projects/ATC_renamed_codes.csv"
 
 #### Extra checks
 
@@ -48,18 +49,51 @@ cat("Starting DiD analysis...\n")
 step_start <- Sys.time()
 covariates = fread(covariate_file)
 doctor_ids = fread(doctor_list, header = FALSE)$V1
+renamed_ATC = fread(renamed_ATC_file)
 
+# Load events
 events = as.data.table(read_parquet(events_file))
+events[, CODE := as.character(CODE)]
+
 event_code_parts = strsplit(event_code, "_")[[1]]
 event_source = event_code_parts[1]
 event_actual_code = event_code_parts[2]
+
 # Filter events based on the event code
-events = events[SOURCE == event_source & startsWith(as.character(CODE), event_actual_code), ]
-event_ids = unique(events$PATIENT_ID)
+# If the code is an old code that have been modified, exit analysis
+if (event_actual_code %in% renamed_ATC$ATC_OLD) {
+    cat(paste0("Event code ", event_actual_code, " is an old code. Exiting analysis.\n"))
+    quit(status = 0)
+}
+# If input code is a new code, keep as is and rename other codes to the new one
+if (event_actual_code %in% renamed_ATC$ATC_NEW) {
+    old_codes = renamed_ATC[ATC_NEW == event_actual_code, ATC_OLD]
+    events[CODE %in% old_codes, CODE := event_actual_code]
+    cat(paste0("Event code ", event_actual_code, " is a new code. Renaming other codes ", paste(old_codes, collapse = ", "), " to the new one.\n"))
+}
+events <- events[startsWith(CODE, event_actual_code)]
+event_ids <- unique(events$PATIENT_ID)
 
 # Load outcomes with specific columns only
-outcomes_cols = c("DOCTOR_ID", "YEAR", paste0("N_", outcome_code), paste0("Y_", outcome_code), paste0("first_year_", outcome_code), paste0("last_year_", outcome_code))
-outcomes = as.data.table(read_parquet(outcomes_file, col_select = outcomes_cols))
+# check if outcome code is a new code that has been renamed, if so load also old codes, rename columns and merge them
+if (outcome_code %in% renamed_ATC$ATC_NEW) {
+    outcome_cols1 = c("DOCTOR_ID", "YEAR", paste0("N_", outcome_code), paste0("Y_", outcome_code), paste0("first_year_", outcome_code), paste0("last_year_", outcome_code))
+    outcomes = as.data.table(read_parquet(outcomes_file, col_select = outcome_cols1))
+
+    old_codes = unique(renamed_ATC[ATC_NEW == outcome_code, ATC_OLD])
+    # Loop through each old code and stack them
+    for(old_code in old_codes) {
+        outcome_cols2 = c("DOCTOR_ID", "YEAR", paste0("N_", old_code), paste0("Y_", old_code), paste0("first_year_", old_code), paste0("last_year_", old_code))
+        outcomes2 = as.data.table(read_parquet(outcomes_file, col_select = outcome_cols2))     
+        setnames(outcomes2, 
+            old = c(paste0("N_", old_code), paste0("Y_", old_code), paste0("first_year_", old_code), paste0("last_year_", old_code)),
+            new = c(paste0("N_", outcome_code), paste0("Y_", outcome_code), paste0("first_year_", outcome_code), paste0("last_year_", outcome_code)))     
+        outcomes = rbind(outcomes, outcomes2)
+    }
+} else {
+    outcomes_cols = c("DOCTOR_ID", "YEAR", paste0("N_", outcome_code), paste0("Y_", outcome_code), paste0("first_year_", outcome_code), paste0("last_year_", outcome_code))
+    outcomes = as.data.table(read_parquet(outcomes_file, col_select = outcomes_cols))
+}
 
 # step_times[["data_loading"]] <- difftime(Sys.time(), step_start, units = "secs")
 # cat(paste0("Step 1 - Data Loading + Event Filtering: ", round(step_times[["data_loading"]], 2), " seconds\n"))
