@@ -70,7 +70,7 @@ atc_chapter_map <- c(
 dataset$CHAPTER_NAME <- factor(atc_chapter_map[as.character(dataset$MED_CHAPTER)], levels = atc_chapter_map[sort(unique(as.character(dataset$MED_CHAPTER)))])
 dataset <- dataset %>% filter(!is.na(CHAPTER_NAME))
 
-# Calculate chapter-level averages with proper weighting by SE
+# Calculate chapter-level averages (inverse-variance weighted mean of the ATT estimates)
 chapter_summary <- dataset %>%
   group_by(CHAPTER_NAME) %>%
   summarise(
@@ -93,16 +93,27 @@ top_extreme <- dataset %>%
 
 # Set seed for reproducible jittering
 set.seed(42)
+# Global Variables for Plotting
+JITTER_RANGE <- 0.2
+TOP_EXTREME_COUNT <- 10
+POINT_SIZE_FDR <- 4
+POINT_SIZE_PVAL <- 4
+POINT_SIZE_NOT_SIG <- 4
+ALPHA_FDR <- 1
+ALPHA_PVAL <- 1
+ALPHA_NOT_SIG <- 0.2
+TEXT_SIZE_TITLE <- 16
+TEXT_SIZE_AXIS_TITLE <- 14
+TEXT_SIZE_AXIS_TEXT <- 12
+TEXT_SIZE_LEGEND <- 12
 
 # Add jittered positions to both datasets
-dataset$x_jittered <- as.numeric(dataset$CHAPTER_NAME) + runif(nrow(dataset), -0.2, 0.2)
-top_extreme$x_jittered <- dataset$x_jittered[match(interaction(top_extreme$CHAPTER_NAME, top_extreme$OUTCOME_CODE), 
-                                                     interaction(dataset$CHAPTER_NAME, dataset$OUTCOME_CODE))]
-
+dataset$x_jittered <- as.numeric(dataset$CHAPTER_NAME) + runif(nrow(dataset), -JITTER_RANGE, JITTER_RANGE)
+top_extreme$x_jittered <- dataset$x_jittered[match(interaction(top_extreme$CHAPTER_NAME, top_extreme$OUTCOME_CODE), interaction(dataset$CHAPTER_NAME, dataset$OUTCOME_CODE))]
 p_left <- ggplot(dataset, aes(x = x_jittered, y = EFFECT_DIFF, color = CHAPTER_NAME)) +
   geom_point(aes(shape = SIG_TYPE, size = SIG_TYPE, alpha = SIG_TYPE, fill = SIG_TYPE)) +
   geom_text_repel(data = top_extreme, aes(label = OUTCOME_CODE), 
-            size = 2.5, 
+            size = 4, 
             show.legend = FALSE,
             max.overlaps = Inf,
             min.segment.length = 0,
@@ -125,11 +136,11 @@ p_left <- ggplot(dataset, aes(x = x_jittered, y = EFFECT_DIFF, color = CHAPTER_N
   ) +
   scale_size_manual(
     name = "Significance",
-    values = c("FDR Significant" = 4, "P-value Significant" = 3, "Not Significant" = 3)
+    values = c("FDR Significant" = POINT_SIZE_FDR, "P-value Significant" = POINT_SIZE_PVAL, "Not Significant" = POINT_SIZE_NOT_SIG)
   ) +
   scale_alpha_manual(
     name = "Significance",
-    values = c("FDR Significant" = 1, "P-value Significant" = 1, "Not Significant" = 0.2)
+    values = c("FDR Significant" = ALPHA_FDR, "P-value Significant" = ALPHA_PVAL, "Not Significant" = ALPHA_NOT_SIG)
   ) +
   labs(
     title = "Individual Medications",
@@ -138,16 +149,22 @@ p_left <- ggplot(dataset, aes(x = x_jittered, y = EFFECT_DIFF, color = CHAPTER_N
   ) +
   theme_minimal() +
   theme(
-    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = TEXT_SIZE_AXIS_TEXT),
+    axis.text.y = element_text(size = TEXT_SIZE_AXIS_TEXT),
+    axis.title.x = element_text(size = TEXT_SIZE_AXIS_TITLE),
+    axis.title.y = element_text(size = TEXT_SIZE_AXIS_TITLE),
+    plot.title = element_text(size = TEXT_SIZE_TITLE),
+    legend.text = element_text(size = TEXT_SIZE_LEGEND),
+    legend.title = element_text(size = TEXT_SIZE_LEGEND),
     legend.position = "right" 
   ) +
-  guides(shape = guide_legend(override.aes = list(size = c(4, 3, 3), alpha = c(1, 1, 0.2), fill = c("black", "black", "gray70")))) +
+  guides(shape = guide_legend(override.aes = list(size = c(POINT_SIZE_FDR, POINT_SIZE_PVAL, POINT_SIZE_NOT_SIG), alpha = c(ALPHA_FDR, ALPHA_PVAL, ALPHA_NOT_SIG), fill = c("black", "black", "gray70")))) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "red")
 
 # Right plot: Chapter averages
 p_right <- ggplot(chapter_summary, aes(x = CHAPTER_NAME, y = EFFECT_DIFF_MEAN, color = CHAPTER_NAME)) +
-  geom_point(shape = 15, size = 3) +
-  geom_errorbar(aes(ymin = EFFECT_DIFF_MEAN - 1.96*SE_MEAN, ymax = EFFECT_DIFF_MEAN + 1.96*SE_MEAN), width = 0.2) +
+  geom_point(shape = 15, size = 5) +
+  geom_errorbar(aes(ymin = EFFECT_DIFF_MEAN - 1.96*SE_MEAN, ymax = EFFECT_DIFF_MEAN + 1.96*SE_MEAN), width = 0.2, linewidth = 1) +
   scale_color_manual(values = cb_palette, name = "Chapter", guide = "none") +
   labs(
     title = "Chapter Averages",
@@ -156,7 +173,11 @@ p_right <- ggplot(chapter_summary, aes(x = CHAPTER_NAME, y = EFFECT_DIFF_MEAN, c
   ) +
   theme_minimal() +
   theme(
-    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = TEXT_SIZE_AXIS_TEXT),
+    axis.text.y = element_text(size = TEXT_SIZE_AXIS_TEXT),
+    axis.title.x = element_text(size = TEXT_SIZE_AXIS_TITLE),
+    axis.title.y = element_text(size = TEXT_SIZE_AXIS_TITLE),
+    plot.title = element_text(size = TEXT_SIZE_TITLE),
     legend.position = "none"
   ) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "red")
@@ -164,7 +185,7 @@ p_right <- ggplot(chapter_summary, aes(x = CHAPTER_NAME, y = EFFECT_DIFF_MEAN, c
 # Combine plots
 p_combined <- p_left + p_right + 
   plot_annotation(
-    title = "Difference in Average Prescription Behavior 3 Years Before vs After Event, by Medication Chapter",
+    title = "Difference in Average Prescription Behavior 3 Years Before vs 3 Years After Event, by Medication Chapter",
     subtitle = sprintf("Number of medications tested: %d", nrow(dataset))
   )
 
