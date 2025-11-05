@@ -40,13 +40,6 @@ events = events[grepl(paste0("^", event_code), CODE)]
 event_ids = intersect(unique(events$PATIENT_ID), doctor_ids)
 control_ids <- setdiff(doctor_ids, event_ids)
 
-# CHECK 1 : if N of events is less than 500, stop the analysis
-cat(paste0("Cases : ", length(event_ids), "\n"))
-cat(paste0("Controls : ", length(control_ids), "\n"))
-if (length(event_ids) < 500) {
-    stop("Number of events (CHECK 1) is less than 500, SKIP ANALYSIS.")
-}
-
 outcomes = fread(outcomes_file)
 covariates = fread(covariates_file)
 
