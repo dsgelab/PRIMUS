@@ -104,7 +104,7 @@ ALPHA_PVAL <- 1
 ALPHA_NOT_SIG <- 0.2
 TEXT_SIZE_TITLE <- 16
 TEXT_SIZE_AXIS_TITLE <- 14
-TEXT_SIZE_AXIS_TEXT <- 12
+TEXT_SIZE_AXIS_TEXT <- 10
 TEXT_SIZE_LEGEND <- 12
 
 # Add jittered positions to both datasets
@@ -149,7 +149,7 @@ p_left <- ggplot(dataset, aes(x = x_jittered, y = EFFECT_DIFF, color = CHAPTER_N
   ) +
   theme_minimal() +
   theme(
-    axis.text.x = element_text(angle = 45, hjust = 1, size = TEXT_SIZE_AXIS_TEXT),
+    axis.text.x = element_text(angle = 60, hjust = 1, size = TEXT_SIZE_AXIS_TEXT),
     axis.text.y = element_text(size = TEXT_SIZE_AXIS_TEXT),
     axis.title.x = element_text(size = TEXT_SIZE_AXIS_TITLE),
     axis.title.y = element_text(size = TEXT_SIZE_AXIS_TITLE),
@@ -173,7 +173,7 @@ p_right <- ggplot(chapter_summary, aes(x = CHAPTER_NAME, y = EFFECT_DIFF_MEAN, c
   ) +
   theme_minimal() +
   theme(
-    axis.text.x = element_text(angle = 45, hjust = 1, size = TEXT_SIZE_AXIS_TEXT),
+    axis.text.x = element_text(angle = 60, hjust = 1, size = TEXT_SIZE_AXIS_TEXT),
     axis.text.y = element_text(size = TEXT_SIZE_AXIS_TEXT),
     axis.title.x = element_text(size = TEXT_SIZE_AXIS_TITLE),
     axis.title.y = element_text(size = TEXT_SIZE_AXIS_TITLE),
@@ -190,4 +190,4 @@ p_combined <- p_left + p_right +
   )
 
 # Save
-ggsave(output_file, plot = p_combined, width = 16, height = 6, device = "png")
+ggsave(output_file, plot = p_combined, width = 19, height = 12, dpi = 300, device = "png")
