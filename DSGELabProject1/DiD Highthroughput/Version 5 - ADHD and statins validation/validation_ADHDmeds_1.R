@@ -13,16 +13,14 @@ suppressPackageStartupMessages({
 })
 
 ##### Arguments
-events_file = "/media/volume/Projects/DSGELabProject1/DiD_Experiments/Version3_Highthroughput/ProcessedEvents_20251020/processed_events.parquet"
-outcomes_file = "/media/volume/Projects/DSGELabProject1/DiD_Experiments/Version3_Highthroughput/ProcessedOutcomes_20251020/processed_outcomes.parquet"
+events_file = "/media/volume/Projects/DSGELabProject1/DiD_Experiments/Version5_Highthroughput/ProcessedEvents_20251119/processed_events.parquet"
+outcomes_file = "/media/volume/Projects/DSGELabProject1/DiD_Experiments/Version5_Highthroughput/ProcessedOutcomes_20251119/processed_outcomes.parquet"
 doctor_list = "/media/volume/Projects/DSGELabProject1/doctors_20250424.csv"
 covariate_file = "/media/volume/Projects/DSGELabProject1/doctor_characteristics_20250520.csv"
-outdir = "/media/volume/Projects/DSGELabProject1/DiD_Validation/"
-
-# Test 1
-event_code = 'Purch_C10AA' # all statins available (>300 events)
-outdir = file.path(outdir, paste0("ValidationPlots_C10AA07_20251110"))
+outdir = "/media/volume/Projects/DSGELabProject1/DiD_Experiments/Version5_Highthroughput/Results/Validation_ADHDmeds/"
 if (!dir.exists(outdir)) {dir.create(outdir, recursive = TRUE)}
+
+event_code = 'Purch_N06BA' # all ADHD medications available
 
 #### Main
 N_THREADS = 10
@@ -173,7 +171,7 @@ p <- ggplot(data_plot, aes(x = time, y = att, color = outcome_code, group = outc
     geom_point(size = 2) +
     geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
     labs(
-        title = paste0("Effect of Statin use on their Prescription Behavior"),
+        title = paste0("Effect of ADHD medication use on their Prescription Behavior"),
         subtitle = paste0(
             "Unique cases/controls per outcome:\n",
             paste(sapply(unique(results_combined$outcome_code), function(oc) {
@@ -192,4 +190,4 @@ p <- ggplot(data_plot, aes(x = time, y = att, color = outcome_code, group = outc
         legend.position = "right",
         legend.text = element_text(size = 8)
     )
-ggsave(file.path(outdir, paste0("Validation4.png")), p, width = 10, height = 6, dpi = 300)
+ggsave(file.path(outdir, paste0("ValidationPlot1.png")), p, width = 10, height = 6, dpi = 300)
