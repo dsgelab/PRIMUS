@@ -1070,3 +1070,1121 @@ dp_summary_stats_total_summary <- dp_summary_stats_total %>%
     ungroup() %>%
     filter(n >= 5) # QC: only include groups with at least 5 doctors
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Create a publication-style gt table and save as HTML
+table1_gt <- table1 %>%
+    gt() %>%
+    tab_header(
+        title = md("**Table 1. Demographics and Baseline Characteristics of Doctors' Cohort**"),
+        subtitle = md(paste0("N = ", n_doctors))
+    ) %>%
+    cols_label(
+        Characteristic = "Characteristic",
+        Value = "Value"
+    ) %>%
+    fmt_missing(columns = everything(), missing_text = "NA") %>%
+    cols_align(columns = vars(Characteristic), align = "left") %>%
+    cols_align(columns = vars(Value), align = "right") %>%
+    tab_style(
+        style = cell_text(weight = "bold"),
+        locations = cells_column_labels(everything())
+    ) %>%
+    tab_style(
+        style = cell_text(weight = "bold"),
+        locations = cells_body(columns = vars(Characteristic))
+    ) %>%
+    tab_source_note(
+        source_note = "Values are presented as mean (SD) or median (IQR) where appropriate. Percentages are over non-missing values."
+    ) %>%
+    tab_options(
+        table.font.size = 12,
+        heading.title.font.size = 14,
+        heading.subtitle.font.size = 11,
+        data_row.padding = px(4),
+        row.striping.background_color = "#F7F7F7"
+    )
+
+
+
+
+# Build a compact table with indented specialties and percentages in Value
+table1_base <- table1 %>% slice(1:6)
+
+special_header <- tibble(Characteristic = "Top 5 Specialties (%)", Value = "")
+
+indent <- "\u00A0\u00A0\u00A0"
+special_rows <- top_specialties %>%
+    transmute(
+        Characteristic = paste0(indent, LAST_SPECIALTY),
+        Value = paste0(n, " (", pct, "%)")
+    )
+
+table1_expanded <- bind_rows(table1_base, special_header, special_rows)
+
+# Create and save gt table
+table1_gt <- table1_expanded %>%
+    gt() %>%
+    tab_header(
+        title = md("**Table 1. Demographics and Baseline Characteristics of Doctors' Cohort**"),
+        subtitle = md(paste0("N = ", n_doctors))
+    ) %>%
+    cols_label(Characteristic = "Characteristic", Value = "Value") %>%
+    fmt_missing(columns = everything(), missing_text = "") %>%
+    cols_align(columns = vars(Characteristic), align = "left") %>%
+    cols_align(columns = vars(Value), align = "right") %>%
+    tab_style(style = cell_text(weight = "bold"), locations = cells_column_labels(everything())) %>%
+    tab_style(
+        style = cell_text(weight = "bold"),
+        locations = cells_body(columns = vars(Characteristic), rows = Characteristic == "Top 5 Specialties (%)")
+    ) %>%
+    tab_source_note(source_note = "Values are presented as mean (SD) or median (IQR) where appropriate. Percentages are over non-missing values.") %>%
+    tab_options(table.font.size = 12, heading.title.font.size = 14, heading.subtitle.font.size = 11)
+
+
+
+
+
+
+# Build table with indented specialties as separate rows and percentages in the Value column
+table1_base <- table1 %>% slice(1:6)  # keep first 6 summary rows
+
+# Header row for specialties
+special_header <- tibble(
+    Characteristic = "Top 5 Specialties (%)",
+    Value = ""
+)
+
+# Indent using non-breaking spaces so the indentation is preserved in gt output
+indent <- "\u00A0\u00A0\u00A0"
+
+# Create rows for each top specialty with counts and percent in the Value column
+special_rows <- tibble(
+    Characteristic = paste0(indent, top_specialties$LAST_SPECIALTY),
+    Value = paste0(top_specialties$n, " (", top_specialties$pct, "%)")
+)
+
+# Combine into final table
+table1_expanded <- bind_rows(table1_base, special_header, special_rows)
+
+# Create a publication-style gt table and save as HTML
+table1_gt <- table1_expanded %>%
+    gt() %>%
+    tab_header(
+        title = md("**Table 1. Demographics and Baseline Characteristics of Doctors' Cohort**"),
+        subtitle = md(paste0("N = ", n_doctors))
+    ) %>%
+    cols_label(
+        Characteristic = "Characteristic",
+        Value = "Value"
+    ) %>%
+    fmt_missing(columns = everything(), missing_text = "") %>%
+    cols_align(columns = vars(Characteristic), align = "left") %>%
+    cols_align(columns = vars(Value), align = "right") %>%
+    tab_style(
+        style = cell_text(weight = "bold"),
+        locations = cells_column_labels(everything())
+    ) %>%
+    # Make the "Top 5 Specialties (%)" row bold to act as a subheading
+    tab_style(
+        style = cell_text(weight = "bold"),
+        locations = cells_body(
+            columns = vars(Characteristic),
+            rows = Characteristic == "Top 5 Specialties (%)"
+        )
+    ) %>%
+    tab_source_note(
+        source_note = "Values are presented as mean (SD) or median (IQR) where appropriate. Percentages are over non-missing values."
+    ) %>%
+    tab_options(
+        table.font.size = 12,
+        heading.title.font.size = 14,
+        heading.subtitle.font.size = 11,
+        data_row.padding = px(4),
+        row.striping.background_color = "#F7F7F7"
+    )
+
+
+
+
+# Calculate Follow-up Time
+# Convert PRACTICING_DAYS to follow-up time in years (2 decimals) and compute summary stats
+doctor_characteristics <- doctor_characteristics %>%
+    mutate(FOLLOWUP_YEARS = ifelse(is.na(PRACTICING_DAYS), NA, round(PRACTICING_DAYS / 365.25, 2)))
+
+mean_followup <- round(mean(doctor_characteristics$FOLLOWUP_YEARS, na.rm = TRUE), 2)
+sd_followup <- round(sd(doctor_characteristics$FOLLOWUP_YEARS, na.rm = TRUE), 2)
+median_followup <- round(median(doctor_characteristics$FOLLOWUP_YEARS, na.rm = TRUE), 2)
+iqr_followup <- round(IQR(doctor_characteristics$FOLLOWUP_YEARS, na.rm = TRUE), 2)
+
+
+
+
+# Yearly Prescriptions
+# Join prescriptions to doctors to get START_YEAR and compute practicing_year
+prescription_counts <- prescription_counts %>%
+    left_join(doctor_characteristics %>% select(DOCTOR_ID, START_YEAR), by = "DOCTOR_ID") %>%
+    mutate(practicing_year = YEAR - START_YEAR + 1) %>%
+    filter(!is.na(practicing_year) & practicing_year >= 1)
+
+# If there are duplicate DOCTOR_ID/YEAR rows, sum them
+prescription_counts <- prescription_counts %>%
+    group_by(DOCTOR_ID, YEAR, practicing_year) %>%
+    summarize(COUNT = sum(COUNT, na.rm = TRUE), .groups = "drop")
+
+# Per-doctor summaries of yearly prescriptions (across observed years)
+per_doctor_presc <- prescription_counts %>%
+    group_by(DOCTOR_ID) %>%
+    summarize(
+        mean_yearly = mean(COUNT, na.rm = TRUE),
+        sd_yearly = sd(COUNT, na.rm = TRUE),
+        median_yearly = median(COUNT, na.rm = TRUE),
+        iqr_yearly = IQR(COUNT, na.rm = TRUE),
+        n_years = n(),
+        .groups = "drop"
+    )
+
+# Overall summaries across doctors to use in Table 1
+mean_yearly_prescriptions <- round(mean(per_doctor_presc$mean_yearly, na.rm = TRUE), 2)
+sd_yearly_prescriptions   <- round(sd(per_doctor_presc$mean_yearly, na.rm = TRUE), 2)
+median_yearly_prescriptions <- round(median(per_doctor_presc$mean_yearly, na.rm = TRUE), 2)
+iqr_yearly_prescriptions  <- round(IQR(per_doctor_presc$mean_yearly, na.rm = TRUE), 2)
+
+# Formatted string for insertion into the table (Mean (SD); Median (IQR))
+yearly_prescriptions_value <- paste0(
+    mean_yearly_prescriptions, " (", sd_yearly_prescriptions, "); ",
+    median_yearly_prescriptions, " (", iqr_yearly_prescriptions, ")"
+)
+
+
+
+
+
+# THE FLAW HERE IS THAT THE prettyNum FUNCTION ONLY WORKS ON WHOLE NUMBERS
+# SO IF THE LEADING NUMBER IS A DECIMAL, IT WILL NOT BE FORMATTED
+# ALSO: IT DOESN'T HANDLE NEGATIVE NUMBERS
+# MORE IMPORTANTLY: IT DOESN'T HANDLE NUMBERS AFTER THE LEADING NUMBER SO (SD/IQR) PARTS WILL BE AFFECTED
+# FUNCTION to add commas to leading numbers in a string
+add_commas_to_leading_number <- function(x) {
+    out <- as.character(x)
+    for (i in seq_along(out)) {
+        m <- regexpr("^[0-9]+(?:\\.[0-9]+)?", out[i], perl = TRUE)
+        if (m[1] != -1) {
+            num <- regmatches(out[i], m)
+            fmt <- prettyNum(as.numeric(num), big.mark = ",", scientific = FALSE, trim = TRUE)
+            regmatches(out[i], m) <- fmt
+        }
+    }
+    out
+}
+
+# apply comma formatting to the leading numbers in the Value column (e.g. "10000 (12.3%)" -> "10,000 (12.3%)")
+table1_expanded$Value <- add_commas_to_leading_number(table1_expanded$Value)
+
+
+
+
+
+################## Figure 2
+
+# Preprocess the data
+if (ncol(min_phen_diagnoses) < 6) stop("min_phen_diagnoses must have at least 6 columns")
+
+data.table::setnames(
+    min_phen_diagnoses,
+    old = names(min_phen_diagnoses)[1:6],
+    new = c("PATIENT_ID", "VISIT_DATE", "ICD10_CODE", "SOURCE", "FD_HASH_CODE", "DOCTOR_ID")
+)
+
+# Parse VISIT_DATE to Date (ISO YYYY-MM-DD); fall back to common dmy/mdy orders if needed
+min_phen_diagnoses[, VISIT_DATE := as.IDate(VISIT_DATE, format = "%Y-%m-%d")]
+min_phen_diagnoses[is.na(VISIT_DATE), VISIT_DATE := as.IDate(lubridate::parse_date_time(VISIT_DATE, orders = c("Ymd","dmy","mdy"), quiet = TRUE))]
+
+# Ensure the canonical first-six-column order
+data.table::setcolorder(min_phen_diagnoses, c("PATIENT_ID", "VISIT_DATE", "ICD10_CODE", "SOURCE", "FD_HASH_CODE", "DOCTOR_ID"))
+
+
+all_diagnoses_wide <- dvv %>%
+    filter(ID %in% min_phen_diagnoses$PATIENT_ID) %>%
+    select(ID, SEX, BIRTH_DATE, DEATH_DATE) %>%
+    left_join(min_phen_diagnoses, by = c("ID" = "PATIENT_ID")) %>%
+    mutate(
+        ICD10 = ifelse(!is.na(ICD10_CODE), 1, 0),
+        ICD10_DATE = ifelse(!is.na(VISIT_DATE), VISIT_DATE, as.Date(NA)),
+        ICD10_TIME = ifelse(!is.na(VISIT_DATE), as.numeric(difftime(VISIT_DATE, BIRTH_DATE, units = "days")), as.numeric(difftime(as.Date("2022-12-31"), BIRTH_DATE, units = "days")))
+    ) 
+
+
+
+
+
+
+
+
+# Build wide cohort df (min_phen_diagnoses already contains earliest diag per patient/ICD)
+{
+    # pivot to wide: columns like K21_DATE from VISIT_DATE (no summarise needed because earliest already present)
+    diag_wide <- min_phen_diagnoses %>%
+        select(PATIENT_ID, ICD10_CODE, VISIT_DATE) %>%
+        tidyr::pivot_wider(
+            id_cols = PATIENT_ID,
+            names_from = ICD10_CODE,
+            values_from = VISIT_DATE,
+            names_glue = "{ICD10_CODE}_DATE"
+        )
+
+    # base population with follow-up window (1998-01-01 to min(DEATH_DATE, 2022-12-31))
+    pop_base <- dvv %>%
+        select(ID, SEX, BIRTH_DATE, DEATH_DATE) %>%
+        mutate(
+            FU_START = as.Date("1998-01-01"),
+            FU_END = as.Date(ifelse(is.na(DEATH_DATE) | DEATH_DATE > as.Date("2022-12-31"),
+                                    "2022-12-31", as.character(DEATH_DATE)))
+        )
+
+    # join and compute indicator/time columns
+    cohort_diag_wide <- pop_base %>%
+        left_join(diag_wide, by = c("ID" = "PATIENT_ID"))
+
+    # find all *_DATE columns and create corresponding indicator and time columns
+    date_cols <- grep("_DATE$", names(cohort_diag_wide), value = TRUE)
+
+    for (dc in date_cols) {
+        code <- sub("_DATE$", "", dc)
+        ind_col <- code
+        time_col <- paste0(code, "_TIME")
+
+        cohort_diag_wide <- cohort_diag_wide %>%
+            mutate(
+                # ensure date is actual Date and only keep if within FU window
+                !!dc := {
+                    tmp <- .data[[dc]]
+                    # try coercing to Date if not already
+                    if (!inherits(tmp, "Date")) tmp <- as.Date(tmp)
+                    ifelse(!is.na(tmp) & tmp >= FU_START & tmp <= FU_END, tmp, as.Date(NA))
+                },
+                # binary indicator: 1 if diagnosis within FU, else 0
+                !!ind_col := ifelse(!is.na(.data[[dc]]), 1L, 0L),
+                # time in years: if diagnosed -> (diag_date - FU_START) / 365.25; else -> (FU_END - FU_START) / 365.25
+                !!time_col := dplyr::case_when(
+                    is.na(FU_START) | is.na(FU_END) ~ NA_real_,
+                    !is.na(.data[[dc]]) ~ as.numeric(difftime(.data[[dc]], FU_START, units = "days")) / 365.25,
+                    TRUE ~ as.numeric(difftime(FU_END, FU_START, units = "days")) / 365.25
+                )
+            )
+    }
+
+    # keep only requested columns: ID, SEX, BIRTH_DATE, DEATH_DATE and the generated cols (sorted)
+    gen_cols <- sort(c(date_cols, sub("_DATE$", "", date_cols), paste0(sub("_DATE$", "", date_cols), "_TIME")))
+    keep_cols <- c("ID", "SEX", "BIRTH_DATE", "DEATH_DATE", gen_cols)
+    cohort_diag_wide <- cohort_diag_wide %>% select(any_of(keep_cols))
+}
+
+# result: cohort_diag_wide
+
+
+
+can you not only create the ICD10_CODE_DATE but also add the ICD10_CODE <1|0> if present of not
+
+diag_wide <- min_phen_diagnoses %>%
+    select(PATIENT_ID, ICD10_CODE, VISIT_DATE) %>%
+    tidyr::pivot_wider(
+        id_cols = PATIENT_ID,
+        names_from = ICD10_CODE,
+        values_from = VISIT_DATE,
+        names_glue = "{ICD10_CODE}_DATE"
+    ) %>%
+    # add binary indicator (1/0) for each *_DATE column efficiently and interleave them next to the date columns
+    {
+      df <- .
+      date_cols <- grep("_DATE$", names(df), value = TRUE)
+      if (length(date_cols) == 0) {
+        df
+      } else {
+        # create indicators for all *_DATE columns in one vectorized step (creates temporary *_DATE_IND names)
+        df <- df %>%
+          mutate(
+            across(all_of(date_cols), ~ as.Date(.x), .names = "{.col}"),
+            across(all_of(date_cols), ~ as.integer(!is.na(.x)), .names = "{.col}_IND")
+          ) %>%
+          # rename *_DATE_IND -> remove the _DATE_IND suffix so e.g. "K21_DATE_IND" -> "K21"
+          rename_with(~ sub("_DATE_IND$", "", .x), ends_with("_DATE_IND"))
+        # build desired interleaved column order: for each X_DATE place X immediately after it
+        date_cols_new <- grep("_DATE$", names(df), value = TRUE)
+        ind_cols <- sub("_DATE$", "", date_cols_new)
+        pair_order <- unlist(lapply(date_cols_new, function(dc) c(dc, sub("_DATE$", "", dc))))
+        # keep other columns in their original relative order, then put the date/indicator pairs
+        other_cols <- setdiff(names(df), pair_order)
+        df %>% select(any_of(other_cols), all_of(pair_order))
+      }
+    }
+
+
+
+# Build wide cohort df (min_phen_diagnoses already contains earliest diag per patient/ICD)
+{
+    # pivot to wide: columns like K21_DATE from VISIT_DATE (no summarise needed because earliest already present)
+    diag_wide <- min_phen_diagnoses %>%
+        select(PATIENT_ID, ICD10_CODE, VISIT_DATE) %>%
+        tidyr::pivot_wider(
+            id_cols = PATIENT_ID,
+            names_from = ICD10_CODE,
+            values_from = VISIT_DATE,
+            names_glue = "{ICD10_CODE}_DATE"
+        )
+
+    # base population with follow-up window (1998-01-01 to min(DEATH_DATE, 2022-12-31))
+    pop_base <- dvv %>%
+        select(ID, SEX, BIRTH_DATE, DEATH_DATE) %>%
+        mutate(
+            FU_START = as.Date("1998-01-01"),
+            FU_END = as.Date(ifelse(is.na(DEATH_DATE) | DEATH_DATE > as.Date("2022-12-31"),
+                                    "2022-12-31", as.character(DEATH_DATE)))
+        )
+
+    # join and compute indicator/time columns
+    cohort_diag_wide <- pop_base %>%
+        left_join(diag_wide, by = c("ID" = "PATIENT_ID"))
+
+    # find all *_DATE columns and create corresponding indicator and time columns
+    date_cols <- grep("_DATE$", names(cohort_diag_wide), value = TRUE)
+
+    for (dc in date_cols) {
+        code <- sub("_DATE$", "", dc)
+        ind_col <- code
+        time_col <- paste0(code, "_TIME")
+
+        cohort_diag_wide <- cohort_diag_wide %>%
+            mutate(
+                # ensure date is actual Date and only keep if within FU window
+                !!dc := {
+                    tmp <- .data[[dc]]
+                    # try coercing to Date if not already
+                    if (!inherits(tmp, "Date")) tmp <- as.Date(tmp)
+                    ifelse(!is.na(tmp) & tmp >= FU_START & tmp <= FU_END, tmp, as.Date(NA))
+                },
+                # binary indicator: 1 if diagnosis within FU, else 0
+                !!ind_col := ifelse(!is.na(.data[[dc]]), 1L, 0L),
+                # time in years: if diagnosed -> (diag_date - FU_START) / 365.25; else -> (FU_END - FU_START) / 365.25
+                !!time_col := dplyr::case_when(
+                    is.na(FU_START) | is.na(FU_END) ~ NA_real_,
+                    !is.na(.data[[dc]]) ~ as.numeric(difftime(.data[[dc]], FU_START, units = "days")) / 365.25,
+                    TRUE ~ as.numeric(difftime(FU_END, FU_START, units = "days")) / 365.25
+                )
+            )
+    }
+
+    # keep only requested columns: ID, SEX, BIRTH_DATE, DEATH_DATE and the generated cols (sorted)
+    gen_cols <- sort(c(date_cols, sub("_DATE$", "", date_cols), paste0(sub("_DATE$", "", date_cols), "_TIME")))
+    keep_cols <- c("ID", "SEX", "BIRTH_DATE", "DEATH_DATE", gen_cols)
+    cohort_diag_wide <- cohort_diag_wide %>% select(any_of(keep_cols))
+}
+
+# result: cohort_diag_wide
+    
+
+
+
+
+
+
+
+
+
+# Test Example of age-sex adjusted incidence rate calculation
+
+df <- diag_wide2 %>% 
+    select(1:9) %>% 
+    filter(is_doctor == 1)  %>%
+    mutate(across(ends_with("_DATE"), ~ lubridate::ymd(na_if(as.character(.), "")))) 
+
+END_OF_DATA <- as.Date("2022-12-31")
+
+df2 <- df %>%
+    mutate(
+        ENTRY_DATE = pmax(as.Date("1998-01-01"), BIRTH_DATE, na.rm = TRUE),
+
+        # If K21 == 1, use K21_DATE; otherwise set far future
+        tmp_k21 = dplyr::if_else(K21 == 1, K21_DATE, as.Date("2100-01-01")),
+        # If DEATH == 1, use DEATH_DATE; otherwise set far future
+        tmp_death = dplyr::if_else(DEATH == 1, DEATH_DATE, as.Date("2100-01-01")),
+
+        # EXIT is earliest of event, death, or censoring date
+        EXIT_DATE = pmin(tmp_k21, tmp_death, END_OF_DATA, na.rm = TRUE),
+
+        EVENT = as.integer(K21 == 1 & !is.na(K21_DATE) & K21_DATE <= EXIT_DATE)
+    ) %>%
+    select(-tmp_k21, -tmp_death)
+
+# Build Lexis object
+L <- Lexis(
+  entry = list(
+    age = as.numeric(ENTRY_DATE - BIRTH_DATE) / 365.25
+  ),
+  exit = list(
+    age = as.numeric(EXIT_DATE - BIRTH_DATE) / 365.25
+  ),
+  exit.status = factor(EVENT, levels=c(0,1), labels=c("noK21","K21")),
+  data = df2,
+  id = ID
+)
+
+age_breaks <- seq(0, 100, by = 5)
+
+L_split <- splitLexis(L,
+                      breaks = list(age = age_breaks),
+                      time.scale = "age")
+
+L_tab <- L_split %>%
+  mutate(
+    age_band = cut(
+      age,
+      breaks = age_breaks,
+      right = FALSE,
+      include.lowest = TRUE
+    )
+  ) %>%
+  group_by(SEX, age_band) %>%
+  summarise(
+    pyrs   = sum(lex.dur),  # person-years in that sex × age-band
+    events = sum(lex.Cst == "noK21" & lex.Xst == "K21"),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    IR = events / pyrs,         # crude incidence rate for that stratum
+    IR_1k = IR * 1000           # per 1,000 person-years (if you like)
+  )
+
+L_tab <- L_tab %>%
+  mutate(weight = pyrs / sum(pyrs))   # weights over all age × sex strata
+
+adj_IR   <- sum(L_tab$IR * L_tab$weight)
+adj_IR_1k <- adj_IR * 1000   # per 1,000 PY
+adj_IR_1k
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Function to compute age- and sex-adjusted incidence (per 1,000 PY) for every ICD code
+# Requires Epi and lubridate packages. Input diag_wide2 should be like in your script:
+# - contains ID, SEX, BIRTH_DATE, DEATH_DATE, is_doctor (1/0) and for each ICD code columns: <ICD>_DATE (Date) and optionally <ICD> (0/1).
+# Returns tibble with ICD_CODE and adj_IR_1k
+compute_adj_ir_for_all_icd <- function(diag_wide2,
+                                       icd_codes = NULL,
+                                       start_date = as.Date("1998-01-01"),
+                                       end_of_data = as.Date("2022-12-31"),
+                                       age_breaks = seq(0, 100, by = 5),
+                                       doctors_only = TRUE) {
+  if (!requireNamespace("Epi", quietly = TRUE)) {
+    stop("Package 'Epi' is required. Install it with install.packages('Epi').")
+  }
+  if (!requireNamespace("lubridate", quietly = TRUE)) {
+    stop("Package 'lubridate' is required. Install it with install.packages('lubridate').")
+  }
+  # prepare data copy
+  d <- diag_wide2
+  # parse important date columns
+  d$BIRTH_DATE <- lubridate::ymd(as.character(d$BIRTH_DATE))
+  d$DEATH_DATE <- lubridate::ymd(as.character(d$DEATH_DATE))
+  # parse all *_DATE columns to Date (only ICD-related date columns starting from column 8)
+  if (ncol(d) >= 8) {
+    date_cols_all <- grep("_DATE$", names(d), value = TRUE)
+    date_cols <- intersect(date_cols_all, names(d)[8:ncol(d)])
+  } else {
+    date_cols <- character(0)
+  }
+  # Exclude known non-ICD date columns
+  date_cols <- setdiff(date_cols, c("DEATH_DATE", "DEATH"))
+  for (dc in date_cols) {
+    # convert empty strings to NA and parse to Date
+    d[[dc]] <- lubridate::ymd(ifelse(as.character(d[[dc]]) == "", NA, as.character(d[[dc]])))
+  }
+  # filter to doctors if requested
+  if (doctors_only && "is_doctor" %in% names(d)) d <- d[d$is_doctor == 1, , drop = FALSE]
+  # determine ICD codes if not provided
+  detected_icd_codes <- sub("_DATE$", "", date_cols)
+  if (is.null(icd_codes)) {
+    icd_codes <- detected_icd_codes
+  } else {
+    icd_codes <- intersect(icd_codes, detected_icd_codes)
+  }
+  if (length(icd_codes) == 0) {
+    return(tibble::tibble(ICD_CODE = character(0), adj_IR_1k = numeric(0)))
+  }
+  results <- vector("list", length(icd_codes))
+  names(results) <- icd_codes
+  # constants
+  FAR_FUTURE <- as.Date("2100-01-01")
+  for (icd in icd_codes) {
+    date_col <- paste0(icd, "_DATE")
+    ind_col <- icd
+    # extract vectors
+    id_vec <- d$ID
+    sex_vec <- d$SEX
+    birth_vec <- d$BIRTH_DATE
+    death_vec <- d$DEATH_DATE
+    date_vec <- d[[date_col]]
+    ind_vec <- if (ind_col %in% names(d)) d[[ind_col]] else as.integer(!is.na(date_vec))
+    # ENTRY_DATE
+    ENTRY_DATE <- pmax(start_date, birth_vec, na.rm = TRUE)
+    # tmp event / death
+    tmp_event <- ifelse(!is.na(date_vec), date_vec, FAR_FUTURE)
+    tmp_death  <- ifelse(!is.na(death_vec), death_vec, FAR_FUTURE)
+    # EXIT_DATE = earliest of event, death, censor date
+    EXIT_DATE <- pmin(tmp_event, tmp_death, end_of_data, na.rm = TRUE)
+    # EVENT indicator: require indicator==1 (if present) and date <= EXIT_DATE
+    EVENT <- as.integer((!is.na(date_vec)) & (is.na(ind_vec) | ind_vec == 1) & (date_vec <= EXIT_DATE))
+    # build analysis df
+    df2 <- data.frame(
+      ID = id_vec,
+      SEX = sex_vec,
+      BIRTH_DATE = birth_vec,
+      ENTRY_DATE = ENTRY_DATE,
+      EXIT_DATE = EXIT_DATE,
+      EVENT = EVENT,
+      stringsAsFactors = FALSE
+    )
+    # drop rows with missing needed dates
+    keep <- !is.na(df2$BIRTH_DATE) & !is.na(df2$ENTRY_DATE) & !is.na(df2$EXIT_DATE)
+    df2 <- df2[keep, , drop = FALSE]
+    # if no person-time skip
+    if (nrow(df2) == 0) {
+      results[[icd]] <- NA_real_
+      next
+    }
+    # make Lexis object and split by age
+    # entry/exit ages in years
+    entry_age <- as.numeric(df2$ENTRY_DATE - df2$BIRTH_DATE) / 365.25
+    exit_age  <- as.numeric(df2$EXIT_DATE  - df2$BIRTH_DATE) / 365.25
+    # build Lexis safely in tryCatch
+    adj_ir_1k <- tryCatch({
+      L <- Epi::Lexis(
+        entry = list(age = entry_age),
+        exit  = list(age = exit_age),
+        exit.status = factor(df2$EVENT, levels = c(0,1), labels = c(paste0("no", icd), icd)),
+        data = df2,
+        id = df2$ID
+      )
+      L_split <- Epi::splitLexis(L, breaks = list(age = age_breaks), time.scale = "age")
+      # compute pyrs and events by sex × age band
+      L_tab <- as.data.frame(L_split)
+      L_tab$age_band <- cut(L_tab$age, breaks = age_breaks, right = FALSE, include.lowest = TRUE)
+      agg <- aggregate(cbind(pyrs = L_tab$lex.dur, events = as.integer(L_tab$lex.Cst == paste0("no", icd) & L_tab$lex.Xst == icd)),
+                       by = list(SEX = L_tab$SEX, age_band = L_tab$age_band),
+                       FUN = sum, na.rm = TRUE)
+      # if no person-time, return NA
+      total_pyrs <- sum(agg$pyrs, na.rm = TRUE)
+      if (total_pyrs <= 0) return(NA_real_)
+      agg$IR <- agg$events / agg$pyrs
+      agg$weight <- agg$pyrs / total_pyrs
+      adj_IR <- sum(agg$IR * agg$weight, na.rm = TRUE)
+      adj_IR * 1000
+    }, error = function(e) {
+      NA_real_
+    })
+    results[[icd]] <- adj_ir_1k
+  }
+  # assemble tibble
+  out <- tibble::tibble(ICD_CODE = names(results), adj_IR_1k = unlist(results, use.names = FALSE))
+  out
+}
+
+# Example usage:
+# res <- compute_adj_ir_for_all_icd(diag_wide2)
+# head(res)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Function to compute age- and sex-adjusted incidence (per 1,000 PY) for every ICD code
+# Requires Epi and lubridate packages. Input diag_wide2 should be like in your script:
+# - contains ID, SEX, BIRTH_DATE, DEATH_DATE, is_doctor (1/0) and for each ICD code columns: <ICD>_DATE (Date) and optionally <ICD> (0/1).
+# Returns tibble with ICD_CODE and adj_IR_1k
+compute_adj_ir_for_all_icd <- function(diag_wide2,
+                                       icd_codes = NULL,
+                                       start_date = as.Date("1998-01-01"),
+                                       end_of_data = as.Date("2022-12-31"),
+                                       age_breaks = seq(0, 100, by = 5),
+                                       doctors_only = TRUE) {
+  if (!requireNamespace("Epi", quietly = TRUE)) {
+    stop("Package 'Epi' is required. Install it with install.packages('Epi').")
+  }
+  if (!requireNamespace("lubridate", quietly = TRUE)) {
+    stop("Package 'lubridate' is required. Install it with install.packages('lubridate').")
+  }
+  # prepare data copy
+  d <- diag_wide2
+  # parse important date columns
+  d$BIRTH_DATE <- lubridate::ymd(as.character(d$BIRTH_DATE))
+  d$DEATH_DATE <- lubridate::ymd(as.character(d$DEATH_DATE))
+  # parse all *_DATE columns to Date
+  date_cols <- grep("_DATE$", names(d), value = TRUE)
+  for (dc in date_cols) d[[dc]] <- lubridate::ymd(na_if(as.character(d[[dc]]), ""))
+  # filter to doctors if requested
+  if (doctors_only && "is_doctor" %in% names(d)) d <- d[d$is_doctor == 1, , drop = FALSE]
+  # determine ICD codes if not provided
+  detected_icd_codes <- sub("_DATE$", "", date_cols)
+  if (is.null(icd_codes)) {
+    icd_codes <- detected_icd_codes
+  } else {
+    icd_codes <- intersect(icd_codes, detected_icd_codes)
+  }
+  if (length(icd_codes) == 0) {
+    return(tibble::tibble(ICD_CODE = character(0), adj_IR_1k = numeric(0)))
+  }
+  results <- vector("list", length(icd_codes))
+  names(results) <- icd_codes
+  # constants
+  FAR_FUTURE <- as.Date("2100-01-01")
+  for (icd in icd_codes) {
+    date_col <- paste0(icd, "_DATE")
+    ind_col <- icd
+    # extract vectors
+    id_vec <- d$ID
+    sex_vec <- d$SEX
+    birth_vec <- d$BIRTH_DATE
+    death_vec <- d$DEATH_DATE
+    date_vec <- d[[date_col]]
+    ind_vec <- if (ind_col %in% names(d)) d[[ind_col]] else as.integer(!is.na(date_vec))
+    # ENTRY_DATE
+    ENTRY_DATE <- pmax(start_date, birth_vec, na.rm = TRUE)
+    # tmp event / death
+    tmp_event <- ifelse(!is.na(date_vec), date_vec, FAR_FUTURE)
+    tmp_death  <- ifelse(!is.na(death_vec), death_vec, FAR_FUTURE)
+    # EXIT_DATE = earliest of event, death, censor date
+    EXIT_DATE <- pmin(tmp_event, tmp_death, end_of_data, na.rm = TRUE)
+    # EVENT indicator: require indicator==1 (if present) and date <= EXIT_DATE
+    EVENT <- as.integer((!is.na(date_vec)) & (is.na(ind_vec) | ind_vec == 1) & (date_vec <= EXIT_DATE))
+    # build analysis df
+    df2 <- data.frame(
+      ID = id_vec,
+      SEX = sex_vec,
+      BIRTH_DATE = birth_vec,
+      ENTRY_DATE = ENTRY_DATE,
+      EXIT_DATE = EXIT_DATE,
+      EVENT = EVENT,
+      stringsAsFactors = FALSE
+    )
+    # drop rows with missing needed dates
+    keep <- !is.na(df2$BIRTH_DATE) & !is.na(df2$ENTRY_DATE) & !is.na(df2$EXIT_DATE)
+    df2 <- df2[keep, , drop = FALSE]
+    # if no person-time skip
+    if (nrow(df2) == 0) {
+      results[[icd]] <- NA_real_
+      next
+    }
+    # make Lexis object and split by age
+    # entry/exit ages in years
+    entry_age <- as.numeric(df2$ENTRY_DATE - df2$BIRTH_DATE) / 365.25
+    exit_age  <- as.numeric(df2$EXIT_DATE  - df2$BIRTH_DATE) / 365.25
+    # build Lexis safely in tryCatch
+    adj_ir_1k <- tryCatch({
+      L <- Epi::Lexis(
+        entry = list(age = entry_age),
+        exit  = list(age = exit_age),
+        exit.status = factor(df2$EVENT, levels = c(0,1), labels = c(paste0("no", icd), icd)),
+        data = df2,
+        id = df2$ID
+      )
+      L_split <- Epi::splitLexis(L, breaks = list(age = age_breaks), time.scale = "age")
+      # compute pyrs and events by sex × age band
+      L_tab <- as.data.frame(L_split)
+      L_tab$age_band <- cut(L_tab$age, breaks = age_breaks, right = FALSE, include.lowest = TRUE)
+      agg <- aggregate(cbind(pyrs = L_tab$lex.dur, events = as.integer(L_tab$lex.Cst == paste0("no", icd) & L_tab$lex.Xst == icd)),
+                       by = list(SEX = L_tab$SEX, age_band = L_tab$age_band),
+                       FUN = sum, na.rm = TRUE)
+      # if no person-time, return NA
+      total_pyrs <- sum(agg$pyrs, na.rm = TRUE)
+      if (total_pyrs <= 0) return(NA_real_)
+      agg$IR <- agg$events / agg$pyrs
+      agg$weight <- agg$pyrs / total_pyrs
+      adj_IR <- sum(agg$IR * agg$weight, na.rm = TRUE)
+      adj_IR * 1000
+    }, error = function(e) {
+      NA_real_
+    })
+    results[[icd]] <- adj_ir_1k
+  }
+  # assemble tibble
+  out <- tibble::tibble(ICD_CODE = names(results), adj_IR_1k = unlist(results, use.names = FALSE))
+  out
+}
+
+# Example usage:
+# res <- compute_adj_ir_for_all_icd(diag_wide2)
+# head(res)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+calculate_all_incidence_rates <- function(diag_wide, end_of_data = as.Date("2022-12-31")) {
+  
+  # Filter to doctors only and prepare base data
+  df_base <- diag_wide %>% 
+    filter(is_doctor == 1) %>%
+    select(ID, SEX, BIRTH_DATE, DEATH_DATE, DEATH) %>%
+    mutate(
+      BIRTH_DATE = ymd(na_if(as.character(BIRTH_DATE), "")),
+      DEATH_DATE = ymd(na_if(as.character(DEATH_DATE), ""))
+    )
+  
+  # Identify all ICD code columns (those with corresponding _DATE columns)
+  all_cols <- names(diag_wide)
+  date_cols <- all_cols[grepl("_DATE$", all_cols) & 
+                        !all_cols %in% c("BIRTH_DATE", "DEATH_DATE")]
+  
+  # Extract ICD codes (remove _DATE suffix)
+  icd_codes <- sub("_DATE$", "", date_cols)
+  
+  # Initialize results data frame
+  results <- data.frame(
+    ICD_CODE = character(),
+    adj_IR_1k = numeric(),
+    stringsAsFactors = FALSE
+  )
+  
+  # Loop through each ICD code
+  for (icd in icd_codes) {
+    
+    tryCatch({
+      date_col <- paste0(icd, "_DATE")
+      
+      # Create working dataframe for this ICD code
+      df <- df_base %>%
+        mutate(
+          ICD_FLAG = diag_wide[[icd]][diag_wide$is_doctor == 1],
+          ICD_DATE = ymd(na_if(as.character(diag_wide[[date_col]][diag_wide$is_doctor == 1]), ""))
+        )
+      
+      # Calculate entry and exit dates
+      df2 <- df %>%
+        mutate(
+          ENTRY_DATE = pmax(as.Date("1998-01-01"), BIRTH_DATE, na.rm = TRUE),
+          tmp_icd = if_else(ICD_FLAG == 1, ICD_DATE, as.Date("2100-01-01")),
+          tmp_death = if_else(DEATH == 1, DEATH_DATE, as.Date("2100-01-01")),
+          EXIT_DATE = pmin(tmp_icd, tmp_death, end_of_data, na.rm = TRUE),
+          EVENT = as.integer(ICD_FLAG == 1 & !is.na(ICD_DATE) & ICD_DATE <= EXIT_DATE)
+        ) %>%
+        select(-tmp_icd, -tmp_death)
+      
+      # Build Lexis object
+      L <- Lexis(
+        entry = list(
+          age = as.numeric(ENTRY_DATE - BIRTH_DATE) / 365.25
+        ),
+        exit = list(
+          age = as.numeric(EXIT_DATE - BIRTH_DATE) / 365.25
+        ),
+        exit.status = factor(EVENT, levels = c(0, 1), labels = c("no_event", "event")),
+        data = df2,
+        id = ID
+      )
+      
+      # Split by age bands
+      age_breaks <- seq(0, 100, by = 5)
+      L_split <- splitLexis(L,
+                            breaks = list(age = age_breaks),
+                            time.scale = "age")
+      
+      # Calculate incidence rates by age and sex
+      L_tab <- L_split %>%
+        mutate(
+          age_band = cut(
+            age,
+            breaks = age_breaks,
+            right = FALSE,
+            include.lowest = TRUE
+          )
+        ) %>%
+        group_by(SEX, age_band) %>%
+        summarise(
+          pyrs = sum(lex.dur),
+          events = sum(lex.Cst == "no_event" & lex.Xst == "event"),
+          .groups = "drop"
+        ) %>%
+        mutate(
+          IR = events / pyrs,
+          weight = pyrs / sum(pyrs)
+        )
+      
+      # Calculate adjusted incidence rate
+      adj_IR_1k <- sum(L_tab$IR * L_tab$weight) * 1000
+      
+      # Add to results
+      results <- rbind(results, data.frame(
+        ICD_CODE = icd,
+        adj_IR_1k = adj_IR_1k
+      ))
+      
+    }, error = function(e) {
+      warning(paste("Error processing ICD code", icd, ":", e$message))
+    })
+  }
+  
+  # Sort by incidence rate (descending)
+  results <- results %>%
+    arrange(desc(adj_IR_1k))
+  
+  return(results)
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+table_wide <- table %>%
+    rename(ID = V1, CODE = V2, DATE = V3) %>%
+    select(ID, CODE, DATE) %>%
+    tidyr::pivot_wider(
+        id_cols = ID,
+        names_from = CODE,
+        values_from = DATE,
+        names_glue = "{CODE}_DATE"
+    ) %>%
+    # add binary indicator (1/0) for each *_DATE column and place it right after the date column
+    {
+      df <- .
+      date_cols <- grep("_DATE$", names(df), value = TRUE)
+      if (length(date_cols) > 0) {
+        for (dc in date_cols) {
+          ind <- sub("_DATE$", "", dc)
+          df[[ind]] <- as.integer(!is.na(df[[dc]]))
+          df <- dplyr::relocate(df, dplyr::all_of(ind), .after = dplyr::all_of(dc))
+        }
+      }
+      df
+    }
+gc()
+
+table_wide <- dvv %>% left_join(table_wide, by = c("ID" = "ID"))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+icd_chapter_map <- c(
+  "A" = "Certain Infectious and Parasitic Diseases",
+  "B" = "Certain Infectious and Parasitic Diseases",
+  "C" = "Neoplasms",
+  "D" = "Neoplasms / Diseases of the Blood and Blood-forming Organs",
+  "E" = "Endocrine, Nutritional and Metabolic Diseases",
+  "F" = "Mental and Behavioural Disorders",
+  "G" = "Diseases of the Nervous System",
+  "H" = "Diseases of the Eye and Adnexa / Diseases of the Ear and Mastoid Process",
+  "I" = "Diseases of the Circulatory System",
+  "J" = "Diseases of the Respiratory System",
+  "K" = "Diseases of the Digestive System",
+  "L" = "Diseases of the Skin and Subcutaneous Tissue",
+  "M" = "Diseases of the Musculoskeletal System and Connective Tissue",
+  "N" = "Diseases of the Genitourinary System",
+  "O" = "Pregnancy, Childbirth and the Puerperium",
+  "P" = "Certain Conditions Originating in the Perinatal Period",
+  "Q" = "Congenital Malformations, Deformations and Chromosomal Abnormalities",
+  "R" = "Symptoms, Signs and Abnormal Clinical and Laboratory Findings, Not Elsewhere Classified",
+  "S" = "Injury, Poisoning and Certain Other Consequences of External Causes",
+  "T" = "Injury, Poisoning and Certain Other Consequences of External Causes",
+    "V" = "External Causes of Morbidity and Mortality",
+    "W" = "External Causes of Morbidity and Mortality",
+    "X" = "External Causes of Morbidity and Mortality",
+    "Y" = "External Causes of Morbidity and Mortality",
+    "Z" = "Factors Influencing Health Status and Contact with Health Services"
+)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Plot diagnoses: doctors vs non-doctors
+p_diag_scatter <- ggplot(dataset_diag, aes(x = adj_IR_1k_nondocs, y = adj_IR_1k_docs, color = CHAPTER_NAME)) +
+    geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "gray50", linewidth = 1) +
+    geom_point(size = POINT_SIZE_NOT_SIG, alpha = ALPHA_NOT_SIG) +
+    geom_text_repel(data = top_extreme_diag_docs, aes(label = CODE), 
+                        size = 4, 
+                        show.legend = FALSE,
+                        max.overlaps = Inf,
+                        min.segment.length = 0,
+                        box.padding = 0.5,
+                        point.padding = 0.3,
+                        force = 2,
+                        force_pull = 0.5) +
+    geom_text_repel(data = top_extreme_diag_nondocs, aes(label = CODE), 
+                        size = 4, 
+                        show.legend = FALSE,
+                        max.overlaps = Inf,
+                        min.segment.length = 0,
+                        box.padding = 0.5,
+                        point.padding = 0.3,
+                        force = 2,
+                        force_pull = 0.5) +
+    scale_color_manual(values = cb_palette, name = "Chapter") +
+    labs(
+        title = "Age and Sex Adjusted Incidence Rates: Doctors vs General Population",
+        subtitle = sprintf("Number of diagnoses tested: %d", nrow(dataset_diag)),
+        x = "Adjusted IR (per 1,000 person-years) - General Population",
+        y = "Adjusted IR (per 1,000 person-years) - Doctors"
+    ) +
+    theme_minimal() +
+    theme(
+        axis.text.x = element_text(size = TEXT_SIZE_AXIS_TEXT),
+        axis.text.y = element_text(size = TEXT_SIZE_AXIS_TEXT),
+        axis.title.x = element_text(size = TEXT_SIZE_AXIS_TITLE),
+        axis.title.y = element_text(size = TEXT_SIZE_AXIS_TITLE),
+        plot.title = element_text(size = TEXT_SIZE_TITLE),
+        plot.subtitle = element_text(size = TEXT_SIZE_AXIS_TITLE),
+        legend.text = element_text(size = TEXT_SIZE_LEGEND),
+        legend.title = element_text(size = TEXT_SIZE_LEGEND),
+        legend.position = "right"
+    )

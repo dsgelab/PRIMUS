@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ----------------------------------------------------------------------------
 # Script Name: extract_icd_codes.sh
-# Description: Filters a gzipped prescriptions CSV file to include only rows
+# Description: Filters a gzipped diagnoses CSV file to include only rows
 #              where the ICD CODE (column "ICD10_CODE") starts with a prefix listed
 #              in icd_list.txt. Output is gzipped CSV + log.
 # ----------------------------------------------------------------------------
