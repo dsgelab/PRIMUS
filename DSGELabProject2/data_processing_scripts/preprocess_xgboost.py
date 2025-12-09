@@ -4,6 +4,9 @@ import argparse
 from argparse_utils import probability
 from utils import find_latest_file_by_date, format_seconds_to_hms
 import time
+import os
+
+INDIR = "ProcessedData"
 
 
 def fct_lump_min(series, min_count, other_label="other"):
@@ -24,7 +27,10 @@ def split_train_test_df(df, test_size):
 
 
 def preprocess_data(test_size, categorical_encoding, outdir, user_suffix, input_file):
-    df_file = find_latest_file_by_date("ProcessedData", rf"{input_file}_(\d{{8}})\.csv")
+    if os.path.isabs(input_file) or os.path.exists(input_file):
+        df_file = input_file
+    else:
+        df_file = find_latest_file_by_date(INDIR, rf"{input_file}_(\d{{8}})\.csv")
     print(f"Using {df_file}")
     df = pd.read_csv(df_file)
 
@@ -55,14 +61,23 @@ def preprocess_data(test_size, categorical_encoding, outdir, user_suffix, input_
             "AGE_AT_VISIT_PAT",
             "BIRTH_YEAR_DOC",
             "BIRTH_YEAR_PAT",
-            "MEAN_YEARLY_DIAGNOSES",
-            "MEAN_YEARLY_PRESCRIPTIONS",
+            "MEAN_YEARLY_DIAGNOSES_DOC",
+            "MEAN_YEARLY_PRESCRIPTIONS_DOC",
+            "MEAN_YEARLY_DIAGNOSES_PAT",
+            "MEAN_YEARLY_PRESCRIPTIONS_PAT",
             "PRESCRIBED",
             *disease_history_cols,
             *medication_history_cols,
         ]
     ]
-    categorical_features = ["SPECIALTY", "LANGUAGE_DOC", "SEX_DOC", "HOME_REGION_DOC", "SEX_PAT", "HOME_REGION_PAT"]
+    categorical_features = [
+        "SPECIALTY",
+        "LANGUAGE_DOC",
+        "SEX_DOC",
+        "HOME_REGION_DOC",
+        "SEX_PAT",
+        "HOME_REGION_PAT"
+    ]
     filename_suffix = ""
     if categorical_encoding == "one_hot":
         df = pd.get_dummies(df, columns=categorical_features, drop_first=True, dtype=int)
@@ -88,7 +103,7 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--outdir", help="Path to the output directory (default=./).", type=str, default="./")
-    parser.add_argument("--testsize", help="Test set size as a decimal (default=0.15).", type=probability, default=0.15)
+    parser.add_argument("--testsize", help="Test set size as a decimal (default=0.2).", type=probability, default=0.2)
     parser.add_argument(
         "--cat-encoding", help="Encoding method for categorical features (default=one_hot).", type=str, choices=["one_hot", "freq"], default="one_hot"
     )
