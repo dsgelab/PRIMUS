@@ -164,19 +164,23 @@ data_plot <- results_combined[time >= -3 & time <= 2]
 
 # Create combined plot with all outcome codes on same panel
 p <- ggplot(data_plot, aes(x = time, y = att, color = outcome_code, group = outcome_code)) +
-    geom_line(linewidth = 0.8) +
-    geom_point(size = 2) +
+    geom_line(linewidth = 0.8, position = position_dodge(width = 0.1)) +
+    geom_errorbar(aes(ymin = att - 1.96*se, ymax = att + 1.96*se), 
+                  width = 0.3, 
+                  position = position_dodge(width = 0.3), 
+                  alpha = 0.3) + 
+    geom_point(size = 2, position = position_dodge(width = 0.3)) + 
     geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
     labs(
-        title = paste0("Effect of ADHD medication use on their Prescription Behavior"),
+        title = "Effect of ADHD medication use on their Prescription Behavior",
         subtitle = paste0(
             "Unique cases/controls per outcome:\n",
             paste(sapply(unique(results_combined$outcome_code), function(oc) {
-            sprintf("%s (Cases: %d, Controls: %d)\n", 
-                oc, 
-                unique(results_combined[outcome_code == oc, n_cases]),
-                unique(results_combined[outcome_code == oc, n_controls]))
-            }), collapse = "")
+                sprintf("%s (Cases: %d, Controls: %d)", 
+                    oc, 
+                    unique(results_combined[outcome_code == oc, n_cases]),
+                    unique(results_combined[outcome_code == oc, n_controls]))
+            }), collapse = "\n")
         ),
         x = "Years from Event",
         y = "Change in Prescription Behavior\n(Difference in Difference ATT)",
