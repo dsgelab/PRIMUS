@@ -52,6 +52,12 @@ event_ids = unique(events$PATIENT_ID)
 all_outcomes = events$CODE %>% unique()
 results_Y_list = list()
 for (outcome_code in all_outcomes) {
+
+    # if results are already in list skip
+    if (outcome_code %in% names(results_Y_list)) {
+        next
+    }
+
     # Load outcomes (N, Ni, and Y for desired medication)
     outcomes_cols = c("DOCTOR_ID", "YEAR", paste0("N_", outcome_code), paste0("Y_", outcome_code), paste0("first_year_", outcome_code), paste0("last_year_", outcome_code))
     outcomes = as.data.table(read_parquet(outcomes_file, col_select = outcomes_cols))
@@ -115,38 +121,43 @@ for (outcome_code in all_outcomes) {
         )
     ]
 
-    # Analysis requires only individuals with non-missing Y for all years in the required window
-    years_required <- (min(df_model$YEAR, na.rm = TRUE)):(max(df_model$YEAR, na.rm = TRUE))
-    ids_with_all_years <- df_model %>%
-        filter(YEAR %in% years_required & !is.na(Y)) %>%
-        group_by(DOCTOR_ID) %>%
-        summarise(n_years = n_distinct(YEAR)) %>%
-        filter(n_years == length(years_required)) %>%
-        pull(DOCTOR_ID)
-
     #prepare the model data
-    df_model <- df_model %>% filter(DOCTOR_ID %in% ids_with_all_years, YEAR %in% years_required)
+    df_model <- df_model[is.na(Y), Y := 0]                                      # set Y to 0 where NA
     df_model$ID <- as.integer(factor(df_model$DOCTOR_ID))                       # create a numeric ID variable
-    df_model$G <- ifelse(is.na(df_model$EVENT_YEAR), 0, df_model$EVENT_YEAR)  # G = group of first treatment year, 0 for never-treated
+    df_model$G <- ifelse(is.na(df_model$EVENT_YEAR), 0, df_model$EVENT_YEAR)    # G = group of first treatment year, 0 for never-treated
     df_model$T <- df_model$YEAR    
 
     # Calculate number of cases (events) and controls
     n_cases <- length(unique(df_model[df_model$EVENT == 1, DOCTOR_ID]))
     n_controls <- length(unique(df_model[df_model$EVENT == 0, DOCTOR_ID]))
 
-    att_gt_res <- att_gt(
-        yname = "Y",
-        tname = "T",
-        idname = "ID",
-        gname = "G",
-        xformla = ~ BIRTH_YEAR + SEX + SPECIALTY,
-        data = df_model,
-        est_method = "dr",
-        control_group = "notyettreated",
-        clustervars = "ID",
-        pl = TRUE,
-        cores = N_THREADS
-    )
+    att_gt_res <- tryCatch({
+        att_gt(
+            yname = "Y",
+            tname = "T",
+            idname = "ID",
+            gname = "G",
+            xformla = ~ BIRTH_YEAR + SEX + SPECIALTY,
+            data = df_model,
+            est_method = "dr",
+            control_group = "notyettreated",
+            clustervars = "ID",
+            pl = TRUE,
+            cores = N_THREADS
+        )
+    }, error = function(e) {
+        cat(sprintf("Error processing outcome code %s: %s\n", outcome_code, e$message))
+        # Remove from results list if it exists
+        if (outcome_code %in% names(results_Y_list)) {
+            results_Y_list[[outcome_code]] <<- NULL
+        }
+        return(NULL)
+    })
+    
+    # Skip to next iteration if error occurred
+    if (is.null(att_gt_res)) {
+        next
+    }
     agg_dynamic_Y <- aggte(att_gt_res, type = "dynamic", na.rm = TRUE)
     results_Y <- data.frame(
         time = agg_dynamic_Y$egt,
@@ -167,19 +178,23 @@ data_plot <- results_combined[time >= -3 & time <= 2]
 
 # Create combined plot with all outcome codes on same panel
 p <- ggplot(data_plot, aes(x = time, y = att, color = outcome_code, group = outcome_code)) +
-    geom_line(linewidth = 0.8) +
-    geom_point(size = 2) +
+    geom_line(linewidth = 0.8, position = position_dodge(width = 0.1)) +
+    geom_errorbar(aes(ymin = att - 1.96*se, ymax = att + 1.96*se), 
+                  width = 0.3, 
+                  position = position_dodge(width = 0.3), 
+                  alpha = 0.3) + 
+    geom_point(size = 2, position = position_dodge(width = 0.3)) + 
     geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
     labs(
-        title = paste0("Effect of Statin use on their Prescription Behavior"),
+        title = "Effect of Statin use on their Prescription Behavior",
         subtitle = paste0(
             "Unique cases/controls per outcome:\n",
             paste(sapply(unique(results_combined$outcome_code), function(oc) {
-            sprintf("%s (Cases: %d, Controls: %d)\n", 
-                oc, 
-                unique(results_combined[outcome_code == oc, n_cases]),
-                unique(results_combined[outcome_code == oc, n_controls]))
-            }), collapse = "")
+                sprintf("%s (Cases: %d, Controls: %d)", 
+                    oc, 
+                    unique(results_combined[outcome_code == oc, n_cases]),
+                    unique(results_combined[outcome_code == oc, n_controls]))
+            }), collapse = "\n")
         ),
         x = "Years from Event",
         y = "Change in Prescription Behavior\n(Difference in Difference ATT)",

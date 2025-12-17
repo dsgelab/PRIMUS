@@ -130,9 +130,9 @@ df_model <- as.data.table(df_complete)[
 ]
 
 #prepare the model data
-df_model[is.na(Y), Y := 0]
+df_model[is.na(Y), Y := 0]                                                  # set Y to 0 where NA   
 df_model$ID <- as.integer(factor(df_model$DOCTOR_ID))                       # create a numeric ID variable
-df_model$G <- ifelse(is.na(df_model$EVENT_YEAR), 0, df_model$EVENT_YEAR)  # G = group of first treatment year, 0 for never-treated
+df_model$G <- ifelse(is.na(df_model$EVENT_YEAR), 0, df_model$EVENT_YEAR)    # G = group of first treatment year, 0 for never-treated
 df_model$T <- df_model$YEAR    
 
 # Split analysis by OTHER_STATIN_BEFORE
