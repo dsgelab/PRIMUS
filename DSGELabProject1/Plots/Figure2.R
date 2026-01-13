@@ -87,9 +87,6 @@ cb_palette <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2",
                 "#1B9E77", "#D95F02", "#7570B3", "#E7298A", "#66A61E", "#E6AB02")
 
 
-# Set seed for reproducible jittering in plots
-set.seed(42)
-
 # Plotting parameters
 JITTER_RANGE <- 0.3
 TOP_EXTREME_COUNT <- 10
@@ -208,6 +205,9 @@ medi_plot <- compare_IRs_crude(
 # Figure 2A
 # -----------------------------------------------------------
 
+# Set seed for reproducible jittering in plots
+set.seed(1)
+
 # Identify top 10 IRs
 top_10_overall <- diag_plot %>%
     slice_max(order_by = abs(adj_IR_1k_docs), n = TOP_EXTREME_COUNT) %>%
@@ -302,6 +302,9 @@ ggsave(
 # -----------------------------------------------------------
 # Figure 2B
 # -----------------------------------------------------------
+
+# Set seed for reproducible jittering in plots
+set.seed(1)
 
 # Identify top 10 IRs
 top_10_overall <- medi_plot %>%
@@ -399,21 +402,38 @@ ggsave(
 # Figure 2C 
 # -----------------------------------------------------------
 
-# Identify top 10 IRs - furthest above the diagonal line (doctors > general population)
-top_10_above <- medi_plot %>%
+# Set seed for reproducible jittering in plots
+set.seed(1)
+
+TOP_EXTREME_COUNT = 5
+# Identify top 5 IRs - furthest above the diagonal line (doctors > general population)
+top_above <- medi_plot %>%
     mutate(distance_from_diag = log(adj_IR_1k_docs) - log(adj_IR_1k_nondocs)) %>%
     slice_max(order_by = distance_from_diag, n = TOP_EXTREME_COUNT) %>%
     pull(CODE)
 
-# Identify top 10 IRs - furthest below the diagonal line (doctors < general population)
-top_10_below <- medi_plot %>%
+# Identify top 5 IRs - furthest below the diagonal line (doctors < general population)
+top_below <- medi_plot %>%
     mutate(distance_from_diag = log(adj_IR_1k_docs) - log(adj_IR_1k_nondocs)) %>%
     slice_min(order_by = distance_from_diag, n = TOP_EXTREME_COUNT) %>%
     pull(CODE)
 
-# Get union of top 10 above and top 10 below
-codes_to_label <- union(top_10_above, top_10_below)
-labeled_points <- medi_plot %>% filter(CODE %in% codes_to_label)
+# Select specific medications for labeling
+code_labels <- tibble(
+    CODE = c(
+        "S01EE03", "S01EC01", "H02AB09", "M03AX01", "N04BB01", "H02BX01", "D06BB03", "D10AX03", "A07DA03", "C01CA24", 
+        "M01AB08", "M01AC01", "N05AH03", "J01DA09", "M01AX17", "R05FB02", "M02AA15", "M03BC51", "M01AC06", "M01AB05"
+    ),
+    LABEL = c("bimatoprost", "acetazolamide", "hydrocortisone", "botulinum toxin","amantadine",
+              "methylprednisolone, combinations", "aciclovir", "azelaic acid", "loperamide", "epinephrine",
+              "etodolac", "piroxicam", "olanzapine ", "cefadroxil (renamed in 2005 to J01DB05)", "nimesulide ", 
+              "cough suppressants and expectorants", "diclofenac", "orphenadrine, combinations", "meloxicam", "diclofenac" 
+    )
+)
+
+# Get union of top 5 above and top 5 below
+codes_to_label <- union(top_above, top_below)
+labeled_points <- medi_plot %>% filter(CODE %in% codes_to_label) %>% inner_join(code_labels, by = "CODE")
 
 # Determine axis limits to make them equal
 axis_min <- min(medi_plot$ci_lower_docs, medi_plot$ci_lower_nondocs, na.rm = TRUE)
@@ -424,7 +444,7 @@ medi_plot <- medi_plot %>%
     mutate(
         distance_from_diag = log(adj_IR_1k_docs) - log(adj_IR_1k_nondocs),
         point_size = scales::rescale(abs(distance_from_diag), to = c(2, 6)),
-        point_alpha = scales::rescale(abs(distance_from_diag), to = c(0.3, 0.6)),
+        point_alpha = scales::rescale(abs(distance_from_diag), to = c(0.2, 0.5)),
         bar_size = scales::rescale(abs(distance_from_diag), to = c(0.3, 0.6))
     )
 
@@ -437,9 +457,9 @@ fig_2C <- ggplot(medi_plot, aes(x = adj_IR_1k_nondocs, y = adj_IR_1k_docs, color
     geom_errorbarh(aes(xmin = ci_lower_nondocs, xmax = ci_upper_nondocs, size = bar_size, alpha = point_alpha), height = 0) +
     geom_point(aes(size = point_size, alpha = point_alpha)) +
     geom_text_repel(data = labeled_points, 
-                    aes(label = CODE), 
-                    size = 4,
-                    fontface = "bold",
+                    aes(label =  paste0(CODE, ": ", LABEL)),
+                    size = 5,
+                    fontface = "bold.italic",
                     show.legend = FALSE,
                     max.overlaps = Inf,
                     min.segment.length = 0,
@@ -453,7 +473,7 @@ fig_2C <- ggplot(medi_plot, aes(x = adj_IR_1k_nondocs, y = adj_IR_1k_docs, color
     scale_alpha_identity() +
     scale_color_manual(values = cb_palette, name = "Chapter") +
     labs(
-        title = "Age & Sex Adjusted Incidence Rates (IR) - Doctors vs General Population",
+        title = "Age & Sex Adjusted Incidence Rates (IR) across Medications - Doctors vs General Population",
         subtitle = sprintf("Number of ATC codes considered: %d", nrow(medi_plot)),
         x = "Adjusted IR (per 1,000 person-years, log scale) - General Population",
         y = "Adjusted IR (per 1,000 person-years, log scale) - Doctors"
@@ -476,7 +496,7 @@ fig_2C <- ggplot(medi_plot, aes(x = adj_IR_1k_nondocs, y = adj_IR_1k_docs, color
 ggsave(
     filename = file.path(OutDir, "Figure2C.pdf"),
     plot = fig_2C,
-    width = 16,
+    width = 20,
     height = 12,
     dpi = 300
 )
@@ -484,7 +504,7 @@ ggsave(
 ggsave(
     filename = file.path(OutDir, "Figure2C.png"),
     plot = fig_2C,
-    width = 16,
+    width = 20,
     height = 12,
     dpi = 300
 )
