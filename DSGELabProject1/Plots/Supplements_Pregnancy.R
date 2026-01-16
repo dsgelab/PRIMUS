@@ -364,8 +364,6 @@ df_model = df_complete %>%
         SEX = factor(SEX, levels = c(1, 2), labels = c("Male", "Female")) # set male as reference
     )
 
-# Replace missing N values with 0s 
-df_model[is.na(N), N := 0]
 
 # Prepare the model data (monthly)
 df_model$ID <- as.integer(factor(df_model$DOCTOR_ID))                             # create a numeric ID variable
@@ -380,18 +378,45 @@ df_model <- df_model %>%
         EVENT = if_else(!is.na(SPOUSE_EVENT_DATE), 1, 0),
         EVENT_YEAR = if_else(!is.na(SPOUSE_EVENT_DATE), as.numeric(format(SPOUSE_EVENT_DATE, "%Y")), EVENT_YEAR),
         EVENT_MONTH = if_else(!is.na(SPOUSE_EVENT_DATE), (as.numeric(format(SPOUSE_EVENT_DATE, "%Y")) - 1998) * 12 + as.numeric(format(SPOUSE_EVENT_DATE, "%m")), EVENT_MONTH),
-        G = ifelse(is.na(EVENT_MONTH), 0, EVENT_MONTH)
+        G = ifelse(is.na(EVENT_MONTH), 0, EVENT_MONTH),
+        SPECIALTY = factor(SPECIALTY)
     ) %>%
     select(-SPOUSE_EVENT_DATE)
-
-# Filter to 1998-2008 timeframe
-df_model <- df_model %>%
-    filter(YEAR >= 1998 & YEAR <= 2008) %>%
-    filter(is.na(EVENT_YEAR) | (EVENT_YEAR >= 1998 & EVENT_YEAR <= 2008))
 
 # Count cases and controls
 n_cases <- df_model %>% filter(EVENT == 1) %>% pull(DOCTOR_ID) %>% unique() %>% length()
 n_controls <- df_model %>% filter(EVENT == 0) %>% pull(DOCTOR_ID) %>% unique() %>% length()
+
+# Sample 100 cases per event year, then 2x that amount of controls
+set.seed(123)
+event_years <- df_model %>%filter(EVENT == 1) %>%pull(EVENT_YEAR) %>%unique() %>% na.omit()
+n_event_years <- length(event_years)
+
+# Sample case IDs per event year using a for loop
+sampled_cases <- c()
+for (year in event_years) {
+    cases_in_year <- df_model %>%
+        filter(EVENT == 1 & EVENT_YEAR == year) %>%
+        pull(DOCTOR_ID) %>%
+        unique()
+    
+    n_to_sample <- min(100, length(cases_in_year))
+    sampled_year <- sample(cases_in_year, size = n_to_sample, replace = FALSE)
+    sampled_cases <- c(sampled_cases, sampled_year)
+}
+sampled_cases <- unique(sampled_cases)
+
+# Get unique control IDs, then sample 2 * n_event_years of them
+control_ids <- df_model %>%
+    filter(EVENT == 0) %>%
+    pull(DOCTOR_ID) %>%
+    unique()
+sampled_controls <- sample(control_ids, size = min(2 * n_event_years, length(control_ids)), replace = FALSE)
+
+# Filter df_model to only sampled IDs
+df_model <- df_model %>% filter(DOCTOR_ID %in% c(sampled_cases, sampled_controls))
+# Replace/Add missing monthly N values with 0s 
+df_model[is.na(N), N := 0]
 
 # Run DiD model
 att_gt_res <- att_gt(
@@ -399,7 +424,7 @@ att_gt_res <- att_gt(
     tname = "T",
     idname = "ID",
     gname = "G",
-    xformla = ~ BIRTH_YEAR + SPECIALTY,
+    xformla = ~ BIRTH_YEAR, #removed specialty because of small sample size
     data = df_model,
     est_method = "dr",
     control_group = "notyettreated",
@@ -431,7 +456,7 @@ combined_plot <- ggplot(results_filtered, aes(x = time, y = att)) +
     theme_minimal()
 
 ggsave(
-    filename = file.path(outdir, "Supplements_Pregnancy_ZOOM.png"),
+    filename = file.path(outdir, "Supplements_Pregnancy_ZOOM_sampled.png"),
     plot = combined_plot,
     width = 10, 
     height = 8, 
