@@ -12,20 +12,18 @@ purchases_file="$base_dir/ProcessedData/AllConnectedPurchases_FirstEvents_202504
 outcome_file="/media/volume/Projects/mattferr/did_pipeline/Outcomes_ForRatio_20250506.csv"
 covariates="$base_dir/doctor_characteristics_20250520.csv"
 
-# Event and outcome codes
-event_codes_file="$base_dir/DiD_Highthroughput/Version5/event_codes.csv"
-outcome_codes_file="$base_dir/DiD_Highthroughput/Version5/outcome_codes.csv"
-pairs_file="$base_dir/DiD_Highthroughput/Version5/event_outcome_pairs.csv"
+# Event codes
+event_codes_file="$base_dir/DiD_Highthroughput/Version3/GeneratePairs/Pairs_20251028_0707/event_codes_ICD_20251028_0707.csv"
 
 # Output directories
 today=$(date '+%Y%m%d')
-experiment_dir="$base_dir/DiD_Experiments/Version5_Highthroughput"
-processed_events_dir="$experiment_dir/ProcessedEvents_${today}"
-processed_outcomes_dir="$experiment_dir/ProcessedOutcomes_${today}"
+experiment_dir="$base_dir/DiD_Experiments/Version3_Highthroughput_drop"
+processed_events_dir="$base_dir/DiD_Experiments/Version2_Highthroughput_drop/ProcessedEvents_20251028"
+processed_outcomes_dir="$base_dir/DiD_Experiments/Version2_Highthroughput_drop/ProcessedOutcomes_20251028"
 results_dir="$experiment_dir/Results"
 
 # Create directories
-mkdir -p "$processed_events_dir" "$processed_outcomes_dir" "$results_dir"
+mkdir -p "$results_dir"
 
 # ------------------------------------------------
 # PIPELINE EXECUTION
@@ -33,9 +31,8 @@ mkdir -p "$processed_events_dir" "$processed_outcomes_dir" "$results_dir"
 
 pipeline_start_time=$SECONDS
 
-# ------------------------------------------------
 # STEP 1: Process all events
-# ------------------------------------------------
+
 echo ""
 echo "=== STEP 1: Processing Events ==="
 step1_start_time=$SECONDS
@@ -43,7 +40,7 @@ step1_start_time=$SECONDS
 if [[ -f "$processed_events_dir/processed_events.parquet" ]]; then
     echo "Processed events already exist, skipping..."
 else
-    python3 "$base_dir/DiD_Highthroughput/Version5/Step1_ProcessEvents.py" \
+    python3 "$base_dir/DiD_Highthroughput_Diagnosis/ProcessEvents.py" \
         --id_list "$list_of_doctors" \
         --diagnosis_file "$diagnosis_file" \
         --purchases_file "$purchases_file" \
@@ -54,9 +51,9 @@ fi
 step1_end_time=$SECONDS
 echo "Step 1 completed in $(($step1_end_time - $step1_start_time)) seconds"
 
-# ------------------------------------------------
+
 # STEP 2: Process all outcomes
-# ------------------------------------------------
+
 echo ""
 echo "=== STEP 2: Processing Outcomes ==="
 step2_start_time=$SECONDS
@@ -68,7 +65,7 @@ mkdir -p "$temp_dir"
 if [[ -f "$processed_outcomes_dir/processed_outcomes.parquet" ]]; then
     echo "Processed outcomes already exist, skipping..."
 else
-    python3 "$base_dir/DiD_Highthroughput/Version5/Step2_ProcessOutcomes.py" \
+    python3 "$base_dir/DiD_Highthroughput_Diagnosis/ProcessOutcomes.py" \
         --id_list "$list_of_doctors" \
         --outcome_file "$outcome_file" \
         --outcome_codes "$outcome_codes_file" \
@@ -81,69 +78,57 @@ fi
 step2_end_time=$SECONDS
 echo "Step 2 completed in $(($step2_end_time - $step2_start_time)) seconds"
 
-# ------------------------------------------------
-# Copy event and outcome codes into processed folders
-# ------------------------------------------------
-cp "$event_codes_file" "$processed_events_dir/"
-cp "$outcome_codes_file" "$processed_outcomes_dir/"
+# STEP 3: Run analysis script
 
-# ------------------------------------------------
-# STEP 3: Run DiD analysis for specified pairs only
-# ------------------------------------------------
 echo ""
-echo "=== STEP 3: Running DiD Analysis for Specified Pairs ==="
+echo "=== STEP 3: Running Drop Analysis for Event Codes ==="
 step3_start_time=$SECONDS
 
-# Read pairs from CSV file (no header, format: event_code,outcome_code)
-declare -a event_codes
-declare -a outcome_codes
-
-while IFS=',' read -r event_code outcome_code; do
+# Read event codes from file (skip header if present)
+event_codes=()
+while IFS=',' read -r event_code _; do
+    [[ "$event_code" == "EVENT_CODE" ]] && continue
     event_codes+=("$event_code")
-    outcome_codes+=("$outcome_code")
-done < "$pairs_file"
+done < "$event_codes_file"
 
-total_pairs=${#event_codes[@]}
-echo "Total pairs to analyze: $total_pairs"
+total_events=${#event_codes[@]}
+echo "Total event codes to analyze: $total_events"
 
-# Initialize results file as CSV
-results_file="$results_dir/Results_ATC_${today}.csv"
-echo "EVENT_CODE,OUTCOME_CODE,AVG_EFFECT_BEFORE,AVG_SE_BEFORE,AVG_EFFECT_AFTER,AVG_SE_AFTER,N_CASES,N_CONTROLS" > "$results_file"
+# Initialize results file with correct header
+results_file="$results_dir/Results_${today}.csv"
+echo "EVENT_CODE,ATT_DROP,SE_DROP,N_CASES,N_CONTROLS" > "$results_file"
 
-successful_pairs=0
-failed_pairs=0
+successful_events=0
+failed_events=0
 
-# Loop through specified event-outcome pairs
-for ((i=0; i<total_pairs; i++)); do
+for ((i=0; i<total_events; i++)); do
     event_code="${event_codes[i]}"
-    outcome_code="${outcome_codes[i]}"
-    pair_count=$((i + 1))
-    
-    echo ""
-    echo "--- Pair $pair_count/$total_pairs: $event_code -> $outcome_code ---"
-    pair_start_time=$SECONDS
+    event_count=$((i + 1))
 
-    # Run DiD analysis and save results to results file
-    Rscript --vanilla "$base_dir/DiD_Highthroughput/Version5/DiD_analysis_highthroughput.R" \
-        "$processed_events_dir/processed_events.parquet" \
-        "$processed_outcomes_dir/processed_outcomes.parquet" \
-        "$event_code" \
-        "$outcome_code" \
+    echo ""
+    echo "--- Event $event_count/$total_events: $event_code ---"
+    event_start_time=$SECONDS
+
+    # Run DropAnalysis.R for each event code
+    Rscript --vanilla "$base_dir/DiD_Highthroughput_Diagnosis/did_analysis_diagnosis.R" \
         "$list_of_doctors" \
+        "$processed_events_dir/processed_events.parquet" \
+        "$event_code" \
+        "$processed_outcomes_dir/processed_outcomes.parquet" \
         "$covariates" \
         "$results_file"
 
     exit_code=$?
 
-    pair_end_time=$SECONDS
-    pair_duration=$((pair_end_time - pair_start_time))
+    event_end_time=$SECONDS
+    event_duration=$((event_end_time - event_start_time))
 
     if [[ $exit_code -eq 0 ]]; then
-        echo "✓ Pair completed successfully in $pair_duration seconds"
-        successful_pairs=$((successful_pairs + 1))
+        echo "✓ Event completed successfully in $event_duration seconds"
+        successful_events=$((successful_events + 1))
     else
-        echo "✗ Pair failed or was skipped in $pair_duration seconds"
-        failed_pairs=$((failed_pairs + 1))
+        echo "✗ Event failed or was skipped in $event_duration seconds"
+        failed_events=$((failed_events + 1))
     fi
 done
 
@@ -160,9 +145,9 @@ total_duration=$((pipeline_end_time - pipeline_start_time))
 echo ""
 echo "=== PIPELINE SUMMARY ==="
 echo "Total duration: $total_duration seconds ($((total_duration / 60)) minutes)"
-echo "Pairs analyzed: $total_pairs"
-echo "Successful pairs: $successful_pairs"
-echo "Failed / skipped pairs: $failed_pairs"
+echo "Pairs analyzed: $total_events"
+echo "Successful pairs: $successful_events"
+echo "Failed / skipped pairs: $failed_events"
 echo ""
 echo "Results saved to: $results_file"
 echo ""

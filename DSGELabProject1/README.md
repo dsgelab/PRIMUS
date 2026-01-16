@@ -1,12 +1,20 @@
-# Last updated: 14.02.2025
+Last updated: 16 Jan 2026
 
-# Project members:
-Matteo Ferro, Jakob German
+# Research question
+Effect of health-related events on doctor prescriptions
+- How do disease diagnoses affect the overall prescription of doctors?
+- Does the use of a medication influence doctors' prescribing behavior regarding that same medication?
 
-# Project Research question:
-Do doctors’ health events shape their prescribing patterns and patient outcomes?
+# Folder structure
+```
+DSGELabProject1/
+├── README.md
+├── Data_Processing_Scripts/
+├── jg_scripts/
+├── DiD_Diagnosis/
+├── DiD_Medication/
+└── Plots/
+```
 
-# Project scripts:
-This folder contains all the scripts used to perform the analysis:
+Processing of the PRIMUS dataset for the project analysis can be found in folder _Data_Processing_Scripts_. Staggered Difference in Difference (DiD) analysis pipelines can be found in _DiD_Diagnosis_ and _DiD_Medication_. Plotting scripts, including those for manuscript figures can be found in _Plots_ folder. Moreover, some extra analysis plots and data processing can be found in the _jg_scripts_ folder
 
-TODO
