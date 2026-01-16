@@ -1,30 +1,26 @@
 suppressPackageStartupMessages({
     library(data.table)
     library(ggplot2)
-
 })
 
 # Configuration
-INPUT_DIR <- "/media/volume/Projects/DSGELabProject1/DiD_Highthroughput/Version3/GeneratePairs/Pairs_20251028_0707/"  
+INPUT_DIR <- "/media/volume/Projects/DSGELabProject1/ProcessedData/Pairs_20251028/"  
 OUTPUT_DIR <- INPUT_DIR
 
 # Input files
 atc_file <- file.path(INPUT_DIR, "ATC_AllCounts.csv")
 icd_file <- file.path(INPUT_DIR, "ICD_AllCounts.csv")
-
 # Output files
-atc_output <- file.path(OUTPUT_DIR, paste0("ATC_codes_20251028_0707.csv"))
-icd_output <- file.path(OUTPUT_DIR, paste0("ICD_codes_20251028_0707.csv"))
+atc_output <- file.path(OUTPUT_DIR, paste0("ATC_codes_20251028.csv"))
+icd_output <- file.path(OUTPUT_DIR, paste0("ICD_codes_20251028.csv"))
 
 # Plot impact of different thresholds on amount of events retained
 cat("Loading data for threshold analysis...\n")
 atc_all <- fread(atc_file)
 icd_all <- fread(icd_file)
-
 # Test thresholds from 100 to max count in steps of 100
 max_threshold <- max(c(max(atc_all$UNIQUE_ID_COUNT), max(icd_all$UNIQUE_ID_COUNT)))
 thresholds <- seq(100, max_threshold, by = 100)
-
 # Calculate number of codes retained at each threshold
 threshold_results <- data.table(
     threshold = thresholds,
@@ -41,10 +37,11 @@ p <- ggplot(threshold_long[threshold <= 10000], aes(x = threshold, y = count, co
     labs(x = "Minimum N of events required (thresholds)", y = "Number of Codes Retained ",color = "Code Type") +
     theme_minimal() +
     theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
 ggsave(file.path(OUTPUT_DIR, "threshold_analysis.png"), p, width = 12, height = 6)
 
+# Set threshold for filtering
 THRESHOLD <- 300 
+
 # Read and filter ATC codes
 cat("Processing ATC codes...\n")
 atc <- fread(atc_file)
@@ -57,14 +54,14 @@ icd <- fread(icd_file)
 icd_filtered <- icd[UNIQUE_ID_COUNT >= THRESHOLD & CODE != ""]
 fwrite(icd_filtered[, .(CODE)], icd_output, col.names = FALSE, quote = FALSE)
 
-# Use this section to generate the input for drop analysis if needed
+# Generate list of ICD10 diagnosis codes for DiD analysis
 icd_filtered$NewCode <- paste0("Diag_", icd_filtered$CODE)
-outfile = file.path("/media/volume/Projects/DSGELabProject1/DiD_Highthroughput/Version2_drop/list_of_codes_20251028.csv")
+outfile = file.path("/media/volume/Projects/DSGELabProject1/DiD_Diagnosis/event_codes_ICD_20251028.csv")
 fwrite(icd_filtered[, .(NewCode)], outfile, col.names = FALSE, quote = FALSE)
 
-# Use this section to generate event-outcome pairs for change in behaviour analysis
-event_output <- file.path(OUTPUT_DIR, paste0("event_codes_ATC_20251028_0707.csv"))
-pairs_output <- file.path(OUTPUT_DIR, paste0("event_outcome_pairs_ATC_20251028_0707.csv"))
+# Generate event and event-outcome pair ATC codes for DiD analysis
+event_output <- file.path("/media/volume/Projects/DSGELabProject1/DiD_Medications/event_codes_ATC_20251028.csv")
+pairs_output <- file.path("/media/volume/Projects/DSGELabProject1/DiD_Medications/event_outcome_pairs_ATC_20251028.csv")
 atc_events <- data.table(event = paste0("Purch_", atc_filtered$CODE))
 fwrite(atc_events, event_output, col.names = FALSE, quote = FALSE)
 atc_pairs <- data.table(

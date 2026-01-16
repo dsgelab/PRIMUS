@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Global configuration
-DATE=$(date +%Y%m%d_%H%M)
-BASE_DIR="/media/volume/Projects/DSGELabProject1/DiD_Highthroughput/Version3/GeneratePairs"
+DATE=$(date +%Y%m%d)
+BASE_DIR="/media/volume/Projects/DSGELabProject1/ProcessedData/"
 OUTPUT_DIR="${BASE_DIR}/Pairs_${DATE}"
 TEMP_DIR="${OUTPUT_DIR}/temp"
 N_THREADS=10
