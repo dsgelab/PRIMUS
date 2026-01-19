@@ -6,33 +6,36 @@ base_dir='/media/volume/Projects/DSGELabProject1'
 
 # Input files
 list_of_doctors="$base_dir/doctors_20250424.csv"
-list_of_doctors_spouses_children="$base_dir/doctors_and_spouses+children_20250521.csv"
 diagnosis_file="$base_dir/ProcessedData/AllConnectedDiagnosis_20250528.csv"
-purchases_file="$base_dir/ProcessedData/AllConnectedPurchases_FirstEvents_20250421.csv"
-outcome_file="/media/volume/Projects/mattferr/did_pipeline/Outcomes_ForRatio_20250506.csv"
+purchases_file="$base_dir/ProcessedData/AllConnectedPurchases_FirstEvents_20250421.csv" # see NOTE below
+outcome_file="$base_dir/ProcessedData/Outcomes_20250506.csv"
 covariates="$base_dir/doctor_characteristics_20250520.csv"
+renamed_ATC_file="/media/volume/Projects/ATC_renamed_codes.csv"
 
 # Event and outcome codes
-event_codes_file="$base_dir/DiD_Highthroughput/Version3/GeneratePairs/Pairs_251008_0712/event_codes_ATC_251008_0712.csv"
-outcome_codes_file="$base_dir/DiD_Highthroughput/Version3/GeneratePairs/Pairs_251008_0712/outcome_codes_ATC_251008_0712.csv"
-pairs_file="$base_dir/DiD_Highthroughput/Version3/GeneratePairs/Pairs_251008_0712/event_outcome_pairs_ATC_251008_0712.csv"
+event_codes_file="$base_dir/DiD_Medications/event_codes_ATC_251008.csv"
+outcome_codes_file="$base_dir/ProcessedData/Pairs_20251028/ATC_codes_20251028.csv"
+pairs_file="$base_dir/DiD_Medications/event_outcome_pairs_ATC_251008.csv"
 
 # Output directories
 today=$(date '+%Y%m%d')
-experiment_dir="$base_dir/DiD_Experiments/Version3_Highthroughput"
-processed_events_dir="$experiment_dir/ProcessedEvents_${today}"
-processed_outcomes_dir="$experiment_dir/ProcessedOutcomes_${today}"
-results_dir="$experiment_dir/Results"
+experiment_dir="$base_dir/DiD_Experiments/DiD_Medications_${today}"
+processed_events_dir="${experiment_dir}/ProcessedEvents_${today}"
+processed_outcomes_dir="${experiment_dir}/ProcessedOutcomes_${today}"
+results_dir="${experiment_dir}/Results_${today}"
 
 # Create directories
 mkdir -p "$processed_events_dir" "$processed_outcomes_dir" "$results_dir"
+
+# NOTE: 
+# ProcessEvents.py will filter only first events, but for speed purposes the AllConnectedPurchases file 
+# was already pre-filtered to decrease data size, this step can be skipped if data size is small
 
 # ------------------------------------------------
 # PIPELINE EXECUTION
 # ------------------------------------------------
 
 pipeline_start_time=$SECONDS
-
 
 # STEP 1: Process all events
 
@@ -86,13 +89,12 @@ cp "$event_codes_file" "$processed_events_dir/"
 cp "$outcome_codes_file" "$processed_outcomes_dir/"
 
 # STEP 3: Run DiD analysis for specified pairs only
-
+ 
 echo ""
 echo "=== STEP 3: Running DiD Analysis for Specified Pairs ==="
 step3_start_time=$SECONDS
 
-# Read pairs from CSV file (no header, format: event_code,outcome_code)
-
+# Read pairs from pairs CSV file (no header, format: event_code,outcome_code)
 declare -a event_codes
 declare -a outcome_codes
 
@@ -129,7 +131,8 @@ for ((i=0; i<total_pairs; i++)); do
         "$outcome_code" \
         "$list_of_doctors" \
         "$covariates" \
-        "$results_file"
+        "$results_file" \
+        "$renamed_ATC_file"
 
     exit_code=$?
 
