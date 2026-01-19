@@ -6,24 +6,27 @@ base_dir='/media/volume/Projects/DSGELabProject1'
 
 # Input files
 list_of_doctors="$base_dir/doctors_20250424.csv"
-list_of_doctors_spouses_children="$base_dir/doctors_and_spouses+children_20250521.csv"
 diagnosis_file="$base_dir/ProcessedData/AllConnectedDiagnosis_20250528.csv"
-purchases_file="$base_dir/ProcessedData/AllConnectedPurchases_FirstEvents_20250421.csv"
-outcome_file="/media/volume/Projects/mattferr/did_pipeline/Outcomes_ForRatio_20250506.csv"
+purchases_file="$base_dir/ProcessedData/AllConnectedPurchases_FirstEvents_20250421.csv" # see NOTE below
+outcome_file="$base_dir/ProcessedData/Outcomes_20250506.csv"
 covariates="$base_dir/doctor_characteristics_20250520.csv"
 
 # Event codes
-event_codes_file="$base_dir/DiD_Highthroughput/Version3/GeneratePairs/Pairs_20251028_0707/event_codes_ICD_20251028_0707.csv"
+event_codes_file="$base_dir/DiD_Diagnosis/event_codes_ICD_20251028.csv"
 
 # Output directories
 today=$(date '+%Y%m%d')
-experiment_dir="$base_dir/DiD_Experiments/Version3_Highthroughput_drop"
-processed_events_dir="$base_dir/DiD_Experiments/Version2_Highthroughput_drop/ProcessedEvents_20251028"
-processed_outcomes_dir="$base_dir/DiD_Experiments/Version2_Highthroughput_drop/ProcessedOutcomes_20251028"
-results_dir="$experiment_dir/Results"
+experiment_dir="$base_dir/DiD_Experiments/DiD_Diagnosis_${today}"
+processed_events_dir="${experiment_dir}/ProcessedEvents_${today}"
+processed_outcomes_dir="${experiment_dir}/ProcessedOutcomes_${today}"
+results_dir="${experiment_dir}/Results_${today}"
 
 # Create directories
-mkdir -p "$results_dir"
+mkdir -p "$processed_events_dir" "$processed_outcomes_dir" "$results_dir"
+
+# NOTE: 
+# ProcessEvents.py will filter only first events, but for speed purposes the AllConnectedPurchases file 
+# was already pre-filtered to decrease data size, this step can be skipped if data size is small
 
 # ------------------------------------------------
 # PIPELINE EXECUTION
@@ -40,7 +43,7 @@ step1_start_time=$SECONDS
 if [[ -f "$processed_events_dir/processed_events.parquet" ]]; then
     echo "Processed events already exist, skipping..."
 else
-    python3 "$base_dir/DiD_Highthroughput_Diagnosis/ProcessEvents.py" \
+    python3 "$base_dir/DiD_Diagnosis/ProcessEvents.py" \
         --id_list "$list_of_doctors" \
         --diagnosis_file "$diagnosis_file" \
         --purchases_file "$purchases_file" \
@@ -51,8 +54,8 @@ fi
 step1_end_time=$SECONDS
 echo "Step 1 completed in $(($step1_end_time - $step1_start_time)) seconds"
 
-
 # STEP 2: Process all outcomes
+# NOTE: ProcessOutcomes.py file is different between diagnosis and medications pipeline
 
 echo ""
 echo "=== STEP 2: Processing Outcomes ==="
@@ -65,14 +68,10 @@ mkdir -p "$temp_dir"
 if [[ -f "$processed_outcomes_dir/processed_outcomes.parquet" ]]; then
     echo "Processed outcomes already exist, skipping..."
 else
-    python3 "$base_dir/DiD_Highthroughput_Diagnosis/ProcessOutcomes.py" \
+    python3 "$base_dir/DiD_Diagnosis/ProcessOutcomes.py" \
         --id_list "$list_of_doctors" \
         --outcome_file "$outcome_file" \
-        --outcome_codes "$outcome_codes_file" \
-        --outdir "$processed_outcomes_dir" \
-        --method chunked \
-        --chunk_size 1000000 \
-        --temp_dir "$temp_dir"
+        --outdir "$processed_outcomes_dir"
 fi
 
 step2_end_time=$SECONDS
@@ -95,7 +94,7 @@ total_events=${#event_codes[@]}
 echo "Total event codes to analyze: $total_events"
 
 # Initialize results file with correct header
-results_file="$results_dir/Results_${today}.csv"
+results_file="$results_dir/Results.csv"
 echo "EVENT_CODE,ATT_DROP,SE_DROP,N_CASES,N_CONTROLS" > "$results_file"
 
 successful_events=0
@@ -110,7 +109,7 @@ for ((i=0; i<total_events; i++)); do
     event_start_time=$SECONDS
 
     # Run DropAnalysis.R for each event code
-    Rscript --vanilla "$base_dir/DiD_Highthroughput_Diagnosis/did_analysis_diagnosis.R" \
+    Rscript --vanilla "$base_dir/DiD_Diagnosis/did_analysis_diagnosis.R" \
         "$list_of_doctors" \
         "$processed_events_dir/processed_events.parquet" \
         "$event_code" \
