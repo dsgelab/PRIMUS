@@ -3,33 +3,36 @@
 # ------------------------------------------------
 
 base_dir='/media/volume/Projects/DSGELabProject1'
+today=$(date '+%Y%m%d')
 
 # Input files
-list_of_doctors="$base_dir/doctors_20250424.csv"
-diagnosis_file="$base_dir/ProcessedData/AllConnectedDiagnosis_20250528.csv"
-purchases_file="$base_dir/ProcessedData/AllConnectedPurchases_FirstEvents_20250421.csv" # see NOTE below
-outcome_file="$base_dir/ProcessedData/Outcomes_20250506.csv"
-covariates="$base_dir/doctor_characteristics_20250520.csv"
+list_of_doctors="${base_dir}/doctors_20250424.csv"
+diagnosis_file="${base_dir}/ProcessedData/AllConnectedDiagnosis_20250528.csv"
+purchases_file="${base_dir}/ProcessedData/AllConnectedPurchases_FirstEvents_20250421.csv"
+outcome_file="${base_dir}/ProcessedData/Outcomes_20250506.csv"
+covariates="${base_dir}/doctor_characteristics_20250520.csv"
 renamed_ATC_file="/media/volume/Projects/ATC_renamed_codes.csv"
 
 # Event and outcome codes
-event_codes_file="$base_dir/DiD_Medications/event_codes_ATC_251008.csv"
-outcome_codes_file="$base_dir/ProcessedData/Pairs_20251028/ATC_codes_20251028.csv"
-pairs_file="$base_dir/DiD_Medications/event_outcome_pairs_ATC_251008.csv"
+event_codes_file="${base_dir}/DiD_Medications/event_codes_ATC_20251028.csv"
+outcome_codes_file="${base_dir}/DiD_Medications/outcome_codes_ATC_20251028.csv"
+pairs_file="${base_dir}/DiD_Medications/event_outcome_pairs_ATC_20251028.csv"
 
 # Output directories
-today=$(date '+%Y%m%d')
-experiment_dir="$base_dir/DiD_Experiments/DiD_Medications_${today}"
+experiment_dir="${base_dir}/DiD_Experiments/DiD_Medications_${today}"
 processed_events_dir="${experiment_dir}/ProcessedEvents_${today}"
 processed_outcomes_dir="${experiment_dir}/ProcessedOutcomes_${today}"
 results_dir="${experiment_dir}/Results_${today}"
 
 # Create directories
-mkdir -p "$processed_events_dir" "$processed_outcomes_dir" "$results_dir"
+mkdir -p "${processed_events_dir}" "${processed_outcomes_dir}" "${results_dir}"
 
 # NOTE: 
 # ProcessEvents.py will filter only first events, but for speed purposes the AllConnectedPurchases file 
 # was already pre-filtered to decrease data size, this step can be skipped if data size is small
+
+# NOTE 2:
+# Some ATC codes have been renamed during the years, to ensure continuity 12 extra codes were manually added to original "event and outcome codes" files
 
 # ------------------------------------------------
 # PIPELINE EXECUTION
@@ -43,15 +46,15 @@ echo ""
 echo "=== STEP 1: Processing Events ==="
 step1_start_time=$SECONDS
 
-if [[ -f "$processed_events_dir/processed_events.parquet" ]]; then
+if [[ -f "${processed_events_dir}/processed_events.parquet" ]]; then
     echo "Processed events already exist, skipping..."
 else
-    python3 "$base_dir/DiD_Highthroughput_Medications/ProcessEvents.py" \
-        --id_list "$list_of_doctors" \
-        --diagnosis_file "$diagnosis_file" \
-        --purchases_file "$purchases_file" \
-        --event_codes "$event_codes_file" \
-        --outdir "$processed_events_dir"
+    python3 "${base_dir}/DiD_Medications/ProcessEvents.py" \
+        --id_list "${list_of_doctors}" \
+        --diagnosis_file "${diagnosis_file}" \
+        --purchases_file "${purchases_file}" \
+        --event_codes "${event_codes_file}" \
+        --outdir "${processed_events_dir}"
 fi
 
 step1_end_time=$SECONDS
@@ -65,28 +68,28 @@ echo "=== STEP 2: Processing Outcomes ==="
 step2_start_time=$SECONDS
 
 # Create temp directory for chunked processing
-temp_dir="$processed_outcomes_dir/temp"
-mkdir -p "$temp_dir"
+temp_dir="${processed_outcomes_dir}/temp"
+mkdir -p "${temp_dir}"
 
-if [[ -f "$processed_outcomes_dir/processed_outcomes.parquet" ]]; then
+if [[ -f "${processed_outcomes_dir}/processed_outcomes.parquet" ]]; then
     echo "Processed outcomes already exist, skipping..."
 else
-    python3 "$base_dir/DiD_Highthroughput_Medications/ProcessOutcomes.py" \
-        --id_list "$list_of_doctors" \
-        --outcome_file "$outcome_file" \
-        --outcome_codes "$outcome_codes_file" \
-        --outdir "$processed_outcomes_dir" \
+    python3 "${base_dir}/DiD_Medications/ProcessOutcomes.py" \
+        --id_list "${list_of_doctors}" \
+        --outcome_file "${outcome_file}" \
+        --outcome_codes "${outcome_codes_file}" \
+        --outdir "${processed_outcomes_dir}" \
         --method chunked \
         --chunk_size 1000000 \
-        --temp_dir "$temp_dir"
+        --temp_dir "${temp_dir}"
 fi
 
 step2_end_time=$SECONDS
 echo "Step 2 completed in $(($step2_end_time - $step2_start_time)) seconds"
 
 # Copy event and outcome codes into processed folders
-cp "$event_codes_file" "$processed_events_dir/"
-cp "$outcome_codes_file" "$processed_outcomes_dir/"
+cp "${event_codes_file}" "${processed_events_dir}/"
+cp "${outcome_codes_file}" "${processed_outcomes_dir}/"
 
 # STEP 3: Run DiD analysis for specified pairs only
  
@@ -101,14 +104,14 @@ declare -a outcome_codes
 while IFS=',' read -r event_code outcome_code; do
     event_codes+=("$event_code")
     outcome_codes+=("$outcome_code")
-done < "$pairs_file"
+done < "${pairs_file}"
 
 total_pairs=${#event_codes[@]}
 echo "Total pairs to analyze: $total_pairs"
 
 # Initialize results file as CSV
-results_file="$results_dir/Results_ATC_${today}.csv"
-echo "EVENT_CODE,OUTCOME_CODE,AVG_EFFECT_BEFORE,AVG_SE_BEFORE,AVG_EFFECT_AFTER,AVG_SE_AFTER,N_CASES,N_CONTROLS" > "$results_file"
+results_file="${results_dir}/Results_ATC_${today}.csv"
+echo "EVENT_CODE,OUTCOME_CODE,ABS_CHANGE,REL_CHANGE,ABS_CHANGE_SE,REL_CHANGE_SE,N_CASES,N_CONTROLS" > "${results_file}"
 
 successful_pairs=0
 failed_pairs=0
@@ -124,15 +127,15 @@ for ((i=0; i<total_pairs; i++)); do
     pair_start_time=$SECONDS
 
     # Run DiD analysis and save results to results file
-    Rscript --vanilla "$base_dir/DiD_Highthroughput_Medications/did_analysis_medications.R" \
-        "$processed_events_dir/processed_events.parquet" \
-        "$processed_outcomes_dir/processed_outcomes.parquet" \
+    Rscript --vanilla "${base_dir}/DiD_Medications/analysis_medications.R" \
+        "${processed_events_dir}/processed_events.parquet" \
+        "${processed_outcomes_dir}/processed_outcomes.parquet" \
         "$event_code" \
         "$outcome_code" \
-        "$list_of_doctors" \
-        "$covariates" \
-        "$results_file" \
-        "$renamed_ATC_file"
+        "${list_of_doctors}" \
+        "${covariates}" \
+        "${results_file}" \
+        "${renamed_ATC_file}"
 
     exit_code=$?
 
@@ -160,11 +163,11 @@ total_duration=$((pipeline_end_time - pipeline_start_time))
 
 echo ""
 echo "=== PIPELINE SUMMARY ==="
-echo "Total duration: $total_duration seconds ($((total_duration / 60)) minutes)"
-echo "Pairs analyzed: $total_pairs"
-echo "Successful pairs: $successful_pairs"
-echo "Failed / skipped pairs: $failed_pairs"
+echo "Total duration: ${total_duration} seconds ($((total_duration / 60)) minutes)"
+echo "Pairs analyzed: ${total_pairs}"
+echo "Successful pairs: ${successful_pairs}"
+echo "Failed / skipped pairs: ${failed_pairs}"
 echo ""
-echo "Results saved to: $results_file"
+echo "Results saved to: ${results_file}"
 echo ""
 echo "=== PIPELINE COMPLETED ==="

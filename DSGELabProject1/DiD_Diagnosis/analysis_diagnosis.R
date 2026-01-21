@@ -79,8 +79,6 @@ df_complete[, `:=`(
 PENSION_AGE = 60
 events_after_pension = df_complete[AGE_AT_EVENT > PENSION_AGE & !is.na(AGE_AT_EVENT), unique(DOCTOR_ID)]
 df_complete = df_complete[!(DOCTOR_ID %in% events_after_pension) & AGE <= PENSION_AGE]
-# Replace missing N values with 0s 
-df_complete[is.na(N), N := 0]
 # final model data
 df_model <- as.data.table(df_complete)[
     , `:=`(
@@ -88,6 +86,8 @@ df_model <- as.data.table(df_complete)[
         SEX = factor(SEX, levels = c(1, 2), labels = c("Male", "Female"))
     )
 ]
+# Replace missing N values with 0s 
+df_model[is.na(N), N := 0]
 # prepare variables as requested by did package
 df_model$ID <- as.integer(factor(df_model$DOCTOR_ID))                      
 df_model$G <- ifelse(is.na(df_model$EVENT_YEAR), 0, df_model$EVENT_YEAR)    

@@ -50,7 +50,7 @@ if (event_actual_code %in% renamed_ATC$ATC_OLD) {
 if (event_actual_code %in% renamed_ATC$ATC_NEW) {
     old_codes = renamed_ATC[ATC_NEW == event_actual_code, ATC_OLD]
     events[CODE %in% old_codes, CODE := event_actual_code]
-    cat(paste0("Event code ", event_actual_code, " is a new code. Renaming other codes ", paste(old_codes, collapse = ", "), " to the new one.\n"))
+    cat(paste0("Event code ", event_actual_code, " is a new code. Renaming other codes {", paste(old_codes, collapse = ", "), "} to the new one.\n"))
 }
 events <- events[startsWith(CODE, event_actual_code)]
 event_ids <- unique(events$PATIENT_ID)
@@ -65,6 +65,15 @@ if (outcome_code %in% renamed_ATC$ATC_NEW) {
     # Loop through each old code and stack them
     for(old_code in old_codes) {
         outcome_cols2 = c("DOCTOR_ID", "YEAR", paste0("N_", old_code), paste0("Y_", old_code), paste0("first_year_", old_code), paste0("last_year_", old_code))
+        
+        # Check if required columns exist in the parquet file
+        available_cols <- names(read_parquet(outcomes_file, col_select = 1))
+        required_cols <- c(paste0("N_", old_code), paste0("Y_", old_code))
+        if (!all(required_cols %in% available_cols)) {
+            cat(paste0("Old ATC code ", old_code, " is not available in the predefined set of event codes. Please manually add to all \"codes\" files to make the pipeline work correctly.\n"))
+            next
+        }
+         
         outcomes2 = as.data.table(read_parquet(outcomes_file, col_select = outcome_cols2))     
         setnames(outcomes2, 
             old = c(paste0("N_", old_code), paste0("Y_", old_code), paste0("first_year_", old_code), paste0("last_year_", old_code)),
@@ -131,8 +140,6 @@ df_complete <- df_complete[is.na(EVENT_YEAR) | (EVENT_YEAR >= buffered_min_year 
 PENSION_AGE = 60
 events_after_pension = df_complete[AGE_AT_EVENT > PENSION_AGE & !is.na(AGE_AT_EVENT), unique(DOCTOR_ID)]
 df_complete = df_complete[!(DOCTOR_ID %in% events_after_pension) & AGE <= PENSION_AGE]
-# Replace missing Y values with 0s 
-df_complete[is.na(Y), Y := 0]
 # final model data
 df_model <- as.data.table(df_complete)[
     , `:=`(
@@ -142,6 +149,8 @@ df_model <- as.data.table(df_complete)[
         Ni = get(paste0("N_", outcome_code))
     )
 ]
+# Replace missing Y values with 0s 
+df_model[is.na(Y), Y := 0]
 # prepare variables as requested by did package
 df_model$ID <- as.integer(factor(df_model$DOCTOR_ID))                      
 df_model$G <- ifelse(is.na(df_model$EVENT_YEAR), 0, df_model$EVENT_YEAR)    
@@ -161,7 +170,7 @@ cat("Events per year: [", events_year_str, "]\n")
 # STEP 5: DiD Analysis using 'did' package
 
 att_gt_res <- att_gt(
-    yname = "N",
+    yname = "Y",
     tname = "T",
     idname = "ID",
     gname = "G",
@@ -181,28 +190,43 @@ results <- data.frame(
     se = agg_dynamic$se.egt
 )
 
-# For medications results will consider ATT and SE in  a 3 year window before and after event (t=0)
-# Average effect and SE before event (-3,-2,-1)
+# For medications results will consider ATT and SE in a 3 year window before and after event (t=0)
+
+# Average effect before event (-3,-2,-1)
 before_idx <- results$time %in% c(-3, -2, -1)
 avg_effect_before <- mean(results$att[before_idx], na.rm = TRUE)
-avg_se_before <- sqrt(mean(results$se[before_idx]^2, na.rm = TRUE))
-# Average effect and SE at and after event (1,2,3)
+# Average effect after event (+1,+2,+3)
 after_idx <- results$time %in% c(1, 2, 3)
 avg_effect_after <- mean(results$att[after_idx], na.rm = TRUE)
-avg_se_after <- sqrt(mean(results$se[after_idx]^2, na.rm = TRUE))
+# Compute 3-year-window metric, both absolute value and relative value
+absolute_change <- avg_effect_after - avg_effect_before
+relative_change <- ifelse(avg_effect_before == 0, NA, avg_effect_after / avg_effect_before)
+
+# SE estimation for absolute change
+# NOTE: no vcov matrix returned by did package unfortunately, will assume independence across time points
+se_post <- sqrt(sum(results$se[after_idx]^2)) / 3
+se_pre <- sqrt(sum(results$se[before_idx]^2)) / 3
+absolute_change_se <- sqrt(se_post^2 + se_pre^2)
+
+# SE estimation for relative change
+# NOTE: no vcov matrix returned by did package unfortunately, will assume independence across time points
+se_post <- sqrt(sum(results$se[after_idx]^2)) / 3
+se_pre <- sqrt(sum(results$se[before_idx]^2)) / 3
+# Delta method for ratio: SE(Y/X) ≈ sqrt((SE_Y/X)^2 + (Y*SE_X/X^2)^2)
+relative_change_se <- sqrt((se_post / avg_effect_before)^2 + (avg_effect_after * se_pre / avg_effect_before^2)^2)
 
 # ============================================================================
-# 3. EXPORT RESULTS TO CSV
+# EXPORT RESULTS TO CSV
 # ============================================================================
 
 # Append summary row to outfile
 output <- c(
     event_code,
     outcome_code,
-    avg_effect_before,
-    avg_se_before,
-    avg_effect_after,
-    avg_se_after,
+    absolute_change,
+    relative_change,
+    absolute_change_se,
+    relative_change_se,
     n_cases,
     n_controls
 )
