@@ -65,15 +65,6 @@ if (outcome_code %in% renamed_ATC$ATC_NEW) {
     # Loop through each old code and stack them
     for(old_code in old_codes) {
         outcome_cols2 = c("DOCTOR_ID", "YEAR", paste0("N_", old_code), paste0("Y_", old_code), paste0("first_year_", old_code), paste0("last_year_", old_code))
-        
-        # Check if required columns exist in the parquet file
-        available_cols <- names(read_parquet(outcomes_file, col_select = 1))
-        required_cols <- c(paste0("N_", old_code), paste0("Y_", old_code))
-        if (!all(required_cols %in% available_cols)) {
-            cat(paste0("Old ATC code ", old_code, " is not available in the predefined set of event codes. Please manually add to all \"codes\" files to make the pipeline work correctly.\n"))
-            next
-        }
-         
         outcomes2 = as.data.table(read_parquet(outcomes_file, col_select = outcome_cols2))     
         setnames(outcomes2, 
             old = c(paste0("N_", old_code), paste0("Y_", old_code), paste0("first_year_", old_code), paste0("last_year_", old_code)),
@@ -210,10 +201,18 @@ absolute_change_se <- sqrt(se_post^2 + se_pre^2)
 
 # SE estimation for relative change
 # NOTE: no vcov matrix returned by did package unfortunately, will assume independence across time points
-se_post <- sqrt(sum(results$se[after_idx]^2)) / 3
-se_pre <- sqrt(sum(results$se[before_idx]^2)) / 3
 # Delta method for ratio: SE(Y/X) ≈ sqrt((SE_Y/X)^2 + (Y*SE_X/X^2)^2)
 relative_change_se <- sqrt((se_post / avg_effect_before)^2 + (avg_effect_after * se_pre / avg_effect_before^2)^2)
+
+# Manual t-test for pre period (testing if avg_effect_before differs from 0)
+t_stat_pre <- avg_effect_before / se_pre
+df_pre <- 2  # n-1 where n=3 time points
+p_value_pre <- 2 * pt(-abs(t_stat_pre), df = df_pre)  # two-tailed test
+
+# Manual t-test for post period (testing if avg_effect_after differs from 0)
+t_stat_post <- avg_effect_after / se_post
+df_post <- 2  # n-1 where n=3 time points
+p_value_post <- 2 * pt(-abs(t_stat_post), df = df_post)  # two-tailed test
 
 # ============================================================================
 # EXPORT RESULTS TO CSV
@@ -227,6 +226,8 @@ output <- c(
     relative_change,
     absolute_change_se,
     relative_change_se,
+    p_value_pre,
+    p_value_post,
     n_cases,
     n_controls
 )
