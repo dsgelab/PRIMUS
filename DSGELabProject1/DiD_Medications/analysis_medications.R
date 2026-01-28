@@ -160,6 +160,7 @@ cat("Events per year: [", events_year_str, "]\n")
 
 # STEP 5: DiD Analysis using 'did' package
 
+set.seed(09152024)
 att_gt_res <- att_gt(
     yname = "Y",
     tname = "T",
@@ -204,15 +205,17 @@ absolute_change_se <- sqrt(se_post^2 + se_pre^2)
 # Delta method for ratio: SE(Y/X) ≈ sqrt((SE_Y/X)^2 + (Y*SE_X/X^2)^2)
 relative_change_se <- sqrt((se_post / avg_effect_before)^2 + (avg_effect_after * se_pre / avg_effect_before^2)^2)
 
-# Manual t-test for pre period (testing if avg_effect_before differs from 0)
-t_stat_pre <- avg_effect_before / se_pre
-df_pre <- 2  # n-1 where n=3 time points
-p_value_pre <- 2 * pt(-abs(t_stat_pre), df = df_pre)  # two-tailed test
+# Z-score test for pre period (testing if avg_effect_before differs from 0)
+z_stat_pre <- avg_effect_before / se_pre
+p_value_pre <- 2 * (1 - pnorm(abs(z_stat_pre)))
 
-# Manual t-test for post period (testing if avg_effect_after differs from 0)
-t_stat_post <- avg_effect_after / se_post
-df_post <- 2  # n-1 where n=3 time points
-p_value_post <- 2 * pt(-abs(t_stat_post), df = df_post)  # two-tailed test
+# Z-score test for post period (testing if avg_effect_after differs from 0)
+z_stat_post <- avg_effect_after / se_post
+p_value_post <- 2 * (1 - pnorm(abs(z_stat_post)))
+
+# Z-score and p-value for absolute change
+score_abs <- absolute_change / absolute_change_se
+p_value_change <- 2 * (1 - pnorm(abs(score_abs)))
 
 # ============================================================================
 # EXPORT RESULTS TO CSV
@@ -226,6 +229,7 @@ output <- c(
     relative_change,
     absolute_change_se,
     relative_change_se,
+    p_value_change,
     p_value_pre,
     p_value_post,
     n_cases,

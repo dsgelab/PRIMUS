@@ -111,7 +111,7 @@ echo "Total pairs to analyze: $total_pairs"
 
 # Initialize results file as CSV
 results_file="${results_dir}/Results_ATC_${today}.csv"
-echo "EVENT_CODE,OUTCOME_CODE,ABS_CHANGE,REL_CHANGE,ABS_CHANGE_SE,REL_CHANGE_SE,PVAL_PRE,PVAL_POST,N_CASES,N_CONTROLS" > "${results_file}"
+echo "EVENT_CODE,OUTCOME_CODE,ABS_CHANGE,REL_CHANGE,ABS_CHANGE_SE,REL_CHANGE_SE,PVAL_ABS_CHANGE,PVAL_PRE,PVAL_POST,N_CASES,N_CONTROLS" > "${results_file}"
 
 successful_pairs=0
 failed_pairs=0
