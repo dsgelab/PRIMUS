@@ -183,39 +183,37 @@ results <- data.frame(
 )
 
 # For medications results will consider ATT and SE in a 3 year window before and after event (t=0)
-
-# Average effect before event (-3,-2,-1)
 before_idx <- results$time %in% c(-3, -2, -1)
-avg_effect_before <- mean(results$att[before_idx], na.rm = TRUE)
-# Average effect after event (+1,+2,+3)
 after_idx <- results$time %in% c(1, 2, 3)
-avg_effect_after <- mean(results$att[after_idx], na.rm = TRUE)
-# Compute 3-year-window metric, both absolute value and relative value
+
+# Meta-analysis of pre-period estimates
+pre_data <- data.frame(
+    estimate = results$att[before_idx],
+    se = results$se[before_idx]
+)
+pre_meta <- metafor::rma(yi = estimate, sei = se, data = pre_data, method = "FE")
+avg_effect_before <- pre_meta$b[,1]
+se_pre <- pre_meta$se
+p_value_pre <- pre_meta$pval
+
+# Meta-analysis of post-period estimates
+post_data <- data.frame(
+    estimate = results$att[after_idx],
+    se = results$se[after_idx]
+)
+post_meta <- metafor::rma(yi = estimate, sei = se, data = post_data, method = "FE")
+avg_effect_after <- post_meta$b[,1]
+se_post <- post_meta$se
+p_value_post <- post_meta$pval
+
+# Absolute change and relative change estimates
 absolute_change <- avg_effect_after - avg_effect_before
-relative_change <- ifelse(avg_effect_before == 0, NA, avg_effect_after / avg_effect_before)
-
-# SE estimation for absolute change
-# NOTE: no vcov matrix returned by did package unfortunately, will assume independence across time points
-se_post <- sqrt(sum(results$se[after_idx]^2)) / 3
-se_pre <- sqrt(sum(results$se[before_idx]^2)) / 3
 absolute_change_se <- sqrt(se_post^2 + se_pre^2)
-
-# SE estimation for relative change
-# NOTE: no vcov matrix returned by did package unfortunately, will assume independence across time points
-# Delta method for ratio: SE(Y/X) ≈ sqrt((SE_Y/X)^2 + (Y*SE_X/X^2)^2)
-relative_change_se <- sqrt((se_post / avg_effect_before)^2 + (avg_effect_after * se_pre / avg_effect_before^2)^2)
-
-# Z-score test for pre period (testing if avg_effect_before differs from 0)
-z_stat_pre <- avg_effect_before / se_pre
-p_value_pre <- 2 * (1 - pnorm(abs(z_stat_pre)))
-
-# Z-score test for post period (testing if avg_effect_after differs from 0)
-z_stat_post <- avg_effect_after / se_post
-p_value_post <- 2 * (1 - pnorm(abs(z_stat_post)))
-
-# Z-score and p-value for absolute change
 score_abs <- absolute_change / absolute_change_se
 p_value_change <- 2 * (1 - pnorm(abs(score_abs)))
+
+relative_change <- ifelse(avg_effect_before == 0, NA, avg_effect_after / avg_effect_before)
+relative_change_se <- sqrt((se_post / avg_effect_before)^2 + (avg_effect_after * se_pre / avg_effect_before^2)^2)
 
 # ============================================================================
 # EXPORT RESULTS TO CSV

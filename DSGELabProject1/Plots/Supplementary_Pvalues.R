@@ -8,7 +8,7 @@ library(patchwork)
 library(ggrepel)
 
 # Global Variables
-DATE = "20260123"
+DATE = "20260129"
 dataset_file <- paste0('/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_', DATE, '/Results_', DATE, '/Results_ATC_', DATE, '.csv')
 OutDir <- paste0("/media/volume/Projects/DSGELabProject1/Plots/Supplements/")
 if (!dir.exists(OutDir)) {dir.create(OutDir, recursive = TRUE)}
@@ -21,24 +21,32 @@ dataset <- read_csv(dataset_file, show_col_types = FALSE)
 # Filter only codes with at least 300 cases available
 dataset <- dataset[dataset$N_CASES >= 300, ]
 
-# Calculate p-values and FDR correction
-dataset <- dataset %>% mutate(
-    Z_SCORE = ABS_CHANGE / ABS_CHANGE_SE,
-    PVAL = 2 * (1 - pnorm(abs(Z_SCORE)))
-)
-dataset$PVAL_ADJ_FDR <- p.adjust(dataset$PVAL, method = "fdr")
-dataset$SIGNIFICANT_FDR <- dataset$PVAL_ADJ_FDR < 0.05
-dataset$SIGNIFICANT_ROBUST <- (dataset$PVAL_PRE >= 0.05) & (dataset$PVAL_POST < 0.05)
+# STEP 1:
+# Apply FDR multiple testing correction
+dataset$PVAL_ADJ_FDR <- p.adjust(dataset$PVAL_ABS_CHANGE, method = "fdr")
+dataset$SIGNIFICANT_CHANGE <- dataset$PVAL_ADJ_FDR < 0.05
+
+# STEP 2:
+# Select only robust results, i.e those point / events with:
+# A. an average prescription rate before event significantly non-different from controls
+# B. an average prescription rate after event significantly different from controls
+# Also apply FDR multiple testing correction here
+dataset$PVAL_PRE_ADJ_FDR <- p.adjust(dataset$PVAL_PRE, method = "fdr")
+dataset$PVAL_POST_ADJ_FDR <- p.adjust(dataset$PVAL_POST, method = "fdr")    
+dataset$SIGNIFICANT_ROBUST <- (dataset$PVAL_PRE_ADJ_FDR >= 0.05) & (dataset$PVAL_POST_ADJ_FDR < 0.05)
+
+# STEP 3:
+# Create a combined significance variable with two levels
 dataset$SIG_TYPE <- case_when(
-  dataset$SIGNIFICANT_FDR & dataset$SIGNIFICANT_ROBUST ~ "Significant",
-  TRUE ~ "Not Significant"
+  dataset$SIGNIFICANT_CHANGE & dataset$SIGNIFICANT_ROBUST ~ "Robustly Significant",
+  TRUE ~ "Not Robustly Significant"
 )
 
 # Extract MED_CHAPTER (first character of OUTCOME_CODE)
 dataset <- dataset %>% mutate(MED_CHAPTER = substr(OUTCOME_CODE, 1, 1))
 
 # Plot p-value (pre-event vs post-event) scatter for FDR significant points only
-p <- ggplot(dataset %>% filter(SIGNIFICANT_FDR), aes(x = PVAL_PRE, y = PVAL_POST, color = SIG_TYPE)) +
+p <- ggplot(dataset %>% filter(SIGNIFICANT_CHANGE), aes(x = PVAL_PRE_ADJ_FDR, y = PVAL_POST_ADJ_FDR, color = SIG_TYPE)) +
     geom_point(alpha = 0.6, size = 3) +
     geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "gray") +
     geom_vline(xintercept = 0.05, linetype = "dashed", color = "black") +
@@ -49,15 +57,15 @@ p <- ggplot(dataset %>% filter(SIGNIFICANT_FDR), aes(x = PVAL_PRE, y = PVAL_POST
                     point.padding = 0.5,
                     segment.size = 0.3,
                     segment.alpha = 0.6) +
-    labs(title = "Pre vs Post event average effect comparison (against controls), for FDR significant change in prescription events",
-         subtitle = "Quadrant 2 (P-value pre-event > 0.05, P-value post-event < 0.05) is the one of interest",
+    labs(title = "Pre-event vs Post-event estimated effect comparison (against controls), for FDR significant change in prescription events",
+         subtitle = "Robustly Significant : (adj. p-value pre-event > 0.05, adj. p-value post-event < 0.05) ",
          x = "P-value pre-event", 
          y = "P-value post-event") +
     scale_x_continuous(breaks = c(0, 0.05, 0.5, 1), labels = c("0", "0.05", "0.5", "1"), limits = c(0, 1)) +
     scale_y_continuous(breaks = c(0, 0.05, 0.5, 1), labels = c("0", "0.05", "0.5", "1"), limits = c(0, 1)) +
-    scale_color_manual(values = c("Significant" = "red", "Not Significant" = "blue")) +
+    scale_color_manual(values = c("Robustly Significant" = "red", "Not Robustly Significant" = "blue")) +
     coord_fixed() +
     theme_minimal()
 
 # Combine the two plots using patchwork
-ggsave(paste0(OutDir, "Supplementary_Pvalues_", DATE, ".png"), p, width = 8, height = 6)
+ggsave(paste0(OutDir, "Supplementary_Pvalues_", DATE, ".png"), p, width = 16, height = 14)

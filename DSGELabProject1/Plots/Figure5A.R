@@ -8,7 +8,7 @@ library(patchwork)
 library(ggrepel)
 
 # Global Variables
-DATE = "20260123"
+DATE = "20260129"
 dataset_file <- paste0('/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_', DATE, '/Results_', DATE, '/Results_ATC_', DATE, '.csv')
 OutDir <- paste0("/media/volume/Projects/DSGELabProject1/Plots/Figure5_", DATE, "/")
 if (!dir.exists(OutDir)) {dir.create(OutDir, recursive = TRUE)}
@@ -20,28 +20,25 @@ if (!dir.exists(OutDir)) {dir.create(OutDir, recursive = TRUE)}
 dataset <- read_csv(dataset_file, show_col_types = FALSE)
 # Filter only codes with at least 300 cases available
 dataset <- dataset[dataset$N_CASES >= 300, ]
-# Calculate p-values from z-scores
-dataset <- dataset %>%
-    mutate(
-      Z_SCORE = ABS_CHANGE / ABS_CHANGE_SE,
-      PVAL = 2 * (1 - pnorm(abs(Z_SCORE)))
-    )
 
 # STEP 1:
-# Apply multiple testing corrections
-dataset$PVAL_ADJ_FDR <- p.adjust(dataset$PVAL, method = "fdr")
-dataset$SIGNIFICANT_FDR <- dataset$PVAL_ADJ_FDR < 0.05
+# Apply FDR multiple testing correction to change p-values
+dataset$PVAL_ADJ_FDR <- p.adjust(dataset$PVAL_ABS_CHANGE, method = "fdr")
+dataset$SIGNIFICANT_CHANGE <- dataset$PVAL_ADJ_FDR < 0.05
 
 # STEP 2:
 # Select only robust results, i.e those point / events with:
 # A. an average prescription rate before event significantly non-different from controls
-# B. an average prescription rate after event significantly different from controls 
-dataset$SIGNIFICANT_ROBUST <- (dataset$PVAL_PRE >= 0.05) & (dataset$PVAL_POST < 0.05)
+# B. an average prescription rate after event significantly different from controls
+# Also apply FDR multiple testing correction here
+dataset$PVAL_PRE_ADJ_FDR <- p.adjust(dataset$PVAL_PRE, method = "fdr")
+dataset$PVAL_POST_ADJ_FDR <- p.adjust(dataset$PVAL_POST, method = "fdr")    
+dataset$SIGNIFICANT_ROBUST <- (dataset$PVAL_PRE_ADJ_FDR >= 0.05) & (dataset$PVAL_POST_ADJ_FDR < 0.05)
 
 # STEP 3:
 # Create a combined significance variable with two levels
 dataset$SIG_TYPE <- case_when(
-  dataset$SIGNIFICANT_FDR & dataset$SIGNIFICANT_ROBUST ~ "Significant",
+  dataset$SIGNIFICANT_CHANGE & dataset$SIGNIFICANT_ROBUST ~ "Significant",
   TRUE ~ "Not Significant"
 )
 
@@ -93,20 +90,28 @@ cb_palette <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2",
 code_labels <- tibble(
     OUTCOME_CODE = c(
         "N05CF02",
+        "R03AK10",
         "C10AA07",
+        "N02CC04",
         "N02CC07",
         "C08CA13",
         "J01FA09",
         "N02BE01",
-        "N06AX26"),
+        "A06AC01",
+        "N06AX26",
+        "R01AD58"),
     LABEL = c(
         "zolpidem", 
+        "vilanterol and fluticasone furoate",    
         "rosuvastatin", 
+        "rizatriptan",
         "frovatriptan",
         "lercanidipine",
         "clarithromycin",
         "paracetamol", 
-        "vortioxetine")
+        "ispaghula (psylla seeds)",       
+        "vortioxetine",
+        "fluticasone, combinations")
 )
 robust_result_labels <- dataset %>% inner_join(code_labels, by = "OUTCOME_CODE")
 
@@ -130,14 +135,16 @@ robust_result_labels$x_jittered <- dataset$x_jittered[match(interaction(robust_r
 p_left <- ggplot(dataset, aes(x = x_jittered, y = ABS_CHANGE, color = CHAPTER_NAME)) +
   geom_point(aes(shape = SIG_TYPE, size = SIG_TYPE, alpha = SIG_TYPE)) +
   geom_text_repel(data = robust_result_labels, aes(label = paste0(OUTCOME_CODE, ": ", LABEL)), 
-                    size = 3, 
+                    size = 4, 
                     show.legend = FALSE,
                     max.overlaps = Inf,
                     min.segment.length = 0,
-                    box.padding = 0.5,
-                    point.padding = 0.3,
-                    force = 1,
-                    force_pull = 0.5) +
+                    box.padding = 0.8,
+                    point.padding = 0.5,
+                    force = 3,
+                    force_pull = 1,
+                    segment.size = 0.5,
+                    segment.alpha = 0.6) +
   scale_x_continuous(
     breaks = 1:length(levels(dataset$CHAPTER_NAME)),
     labels = levels(dataset$CHAPTER_NAME)
@@ -203,4 +210,4 @@ p_combined <- p_left + p_right +
   )
 
 # Save
-ggsave(paste0(OutDir, "Figure5A_", DATE, ".png"), plot = p_combined, width = 19, height = 12, dpi = 300, device = "png")
+ggsave(paste0(OutDir, "Figure5A_", DATE, ".png"), plot = p_combined, width = 24, height = 14, dpi = 300, device = "png")
