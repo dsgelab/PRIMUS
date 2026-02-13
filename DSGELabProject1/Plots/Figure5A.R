@@ -10,7 +10,7 @@ library(ggrepel)
 # Global Variables
 DATE = "20260129"
 dataset_file <- paste0('/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_', DATE, '/Results_', DATE, '/Results_ATC_', DATE, '.csv')
-OutDir <- paste0("/media/volume/Projects/DSGELabProject1/Plots/Figure5_", DATE, "/")
+OutDir <- paste0("/media/volume/Projects/DSGELabProject1/Plots/Figure5/")
 if (!dir.exists(OutDir)) {dir.create(OutDir, recursive = TRUE)}
 
 # ============================================================================
@@ -23,7 +23,7 @@ dataset <- dataset[dataset$N_CASES >= 300, ]
 
 # STEP 1:
 # Apply FDR multiple testing correction to change p-values
-dataset$PVAL_ADJ_FDR <- p.adjust(dataset$PVAL_ABS_CHANGE, method = "fdr")
+dataset$PVAL_ADJ_FDR <- p.adjust(dataset$PVAL_ABS_CHANGE, method = "bonferroni")
 dataset$SIGNIFICANT_CHANGE <- dataset$PVAL_ADJ_FDR < 0.05
 
 # STEP 2:
@@ -31,8 +31,8 @@ dataset$SIGNIFICANT_CHANGE <- dataset$PVAL_ADJ_FDR < 0.05
 # A. an average prescription rate before event significantly non-different from controls
 # B. an average prescription rate after event significantly different from controls
 # Also apply FDR multiple testing correction here
-dataset$PVAL_PRE_ADJ_FDR <- p.adjust(dataset$PVAL_PRE, method = "fdr")
-dataset$PVAL_POST_ADJ_FDR <- p.adjust(dataset$PVAL_POST, method = "fdr")    
+dataset$PVAL_PRE_ADJ_FDR <- p.adjust(dataset$PVAL_PRE, method = "bonferroni")
+dataset$PVAL_POST_ADJ_FDR <- p.adjust(dataset$PVAL_POST, method = "bonferroni")    
 dataset$SIGNIFICANT_ROBUST <- (dataset$PVAL_PRE_ADJ_FDR >= 0.05) & (dataset$PVAL_POST_ADJ_FDR < 0.05)
 
 # STEP 3:
@@ -89,40 +89,32 @@ cb_palette <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2",
 # print(dataset[dataset$SIG_TYPE == "Significant", ])
 code_labels <- tibble(
     OUTCOME_CODE = c(
+        "M01AH05",
         "N05CF02",
-        "R03AK10",
         "C10AA07",
-        "N02CC04",
         "N02CC07",
-        "C08CA13",
-        "J01FA09",
         "N02BE01",
-        "A06AC01",
         "N06AX26",
         "R01AD58"),
     LABEL = c(
+        "etoricoxib",
         "zolpidem", 
-        "vilanterol and fluticasone furoate",    
         "rosuvastatin", 
-        "rizatriptan",
         "frovatriptan",
-        "lercanidipine",
-        "clarithromycin",
-        "paracetamol", 
-        "ispaghula (psylla seeds)",       
+        "paracetamol",     
         "vortioxetine",
         "fluticasone, combinations")
 )
 robust_result_labels <- dataset %>% inner_join(code_labels, by = "OUTCOME_CODE")
 
 # Set seed for reproducible jittering
-set.seed(42)
+set.seed(1)
 # Global Variables for Plotting
 JITTER_RANGE <- 0.2
 POINT_SIZE_SIG <- 4
 POINT_SIZE_NOT_SIG <- 2
 ALPHA_SIG <- 1
-ALPHA_NOT_SIG <- 0.3
+ALPHA_NOT_SIG <- 0.2
 TEXT_SIZE_TITLE <- 16
 TEXT_SIZE_AXIS_TITLE <- 14
 TEXT_SIZE_AXIS_TEXT <- 10
@@ -174,11 +166,8 @@ p_left <- ggplot(dataset, aes(x = x_jittered, y = ABS_CHANGE, color = CHAPTER_NA
     axis.title.x = element_text(size = TEXT_SIZE_AXIS_TITLE),
     axis.title.y = element_text(size = TEXT_SIZE_AXIS_TITLE),
     plot.title = element_text(size = TEXT_SIZE_TITLE),
-    legend.text = element_text(size = TEXT_SIZE_LEGEND),
-    legend.title = element_text(size = TEXT_SIZE_LEGEND),
-    legend.position = "right" 
+    legend.position = "none"
   ) +
-  guides(shape = guide_legend(override.aes = list(size = c(POINT_SIZE_SIG, POINT_SIZE_NOT_SIG), alpha = c(ALPHA_SIG, ALPHA_NOT_SIG)))) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "red")
 
 # Right plot: Chapter averages

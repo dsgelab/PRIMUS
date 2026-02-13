@@ -30,7 +30,7 @@ dataset <- dataset[dataset$N_CASES >= 300, ]
 
 # STEP 1:
 # Apply FDR multiple testing correction
-dataset$PVAL_ADJ_FDR <- p.adjust(dataset$PVAL_ABS_CHANGE, method = "fdr")
+dataset$PVAL_ADJ_FDR <- p.adjust(dataset$PVAL_ABS_CHANGE, method = "bonferroni")
 dataset$SIGNIFICANT_CHANGE <- dataset$PVAL_ADJ_FDR < 0.05
 
 # STEP 2:
@@ -38,8 +38,8 @@ dataset$SIGNIFICANT_CHANGE <- dataset$PVAL_ADJ_FDR < 0.05
 # A. an average prescription rate before event significantly non-different from controls
 # B. an average prescription rate after event significantly different from controls
 # Also apply FDR multiple testing correction here
-dataset$PVAL_PRE_ADJ_FDR <- p.adjust(dataset$PVAL_PRE, method = "fdr")
-dataset$PVAL_POST_ADJ_FDR <- p.adjust(dataset$PVAL_POST, method = "fdr")    
+dataset$PVAL_PRE_ADJ_FDR <- p.adjust(dataset$PVAL_PRE, method = "bonferroni")
+dataset$PVAL_POST_ADJ_FDR <- p.adjust(dataset$PVAL_POST, method = "bonferroni")    
 dataset$SIGNIFICANT_ROBUST <- (dataset$PVAL_PRE_ADJ_FDR >= 0.05) & (dataset$PVAL_POST_ADJ_FDR < 0.05)
 
 # STEP 3:
@@ -211,182 +211,46 @@ for (code in code_list) {
         cores = N_THREADS
     )
 
-    agg_dynamic <- aggte(att_gt_res, type = "dynamic", na.rm = TRUE)
+    # use "group" effect (time of event) instead of "dynamic" effect (time from event)
+    agg_group <- aggte(att_gt_res, type = "group", na.rm = TRUE)
     results <- data.frame(
-        time = agg_dynamic$egt,
-        att = agg_dynamic$att.egt,
-        se = agg_dynamic$se.egt
+        time = agg_group$egt,
+        att = agg_group$att.egt,
+        se = agg_group$se.egt
     )
 
     # save results to file
+    TODAY = format(Sys.Date(), "%Y%m%d")
     results$code <- code
-    if (!file.exists(paste0(outdir, "temp_results_", DATE, ".csv"))) {
-        write_csv(results, paste0(outdir, "temp_results_", DATE, ".csv"))
+    if (!file.exists(paste0(outdir, "TempData/temp_results_CohortEffect_", TODAY, ".csv"))) {
+        write_csv(results, paste0(outdir, "TempData/temp_results_CohortEffect_", TODAY, ".csv"))
     } else {
-        write_csv(results, paste0(outdir, "temp_results_", DATE, ".csv"), append = TRUE)
+        write_csv(results, paste0(outdir, "TempData/temp_results_CohortEffect_", TODAY, ".csv"), append = TRUE)
     }
-        
-    
-    # For medications results will consider ATT and SE in a 3 year window before and after event (t=0)
-    before_idx <- results$time %in% c(-3, -2, -1)
-    after_idx <- results$time %in% c(1, 2, 3)
 
-    # Meta-analysis of pre-period estimates
-    pre_data <- data.frame(
-        estimate = results$att[before_idx],
-        se = results$se[before_idx]
-    )
-    pre_meta <- metafor::rma(yi = estimate, sei = se, data = pre_data, method = "FE")
-    avg_effect_before <- pre_meta$b[,1]
-    se_pre <- pre_meta$se
-    p_value_pre <- pre_meta$pval
-    ci_pre <- c(pre_meta$ci.lb, pre_meta$ci.ub)
-
-    # Meta-analysis of post-period estimates
-    post_data <- data.frame(
-        estimate = results$att[after_idx],
-        se = results$se[after_idx]
-    )
-    post_meta <- metafor::rma(yi = estimate, sei = se, data = post_data, method = "FE")
-    avg_effect_after <- post_meta$b[,1]
-    se_post <- post_meta$se
-    p_value_post <- post_meta$pval
-    ci_post <- c(post_meta$ci.lb, post_meta$ci.ub)
-
-    # Absolute change and relative change estimates
-    absolute_change <- avg_effect_after - avg_effect_before
-    absolute_change_se <- sqrt(se_post^2 + se_pre^2)
-    score_abs <- absolute_change / absolute_change_se
-    abs_change_pval <- 2 * (1 - pnorm(abs(score_abs)))
-
-    relative_change <- ifelse(avg_effect_before == 0, NA, avg_effect_after / avg_effect_before)
-    relative_change_se <- sqrt((se_post / avg_effect_before)^2 + (avg_effect_after * se_pre / avg_effect_before^2)^2)
-
-    # ============================================================================
-
-    # Replace lines 269-287 with:
-    data_plot <- results[results$time >= -3 & results$time <= 3, ]
-    data_plot$avg_effect_before <- avg_effect_before
-    data_plot$avg_effect_after <- avg_effect_after
-    data_plot$ci_pre_lower <- ci_pre[1]
-    data_plot$ci_pre_upper <- ci_pre[2]
-    data_plot$ci_post_lower <- ci_post[1]
-    data_plot$ci_post_upper <- ci_post[2]
+    events_per_year <- df_model[df_model$EVENT == 1, .(N = uniqueN(DOCTOR_ID)), by = EVENT_YEAR][order(EVENT_YEAR)]
+    events_year_str_1 <- paste0(events_per_year[EVENT_YEAR < 2010, ]$EVENT_YEAR, ":", events_per_year[EVENT_YEAR < 2010, ]$N, collapse = ", ")
+    events_year_str_2 <- paste0(events_per_year[EVENT_YEAR >= 2010, ]$EVENT_YEAR, ":", events_per_year[EVENT_YEAR >= 2010, ]$N, collapse = ", ")
 
     subtitle_text <- paste0(
-        "N Cases: ", n_cases, " | N Controls: ", n_controls, "\n",
-        "Absolute Change: ", round(absolute_change, 5), " | Absolute Change SE: ", round(absolute_change_se, 5), "\n",
-        "Relative Change: ", round(relative_change, 5), " | Relative Change SE: ", round(relative_change_se, 5), "\n",
-        "p-value (Pre event): ", round(p_value_pre, 5)," | p-value (Post event): ", round(p_value_post, 5), " | p-value (Abs Change): ", round(abs_change_pval, 5), "\n",
-        "FDR-adj. p-value (Pre event): ", round(dataset[dataset$OUTCOME_CODE==code,]$PVAL_PRE_ADJ_FDR, 5)," | FDR-adj. p-value (Post event): ", round(dataset[dataset$OUTCOME_CODE==code,]$PVAL_POST_ADJ_FDR, 5), " | FDR-adj. p-value (Abs Change): ", round(dataset[dataset$OUTCOME_CODE==code,]$PVAL_ADJ_FDR, 5)
-    )
+    "N Cases: ", n_cases, " | N Controls: ", n_controls, "\n",
+    "Events per year: \n[ ", events_year_str_1, " ]\n[ ", events_year_str_2, " ]"
+    )   
 
-    p[[code]] <- ggplot(data_plot, aes(x = time, y = att)) +
-        geom_line(color = "#1f77b4") +
-        geom_point(size = 2) +
-        geom_errorbar(aes(ymin = att - 1.96 * se, ymax = att + 1.96 * se), width = 0.2, color = "#1f77b4", linewidth = 1) +
-        geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
-        geom_vline(xintercept = 0, linetype = "dashed", color = "grey") +
-        geom_point(aes(x = -0.5, y = avg_effect_before), shape = 23, size = 5, color = "red") +
-        geom_errorbar(aes(x = -0.5, ymin = ci_pre_lower, ymax = ci_pre_upper), width = 0.15, color = "red", linewidth = 1) +
-        geom_point(aes(x = 0.5, y = avg_effect_after), shape = 23, size = 5, color = "red") +
-        geom_errorbar(aes(x = 0.5, ymin = ci_post_lower, ymax = ci_post_upper), width = 0.15, color = "red", linewidth = 1) +
+    p[[code]] <- ggplot(results, aes(x = time, y = att)) +
+        geom_line(color = "#2ca02c") +
+        geom_point() +
+        geom_errorbar(aes(ymin = att - 1.96 * se, ymax = att + 1.96 * se),width = 0.2, color = "#2ca02c") +
+        geom_hline(yintercept = 0, linetype = "dashed", color = "grey") +
         labs(
-            x = "Years from Event",
-            y = "Staggered DiD model Estimate \n(Change in Prescription Rate)",
             title = paste0("medication ATC:", code),
-            subtitle = subtitle_text
+            subtitle = subtitle_text,
+            x = "Event Year (Case Cohort)",
+            y = "Staggered DiD model Estimate \n(Change in Prescription Rate)"
         ) +
-        coord_cartesian(ylim = c(-0.001, 0.01)) +
-        theme_minimal()
+        theme_minimal()      
 }
 
 # Combine all plots into a single figure
 combined_plot <- wrap_plots(p, ncol = 3)
-ggsave(filename = paste0(outdir, "Supplementary_RatioDiDValidation_", DATE, ".png"), plot = combined_plot, width = 24, height = 16)
-
-
-# EXTRA:
-# If temp_results file exists, do plot directly using it (skip all above)
-# results <- read_csv(paste0(outdir, "temp_results_", DATE, ".csv"), show_col_types = FALSE)
-# p <- list()
-# code_list <- unique(results$code)
-# for (code in code_list) {
-#     temp_results <- results %>% filter(code == !!code)
-#     # For medications results will consider ATT and SE in a 3 year window before and after event (t=0)
-#     before_idx <- temp_results$time %in% c(-3, -2, -1)
-#     after_idx <- temp_results$time %in% c(1, 2, 3)
-# 
-#     # Meta-analysis of pre-period estimates
-#     pre_data <- data.frame(
-#         estimate = temp_results$att[before_idx],
-#         se = temp_results$se[before_idx]
-#     )
-#     pre_meta <- metafor::rma(yi = estimate, sei = se, data = pre_data, method = "FE")
-#     avg_effect_before <- pre_meta$b[,1]
-#     se_pre <- pre_meta$se
-#     p_value_pre <- pre_meta$pval
-#     ci_pre <- c(pre_meta$ci.lb, pre_meta$ci.ub)
-# 
-#     # Meta-analysis of post-period estimates
-#     post_data <- data.frame(
-#         estimate = temp_results$att[after_idx],
-#         se = temp_results$se[after_idx]
-#     )
-#     post_meta <- metafor::rma(yi = estimate, sei = se, data = post_data, method = "FE")
-#     avg_effect_after <- post_meta$b[,1]
-#     se_post <- post_meta$se
-#     p_value_post <- post_meta$pval
-#     ci_post <- c(post_meta$ci.lb, post_meta$ci.ub)
-# 
-#     # Absolute change and relative change estimates
-#     absolute_change <- avg_effect_after - avg_effect_before
-#     absolute_change_se <- sqrt(se_post^2 + se_pre^2)
-#     score_abs <- absolute_change / absolute_change_se
-#     abs_change_pval <- 2 * (1 - pnorm(abs(score_abs)))
-# 
-#     relative_change <- ifelse(avg_effect_before == 0, NA, avg_effect_after / avg_effect_before)
-#     relative_change_se <- sqrt((se_post / avg_effect_before)^2 + (avg_effect_after * se_pre / avg_effect_before^2)^2)
-# 
-#     # ============================================================================
-# 
-#     # Replace lines 269-287 with:
-#     data_plot <- temp_results[temp_results$time >= -3 & temp_results$time <= 3, ]
-#     data_plot$avg_effect_before <- avg_effect_before
-#     data_plot$avg_effect_after <- avg_effect_after
-#     data_plot$ci_pre_lower <- ci_pre[1]
-#     data_plot$ci_pre_upper <- ci_pre[2]
-#     data_plot$ci_post_lower <- ci_post[1]
-#     data_plot$ci_post_upper <- ci_post[2]
-# 
-#     subtitle_text <- paste0(
-#         "N Cases: ", n_cases, " | N Controls: ", n_controls, "\n",
-#         "Absolute Change: ", round(absolute_change, 5), " | Absolute Change SE: ", round(absolute_change_se, 5), "\n",
-#         "Relative Change: ", round(relative_change, 5), " | Relative Change SE: ", round(relative_change_se, 5), "\n",
-#         "p-value (Pre event): ", round(p_value_pre, 5)," | p-value (Post event): ", round(p_value_post, 5), " | p-value (Abs Change): ", round(abs_change_pval, 5), "\n",
-#         "FDR-adj. p-value (Pre event): ", round(dataset[dataset$OUTCOME_CODE==code,]$PVAL_PRE_ADJ_FDR, 5)," | FDR-adj. p-value (Post event): ", round(dataset[dataset$OUTCOME_CODE==code,]$PVAL_POST_ADJ_FDR, 5), " | FDR-adj. p-value (Abs Change): ", round(dataset[dataset$OUTCOME_CODE==code,]$PVAL_ADJ_FDR, 5)
-#     )
-# 
-#     p[[code]] <- ggplot(data_plot, aes(x = time, y = att)) +
-#         geom_line(color = "#1f77b4") +
-#         geom_point(size = 2) +
-#         geom_errorbar(aes(ymin = att - 1.96 * se, ymax = att + 1.96 * se), width = 0.2, color = "#1f77b4", linewidth = 1) +
-#         geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
-#         geom_vline(xintercept = 0, linetype = "dashed", color = "grey") +
-#         geom_point(aes(x = -0.5, y = avg_effect_before), shape = 23, size = 5, color = "red") +
-#         geom_errorbar(aes(x = -0.5, ymin = ci_pre_lower, ymax = ci_pre_upper), width = 0.15, color = "red", linewidth = 1) +
-#         geom_point(aes(x = 0.5, y = avg_effect_after), shape = 23, size = 5, color = "red") +
-#         geom_errorbar(aes(x = 0.5, ymin = ci_post_lower, ymax = ci_post_upper), width = 0.15, color = "red", linewidth = 1) +
-#         labs(
-#             x = "Years from Event",
-#             y = "Staggered DiD model Estimate \n(Change in Prescription Rate)",
-#             title = paste0("medication ATC:", code),
-#             subtitle = subtitle_text
-#         ) +
-#         coord_cartesian(ylim = c(-0.001, 0.01)) +
-#         theme_minimal()  
-# }
-# 
-# # Combine all plots into a single figure
-# combined_plot <- wrap_plots(p, ncol = 3)
-# ggsave(filename = paste0(outdir, "Supplementary_RatioDiDValidation_", DATE, ".png"), plot = combined_plot, width = 24, height = 16)
+ggsave(filename = paste0(outdir, "Supplementary_CohortEffectDiD_", DATE, ".png"), plot = combined_plot, width = 30, height = 15)
