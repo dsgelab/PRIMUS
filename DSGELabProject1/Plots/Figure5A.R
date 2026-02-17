@@ -22,18 +22,18 @@ dataset <- read_csv(dataset_file, show_col_types = FALSE)
 dataset <- dataset[dataset$N_CASES >= 300, ]
 
 # STEP 1:
-# Apply FDR multiple testing correction to change p-values
-dataset$PVAL_ADJ_FDR <- p.adjust(dataset$PVAL_ABS_CHANGE, method = "bonferroni")
-dataset$SIGNIFICANT_CHANGE <- dataset$PVAL_ADJ_FDR < 0.05
+# Apply multiple testing correction to p-values
+dataset$PVAL_ADJ <- p.adjust(dataset$PVAL_ABS_CHANGE, method = "bonferroni")
+dataset$SIGNIFICANT_CHANGE <- dataset$PVAL_ADJ < 0.05
 
 # STEP 2:
 # Select only robust results, i.e those point / events with:
 # A. an average prescription rate before event significantly non-different from controls
 # B. an average prescription rate after event significantly different from controls
-# Also apply FDR multiple testing correction here
-dataset$PVAL_PRE_ADJ_FDR <- p.adjust(dataset$PVAL_PRE, method = "bonferroni")
-dataset$PVAL_POST_ADJ_FDR <- p.adjust(dataset$PVAL_POST, method = "bonferroni")    
-dataset$SIGNIFICANT_ROBUST <- (dataset$PVAL_PRE_ADJ_FDR >= 0.05) & (dataset$PVAL_POST_ADJ_FDR < 0.05)
+# Also apply multiple testing correction here
+dataset$PVAL_PRE_ADJ <- p.adjust(dataset$PVAL_PRE, method = "bonferroni")
+dataset$PVAL_POST_ADJ <- p.adjust(dataset$PVAL_POST, method = "bonferroni")    
+dataset$SIGNIFICANT_ROBUST <- (dataset$PVAL_PRE_ADJ >= 0.05) & (dataset$PVAL_POST_ADJ < 0.05)
 
 # STEP 3:
 # Create a combined significance variable with two levels
