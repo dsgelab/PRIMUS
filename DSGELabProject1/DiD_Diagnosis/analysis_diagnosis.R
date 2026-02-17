@@ -8,6 +8,7 @@ suppressPackageStartupMessages({
     library(lubridate)
     library(arrow)
     library(did)
+    library(readr)
 })
 
 ##### Arguments:

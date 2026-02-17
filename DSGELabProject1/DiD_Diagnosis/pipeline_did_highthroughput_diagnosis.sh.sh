@@ -94,7 +94,7 @@ total_events=${#event_codes[@]}
 echo "Total event codes to analyze: ${total_events}"
 
 # Initialize results file with correct header
-results_file="${results_dir}/Results.csv"
+results_file="${results_dir}/Results_ICD_${today}.csv"
 echo "EVENT_CODE,ATT_DROP,SE_DROP,N_CASES,N_CONTROLS" > "${results_file}"
 
 successful_events=0
@@ -109,7 +109,7 @@ for ((i=0; i<total_events; i++)); do
     event_start_time=${SECONDS}
 
     # Run DropAnalysis.R for each event code
-    Rscript --vanilla "${base_dir}/DiD_Diagnosis/did_analysis_diagnosis.R" \
+    Rscript --vanilla "${base_dir}/DiD_Diagnosis/analysis_diagnosis.R" \
         "${list_of_doctors}" \
         "${processed_events_dir}/processed_events.parquet" \
         "${event_code}" \

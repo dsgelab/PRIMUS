@@ -21,9 +21,6 @@ def process_outcomes(id_list_path, outcome_file, outdir):
     outcome_df = pl.scan_csv(outcome_file)
     
     # ===== APPLY FILTERS AND PREPARE DATA =====
-    if "PRESCRIPTION_DATE" in outcome_df.columns and "DATE" not in outcome_df.columns:
-        outcome_df = outcome_df.rename({"PRESCRIPTION_DATE": "DATE"})
-
     outcome_df = outcome_df.filter(
         (pl.col("DOCTOR_ID").is_in(id_list)) &
         (pl.col("DOCTOR_ID") != pl.col("PATIENT_ID")) &  # Exclude self-prescriptions

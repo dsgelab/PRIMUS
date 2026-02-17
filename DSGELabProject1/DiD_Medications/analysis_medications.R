@@ -8,6 +8,8 @@ suppressPackageStartupMessages({
     library(tidyr)
     library(lubridate)
     library(did)
+    library(readr)
+    library(metafor)
 })
 
 ##### Arguments
