@@ -2,33 +2,34 @@
 library(data.table)
 library(ggplot2)
 library(patchwork)
-library(scales)
 
 # Global variables
 base_dir = "/media/volume/Data_20250430/Kela/"
-file = "FD_2698_165_522_2023_SAIRAUSPAIVARAHA_KAUDET.csv"
-cols_of_interest1 = c('FID', 'MAKSU_ALPV', 'MAKSU_LOPV', 'DIAGNOOSI_KOODI')
-
+filename = "FD_2698_165_522_2023_SAIRAUSPAIVARAHA_KAUDET.csv"
+cols_of_interest = c('FID', 'TYOKYVYTTOMYYS_ALPV', 'MAKSU_ALPV', 'MAKSU_LOPV', 'DIAGNOOSI_KOODI', 'ETUUS_KOODI', 'MAKSETTUPAIVA_LKM')
 doctor_list = "/media/volume/Projects/DSGELabProject1/doctors_20250424.csv"
 
 out_dir = "/media/volume/Projects/DSGELabProject1/ProcessedData/"
-log_dir = "/media/volume/Projects/DSGELabProject1/Logs/SickLeaveData_20251013/"
+log_dir = "/media/volume/Projects/DSGELabProject1/Logs/SickLeaveData_20260216/"
 if (!dir.exists(log_dir)) dir.create(log_dir, recursive = TRUE)
-log_file <- file.path(log_dir, "processing_log_20251013.txt")
+log_file <- file.path(log_dir, "processing_log_20260216.txt")
 
 N_THREADS = 10
 setDTthreads(N_THREADS)
 
-# MAIN
+#-----------------------------------------
+# 1. Load and clean up data
+#-----------------------------------------
 
 # load data
-dt = fread(paste0(base_dir, file))
-
+dt = fread(paste0(base_dir, filename))
 # filter columns of interest
-dt = dt[, ..cols_of_interest1]
+dt = dt[, ..cols_of_interest]
 
-# translate names
-setnames(dt, old = c('FID', 'MAKSU_ALPV', 'MAKSU_LOPV', 'DIAGNOOSI_KOODI'), new = c('PATIENT_ID', 'SICK_LEAVE_START', 'SICK_LEAVE_END', 'SICK_LEAVE_DIAG'))
+# translate names to english
+setnames(dt, 
+    old = c('FID','TYOKYVYTTOMYYS_ALPV', 'MAKSU_ALPV', 'MAKSU_LOPV', 'DIAGNOOSI_KOODI', 'ETUUS_KOODI', 'MAKSETTUPAIVA_LKM'), 
+    new = c('PATIENT_ID', 'DISABILITY_START_DATE', 'SICK_LEAVE_START', 'SICK_LEAVE_END', 'SICK_LEAVE_DIAG', 'BENEFIT_TYPE', 'COMPENSATED_DAYS'))
 
 # remove missing dates
 orig_nrow_dt <- nrow(dt)
@@ -43,10 +44,10 @@ sink()
 dt[, SICK_LEAVE_START := as.IDate(SICK_LEAVE_START, format = "%Y-%m-%d")]
 dt[, SICK_LEAVE_END := as.IDate(SICK_LEAVE_END, format = "%Y-%m-%d")]
 
-# QC 1. check rows with non-DATE SICK_LEAVE_END
+# QC 1. check rows with non-date-format SICK_LEAVE_END
 non_date_end <- dt[is.na(SICK_LEAVE_END), .N]
 sink(log_file, append = TRUE)
-cat(sprintf("Rows with non-DATE SICK_LEAVE_END: %d (%.2f%%)\n", non_date_end, 100 * non_date_end / nrow(dt)))
+cat(sprintf("Rows with non-date-format SICK_LEAVE_END: %d (%.2f%%)\n", non_date_end, 100 * non_date_end / nrow(dt)))
 sink()
 dt <- dt[!is.na(SICK_LEAVE_END)]
 
@@ -63,11 +64,25 @@ future_rows <- dt[SICK_LEAVE_END > as.IDate("2023-12-31")]
 future_dates <- sort(unique(future_rows$SICK_LEAVE_END))
 sink(log_file, append = TRUE)
 cat(sprintf("Rows with SICK_LEAVE_END after 31-12-2023: %d (%.2f%%)\n", n_future, 100 * n_future / nrow(dt)))
-cat("Future SICK_LEAVE_END dates found:\n")
-cat(paste(as.character(future_dates), collapse = ", "), "\n")
 sink()
 
-# remove duplicates
+# QC 4. Check BENEFIT_TYPEs available
+# expecting 3 types: 73 (partial), 74 (normal), 75 (self-employed)
+benefit_types <- sort(unique(dt$BENEFIT_TYPE))
+sink(log_file, append = TRUE)
+cat(sprintf("Number of BENEFIT_TYPEs available: %d\n", length(benefit_types)))
+cat(sprintf("BENEFIT_TYPEs found: %s\n", paste(benefit_types, collapse = ", ")))
+sink()
+
+# extract benefit type frequency
+benefit_type_freq <- dt[, .N, by = BENEFIT_TYPE][order(-N)]
+benefit_type_freq[, FREQ_PCT := 100 * N / sum(N)]
+sink(log_file, append = TRUE)
+cat("Benefit type frequency:\n")
+print(benefit_type_freq)
+sink()
+
+# Remove duplicates
 orig_nrow <- nrow(dt)
 dt <- unique(dt)
 removed_dups <- orig_nrow - nrow(dt)
@@ -75,8 +90,22 @@ sink(log_file, append = TRUE)
 cat(sprintf("Removed %d duplicate rows (%.2f%%)\n", removed_dups, 100 * removed_dups / orig_nrow))
 sink()
 
-# calculate sick leave duration (days)
-dt[, SICK_LEAVE_DURATION := as.numeric(SICK_LEAVE_END - SICK_LEAVE_START)]
+#-----------------------------------------
+# 2. Calculate sick leave duration and other summaries
+#-----------------------------------------
+
+# The duration of sick leave and its payment depends on the benefit type. 
+# Note that an additional "waiting" period between sickness/disability and the start of sick leave (payment) start may exist, mainly for self-employed people which are not covered during this period.
+# Usually, DISABILITY_START_DATE indicates the start of disability, SICK_LEAVE_START indicates the start of sick leave payment. 
+# For benefit type 75 (self-employed), SICK_LEAVE_START indicates the start of payed waiting period. 
+dt = dt[BENEFIT_TYPE != 75, SICK_LEAVE_DURATION := (SICK_LEAVE_END - DISABILITY_START_DATE)]
+
+# QC: Check for negative durations
+n_negative_duration <- dt[SICK_LEAVE_DURATION < 0, .N]
+sink(log_file, append = TRUE)
+cat(sprintf("Rows with negative SICK_LEAVE_DURATION: %d (%.2f%%)\n", n_negative_duration, 100 * n_negative_duration / nrow(dt)))
+sink()
+dt <- dt[SICK_LEAVE_DURATION >= 0]
 
 # summary of SICK_LEAVE_DURATION
 duration_summary <- summary(dt$SICK_LEAVE_DURATION)
@@ -91,8 +120,9 @@ sink(log_file, append = TRUE)
 cat(sprintf("Unique patients in data: %d\n", n_unique_patients))
 sink()
 
-# If general data needed, uncomment below
-# fwrite(dt, file = paste0(out_dir, "SickLeaveData_ALL_20251007.csv"))
+#-----------------------------------------
+# 3. Save results datasets
+#-----------------------------------------
 
 # filter only data about cohorts of doctors
 doctors <- fread(doctor_list, header = FALSE)$V1
@@ -103,43 +133,20 @@ sink(log_file, append = TRUE)
 cat(sprintf("Doctors found in data: %d out of %d (%.2f%%)\n", n_doctors_found, n_total_doctors, 100 * n_doctors_found / n_total_doctors))
 sink()
 
-# If doctor data needed, uncomment below
-# fwrite(dt_doctors, file = paste0(out_dir, "SickLeaveData_DOCTORS_20251007.csv"))
+fwrite(dt_doctors, file = paste0(out_dir, "SickLeaveData_DOCTORS_20250216.csv"))
 
+#-----------------------------------------
+# 4. Plots results
+#-----------------------------------------
 
-# Plots:
-# dt = dt_doctors # uncomment to plot only doctors data
-
-# 1. Density of sick leave start dates
-p1 <- ggplot(dt, aes(x = SICK_LEAVE_START)) +
-    geom_density(fill = "steelblue", alpha = 0.6) +
-    scale_x_date(date_breaks = "6 months", date_labels = "%b %Y") +
-    labs(title = "Density of Sick Leave Start Dates", x = "Start Date", y = "Density") +
-    theme_minimal() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-# 2. Density of sick leave end dates
-p2 <- ggplot(dt, aes(x = SICK_LEAVE_END)) +
-    geom_density(fill = "darkorange", alpha = 0.6) +
-    scale_x_date(date_breaks = "6 months", date_labels = "%b %Y") +
-    labs(title = "Density of Sick Leave End Dates", x = "End Date", y = "Density") +
-    theme_minimal() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-# 3. Density of sick leave duration
-p3 <- ggplot(dt, aes(x = SICK_LEAVE_DURATION)) +
-    geom_density(fill = "forestgreen", alpha = 0.6) +
-    scale_x_continuous(breaks = pretty(dt$SICK_LEAVE_DURATION, n = 10)) +
-    labs(title = "Density of Sick Leave Duration", x = "Duration (days)", y = "Density") +
+# Histogram of sick leave duration
+p <- ggplot(dt_doctors, aes(x = SICK_LEAVE_DURATION)) +
+    geom_histogram(fill = "forestgreen", color = "black", alpha = 0.6, binwidth = 7) +
+    labs(title = "Sick Leave Duration Distribution, 7 day bins", x = "Duration (days)", y = "Frequency") +
     theme_minimal()
 
 # Stack plots & save
-combined_plot <- p1 / p2 / p3
-ggsave(filename = paste0(log_dir, "sick_leave_distributions_ALL_20251013.png"), plot = combined_plot, width = 10, height = 15)
-
-# uncomment to save doctors-only plot
-#ggsave(filename = paste0(log_dir, "sick_leave_distributions_DOCTORS_20251013.png"), plot = combined_plot, width = 10, height = 15)
-
+ggsave(filename = paste0(log_dir, "sick_leave_distributions_DOCTORS_20250216.png"), plot = p, width = 8, height = 6)
 
 # END
 rm(list = ls())
