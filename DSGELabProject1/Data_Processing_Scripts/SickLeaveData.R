@@ -133,7 +133,7 @@ sink(log_file, append = TRUE)
 cat(sprintf("Doctors found in data: %d out of %d (%.2f%%)\n", n_doctors_found, n_total_doctors, 100 * n_doctors_found / n_total_doctors))
 sink()
 
-fwrite(dt_doctors, file = paste0(out_dir, "SickLeaveData_DOCTORS_20250216.csv"))
+fwrite(dt_doctors, file = paste0(out_dir, "SickLeaveData_DOCTORS_20260216.csv"))
 
 #-----------------------------------------
 # 4. Plots results
@@ -146,7 +146,7 @@ p <- ggplot(dt_doctors, aes(x = SICK_LEAVE_DURATION)) +
     theme_minimal()
 
 # Stack plots & save
-ggsave(filename = paste0(log_dir, "sick_leave_distributions_DOCTORS_20250216.png"), plot = p, width = 8, height = 6)
+ggsave(filename = paste0(log_dir, "sick_leave_distributions_DOCTORS_20260216.png"), plot = p, width = 8, height = 6)
 
 # END
 rm(list = ls())
