@@ -8,8 +8,9 @@ library(patchwork)
 library(ggrepel)
 
 # Global Variables
-DATE = "20260129"
-dataset_file <- paste0('/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_', DATE, '/Results_', DATE, '/Results_ATC_', DATE, '.csv')
+DATE_IN = "20260129"
+DATE_OUT = format(Sys.Date(), "%Y%m%d")
+dataset_file <- paste0('/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_', DATE_IN, '_FE_MetaAnalysis/Results_', DATE_IN, '/Results_ATC_', DATE_IN, '.csv')
 OutDir <- paste0("/media/volume/Projects/DSGELabProject1/Plots/Figure5/")
 if (!dir.exists(OutDir)) {dir.create(OutDir, recursive = TRUE)}
 
@@ -199,4 +200,4 @@ p_combined <- p_left + p_right +
   )
 
 # Save
-ggsave(paste0(OutDir, "Figure5A_", DATE, ".png"), plot = p_combined, width = 24, height = 14, dpi = 300, device = "png")
+ggsave(paste0(OutDir, "Figure5_", DATE_OUT, ".png"), plot = p_combined, width = 24, height = 14, dpi = 300, device = "png")

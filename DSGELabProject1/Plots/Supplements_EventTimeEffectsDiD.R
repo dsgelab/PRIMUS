@@ -274,115 +274,27 @@ for (code in code_list) {
     data_plot$ci_post_upper <- ci_post[2]
 
     p[[code]] <- ggplot(data_plot, aes(x = time, y = att)) +
-        geom_line(color = "#1f77b4") +
-        geom_point(aes(alpha = ifelse(time == 0, 0.3, 1)), size = 2, color = "#1f77b4") +
-        geom_errorbar(aes(ymin = att - 1.96 * se, ymax = att + 1.96 * se, alpha = ifelse(time == 0, 0.3, 1)), width = 0.2, color = "#1f77b4", linewidth = 1) +
-        geom_hline(yintercept = 0, linetype = "dashed", color = "grey") +
-        geom_vline(xintercept = 0, linetype = "dashed", color = "grey") +
-        geom_segment(aes(x = -3, xend = 0, y = ci_pre_lower, yend = ci_pre_lower), linetype = "dashed", color = "red", linewidth = 0.8) +
-        geom_segment(aes(x = -3, xend = 0, y = ci_pre_upper, yend = ci_pre_upper), linetype = "dashed", color = "red", linewidth = 0.8) +
-        geom_point(aes(x = -0.5, y = avg_effect_before), shape = 23, size = 5, color = "red", alpha = 0.2) +
-        geom_errorbar(aes(x = -0.5, ymin = ci_pre_lower, ymax = ci_pre_upper), width = 0.15, color = "red", alpha = 0.2, linewidth = 1) +
-        geom_segment(aes(x = 0, xend = 3, y = ci_post_lower, yend = ci_post_lower), linetype = "dashed", color = "red", linewidth = 0.8) +
-        geom_segment(aes(x = 0, xend = 3, y = ci_post_upper, yend = ci_post_upper), linetype = "dashed", color = "red", linewidth = 0.8) +
-        geom_point(aes(x = 0.5, y = avg_effect_after), shape = 23, size = 5, color = "red", alpha = 0.2) +
-        geom_errorbar(aes(x = 0.5, ymin = ci_post_lower, ymax = ci_post_upper), width = 0.15, color = "red", alpha = 0.2, linewidth = 1) +
-        labs(
-            x = "Years from Event",
-            y = "Staggered DiD model Estimate \n(Change in Prescription Rate)",
-            title = paste0("medication ATC:", code)
-        ) +
-        scale_alpha_identity() +
-        coord_cartesian(ylim = c(-0.001, 0.01)) +
-        theme_minimal()
+      geom_line(color = "#1f77b4") +
+      geom_point(aes(alpha = ifelse(time == 0, 0.3, 1)), size = 2, color = "#1f77b4") +
+      geom_errorbar(aes(ymin = att - 1.96 * se, ymax = att + 1.96 * se, alpha = ifelse(time == 0, 0.3, 1)), width = 0.2, color = "#1f77b4", linewidth = 1) +
+      geom_hline(yintercept = 0, linetype = "dashed", color = "grey") +
+      geom_vline(xintercept = 0, linetype = "dashed", color = "grey") +
+      geom_segment(aes(x = -3.5, xend = -0.5, y = avg_effect_before, yend = avg_effect_before), color = "red", alpha = 0.2, linewidth = 1) +
+      geom_segment(aes(x = -3.5, xend = -0.5, y = ci_pre_lower, yend = ci_pre_lower), color = "red", alpha = 0.2, linewidth = 1, linetype = "dashed") +
+      geom_segment(aes(x = -3.5, xend = -0.5, y = ci_pre_upper, yend = ci_pre_upper), color = "red", alpha = 0.2, linewidth = 1, linetype = "dashed") +
+      geom_segment(aes(x = 0.5, xend = 3.5, y = avg_effect_after, yend = avg_effect_after), color = "red", alpha = 0.2, linewidth = 1) +
+      geom_segment(aes(x = 0.5, xend = 3.5, y = ci_post_lower, yend = ci_post_lower), color = "red", alpha = 0.2, linewidth = 1, linetype = "dashed") +
+      geom_segment(aes(x = 0.5, xend = 3.5, y = ci_post_upper, yend = ci_post_upper), color = "red", alpha = 0.2, linewidth = 1, linetype = "dashed") +
+      labs(
+      x = "Years from Event",
+      y = "Staggered DiD model Estimate \n(Change in Prescription Rate)",
+      title = paste0("medication ATC:", code)
+      ) +
+      scale_alpha_identity() +
+      coord_cartesian(ylim = c(-0.001, 0.01)) +
+      theme_minimal()
 }
 
 # Combine all plots into a single figure
 combined_plot <- wrap_plots(p, ncol = 3)
-ggsave(filename = paste0(outdir, "Supplementary_RatioDiDValidation_", DATE, ".png"), plot = combined_plot, width = 24, height = 16)
-
-
-# EXTRA:
-# If temp_results file exists, do plot directly using it (skip all above)
-# results <- read_csv(paste0(outdir, "temp_results_", DATE, ".csv"), show_col_types = FALSE)
-# p <- list()
-# code_list <- unique(results$code)
-# for (code in code_list) {
-#     temp_results <- results %>% filter(code == !!code)
-#     # For medications results will consider ATT and SE in a 3 year window before and after event (t=0)
-#     before_idx <- temp_results$time %in% c(-3, -2, -1)
-#     after_idx <- temp_results$time %in% c(1, 2, 3)
-# 
-#     # Meta-analysis of pre-period estimates
-#     pre_data <- data.frame(
-#         estimate = temp_results$att[before_idx],
-#         se = temp_results$se[before_idx]
-#     )
-#     pre_meta <- metafor::rma(yi = estimate, sei = se, data = pre_data, method = "FE")
-#     avg_effect_before <- pre_meta$b[,1]
-#     se_pre <- pre_meta$se
-#     p_value_pre <- pre_meta$pval
-#     ci_pre <- c(pre_meta$ci.lb, pre_meta$ci.ub)
-# 
-#     # Meta-analysis of post-period estimates
-#     post_data <- data.frame(
-#         estimate = temp_results$att[after_idx],
-#         se = temp_results$se[after_idx]
-#     )
-#     post_meta <- metafor::rma(yi = estimate, sei = se, data = post_data, method = "FE")
-#     avg_effect_after <- post_meta$b[,1]
-#     se_post <- post_meta$se
-#     p_value_post <- post_meta$pval
-#     ci_post <- c(post_meta$ci.lb, post_meta$ci.ub)
-# 
-#     # Absolute change and relative change estimates
-#     absolute_change <- avg_effect_after - avg_effect_before
-#     absolute_change_se <- sqrt(se_post^2 + se_pre^2)
-#     score_abs <- absolute_change / absolute_change_se
-#     abs_change_pval <- 2 * (1 - pnorm(abs(score_abs)))
-# 
-#     relative_change <- ifelse(avg_effect_before == 0, NA, avg_effect_after / avg_effect_before)
-#     relative_change_se <- sqrt((se_post / avg_effect_before)^2 + (avg_effect_after * se_pre / avg_effect_before^2)^2)
-# 
-#     # ============================================================================
-# 
-#     # Replace lines 269-287 with:
-#     data_plot <- temp_results[temp_results$time >= -3 & temp_results$time <= 3, ]
-#     data_plot$avg_effect_before <- avg_effect_before
-#     data_plot$avg_effect_after <- avg_effect_after
-#     data_plot$ci_pre_lower <- ci_pre[1]
-#     data_plot$ci_pre_upper <- ci_pre[2]
-#     data_plot$ci_post_lower <- ci_post[1]
-#     data_plot$ci_post_upper <- ci_post[2]
-# 
-#     subtitle_text <- paste0(
-#         "N Cases: ", n_cases, " | N Controls: ", n_controls, "\n",
-#         "Absolute Change: ", round(absolute_change, 5), " | Absolute Change SE: ", round(absolute_change_se, 5), "\n",
-#         "Relative Change: ", round(relative_change, 5), " | Relative Change SE: ", round(relative_change_se, 5), "\n",
-#         "p-value (Pre event): ", round(p_value_pre, 5)," | p-value (Post event): ", round(p_value_post, 5), " | p-value (Abs Change): ", round(abs_change_pval, 5), "\n",
-#         "FDR-adj. p-value (Pre event): ", round(dataset[dataset$OUTCOME_CODE==code,]$PVAL_PRE_ADJ_FDR, 5)," | FDR-adj. p-value (Post event): ", round(dataset[dataset$OUTCOME_CODE==code,]$PVAL_POST_ADJ_FDR, 5), " | FDR-adj. p-value (Abs Change): ", round(dataset[dataset$OUTCOME_CODE==code,]$PVAL_ADJ_FDR, 5)
-#     )
-# 
-#     p[[code]] <- ggplot(data_plot, aes(x = time, y = att)) +
-#         geom_line(color = "#1f77b4") +
-#         geom_point(size = 2) +
-#         geom_errorbar(aes(ymin = att - 1.96 * se, ymax = att + 1.96 * se), width = 0.2, color = "#1f77b4", linewidth = 1) +
-#         geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
-#         geom_vline(xintercept = 0, linetype = "dashed", color = "grey") +
-#         geom_point(aes(x = -0.5, y = avg_effect_before), shape = 23, size = 5, color = "red") +
-#         geom_errorbar(aes(x = -0.5, ymin = ci_pre_lower, ymax = ci_pre_upper), width = 0.15, color = "red", linewidth = 1) +
-#         geom_point(aes(x = 0.5, y = avg_effect_after), shape = 23, size = 5, color = "red") +
-#         geom_errorbar(aes(x = 0.5, ymin = ci_post_lower, ymax = ci_post_upper), width = 0.15, color = "red", linewidth = 1) +
-#         labs(
-#             x = "Years from Event",
-#             y = "Staggered DiD model Estimate \n(Change in Prescription Rate)",
-#             title = paste0("medication ATC:", code),
-#             subtitle = subtitle_text
-#         ) +
-#         coord_cartesian(ylim = c(-0.001, 0.01)) +
-#         theme_minimal()  
-# }
-# 
-# # Combine all plots into a single figure
-# combined_plot <- wrap_plots(p, ncol = 3)
-# ggsave(filename = paste0(outdir, "Supplementary_RatioDiDValidation_", DATE, ".png"), plot = combined_plot, width = 24, height = 16)
+ggsave(filename = paste0(outdir, "Supplementary_EventTimeEffects_", DATE, ".png"), plot = combined_plot, width = 24, height = 16)

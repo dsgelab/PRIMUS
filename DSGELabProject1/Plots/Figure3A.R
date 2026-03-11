@@ -12,7 +12,7 @@ library(readr)
 # Load data
 DATE = "20260217"
 dataset_file <- paste0('/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Diagnosis_', DATE, '/Results_', DATE, '/Results_ICD_', DATE, '.csv')
-OutDir <- paste0("/media/volume/Projects/DSGELabProject1/Plots/Figure5/")
+OutDir <- paste0("/media/volume/Projects/DSGELabProject1/Plots/Figure3/")
 if (!dir.exists(OutDir)) {dir.create(OutDir, recursive = TRUE)}
 
 # ============================================================================
@@ -39,7 +39,7 @@ dataset$SIG_TYPE <- case_when(
 # Convert to factor with explicit levels
 dataset$SIG_TYPE <- factor(dataset$SIG_TYPE, levels = c("Significant", "Not Significant"))
 # Extract medication chapter from OUTCOME_CODE
-dataset$EVENT_CODE <- substr(sub(".*_", "", dataset$EVENT_CODE), 1, 1)
+dataset$EVENT_CODE <- substr(sub(".*_", "", dataset$EVENT_CODE), 1, 3)
 dataset <- dataset %>% mutate(MED_CHAPTER = substr(EVENT_CODE, 1, 1))
 
 # Sort MED_CHAPTER alphabetically for x axis
@@ -95,9 +95,9 @@ cb_palette <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2",
 # Select dieases to be labelled
 code_labels <- tibble(
     EVENT_CODE = c(
-            "Diag_C50", "Diag_F33", "Diag_F43", "Diag_I80", 
-            "Diag_O80", "Diag_O82", "Diag_O42", "Diag_O02",
-            "Diag_Z34", "Diag_Z36", "Diag_Z73"
+            "C50", "F33", "F43", "I80", 
+            "O80", "O82", "O42", "O02",
+            "Z34", "Z36", "Z73"
     ),
     LABEL = c(
             "Malignant neoplasm of breast", "Recurrent depressive disorder", "Severe stress and adjustment disorders", "Phlebitis and thrombophlebitis", 

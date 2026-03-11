@@ -272,7 +272,7 @@ for (code in code_list) {
         # combine results and save
         result_df <- do.call(rbind, result_list_2)
         result_df$code <- code
-        write.csv(result_df, file.path(outdir, paste0("TempData/Results_PrescriptionTiers_", code, ".csv")), row.names = FALSE)
+        #write.csv(result_df, file.path(outdir, paste0("TempData/Results_PrescriptionTiers_", code, ".csv")), row.names = FALSE)
         result_list_1[[code]] <- result_df
 
     }, error = function(e) {
@@ -323,4 +323,4 @@ results_wide$tier_significance <- apply(results_wide, 1, function(row) {
 })
 
 # Save final results
-write.csv(results_wide, file.path(outdir, "Results_PrescriptionTiers_Final.csv"), row.names = FALSE)
+write.csv(results_wide, file.path(outdir, "Results_PrescriptionTiers_20260310.csv"), row.names = FALSE)

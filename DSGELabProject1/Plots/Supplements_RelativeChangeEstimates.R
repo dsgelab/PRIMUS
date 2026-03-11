@@ -90,14 +90,17 @@ for (code in code_list) {
   # Calculate baseline rates in controls (for each year)
   baseline_rates <- outcomes %>%
     filter(DOCTOR_ID %in% control_ids) %>%
-    group_by(YEAR) %>%
-    summarise(BASELINE_RATE = mean(get(paste0("Y_", code)), na.rm = TRUE), .groups = 'drop')
+    summarise(BASELINE_MEAN = mean(get(paste0("Y_", code)), na.rm = TRUE), .groups = 'drop')
 
-  # Calculate average baseline rate across years
-  avg_baseline_rate <- mean(baseline_rates$BASELINE_RATE, na.rm = TRUE)
+  # Calculate baseline rate for 2021 specifically
+  baseline_2021 <- outcomes %>%
+    filter(DOCTOR_ID %in% control_ids & YEAR == 2021) %>%
+    summarise(BASELINE_2021 = mean(get(paste0("Y_", code)), na.rm = TRUE)) 
+
   results_1[[code]] <- data.frame(
     OUTCOME_CODE = code,
-    BASELINE_RATE = avg_baseline_rate
+    BASELINE_MEAN = baseline_rates$BASELINE_MEAN,
+    BASELINE_2021 = baseline_2021$BASELINE_2021
   )
 }
 # Combine results into a single data frame
@@ -134,18 +137,24 @@ for (code in code_list) {
   baseline_rates <- outcomes %>%
     filter(DOCTOR_ID %in% control_ids) %>%
     group_by(YEAR) %>%
-    summarise(BASELINE_RATE = mean(get(paste0("Y_", code)), na.rm = TRUE), .groups = 'drop')
+    summarise(BASELINE_MEAN = mean(get(paste0("Y_", code)), na.rm = TRUE), .groups = 'drop')
+
+  # Calculate baseline rate for 2021 specifically
+  baseline_2021 <- outcomes %>%
+    filter(DOCTOR_ID %in% control_ids & YEAR == 2021) %>%
+    summarise(BASELINE_2021 = mean(get(paste0("Y_", code)), na.rm = TRUE)) 
 
   results_2[[code]] <- data.frame(
     OUTCOME_CODE = code,
     YEAR = baseline_rates$YEAR,
-    BASELINE_RATE = baseline_rates$BASELINE_RATE
+    BASELINE_MEAN = baseline_rates$BASELINE_MEAN,
+    BASELINE_2021 = baseline_2021$BASELINE_2021
   )
 }
 # for each code, plot the distribution of baseline rates over the years
 baseline_rates_by_year <- do.call(rbind, results_2)
 
-p_baseline_evolution <- ggplot(baseline_rates_by_year, aes(x = YEAR, y = BASELINE_RATE, color = OUTCOME_CODE, group = OUTCOME_CODE)) +
+p_baseline_evolution <- ggplot(baseline_rates_by_year, aes(x = YEAR, y = BASELINE_MEAN, color = OUTCOME_CODE, group = OUTCOME_CODE)) +
   geom_line() +
   geom_point() +
   labs(title = "Baseline Prescription Rates Evolution Over Years",
@@ -165,20 +174,23 @@ dataset_with_baseline <- dataset %>%
 
 # Calculate relative change
 dataset_with_baseline <- dataset_with_baseline %>%
-  mutate(RELATIVE_CHANGE = (ABS_CHANGE / BASELINE_RATE)) %>%
-  arrange(RELATIVE_CHANGE)
+  mutate(
+    RELATIVE_CHANGE_MEAN = (ABS_CHANGE + BASELINE_MEAN) / BASELINE_MEAN,
+    RELATIVE_CHANGE_2021 = (ABS_CHANGE + BASELINE_2021) / BASELINE_2021
+  ) %>%
+  arrange(RELATIVE_CHANGE_MEAN)
 
 # save resutls to file
 dataset_with_baseline <- dataset_with_baseline %>%
-  select(OUTCOME_CODE, BASELINE_RATE, ABS_CHANGE, RELATIVE_CHANGE, ABS_CHANGE_SE, PVAL_ABS_CHANGE, PVAL_PRE, PVAL_POST)
+  select(OUTCOME_CODE, BASELINE_MEAN, BASELINE_2021, ABS_CHANGE, RELATIVE_CHANGE_MEAN, RELATIVE_CHANGE_2021, ABS_CHANGE_SE, PVAL_ABS_CHANGE, PVAL_PRE, PVAL_POST)
 write_csv(dataset_with_baseline, paste0(outdir, "Supplementary_RelativeChangeEstimates_", DATE, ".csv"))  
 
-# Plot: Relative change estimates
-p <- ggplot(dataset_with_baseline, aes(y = reorder(OUTCOME_CODE, RELATIVE_CHANGE))) +
+# Plot V1 
+p1 <- ggplot(dataset_with_baseline, aes(y = reorder(OUTCOME_CODE, RELATIVE_CHANGE_MEAN))) +
   geom_vline(xintercept = 0, linetype = "dashed", color = "grey", linewidth = 0.8) +
-  geom_segment(aes(x = BASELINE_RATE, xend = BASELINE_RATE + ABS_CHANGE, yend = reorder(OUTCOME_CODE, RELATIVE_CHANGE)), color = "red", linewidth = 0.8) +
-  geom_point(aes(x = BASELINE_RATE, shape = "Baseline"), color = "red", size = 3, stroke = 1.5) +
-  geom_point(aes(x = BASELINE_RATE + ABS_CHANGE, shape = "After Event"), color = "red", size = 4) +
+  geom_segment(aes(x = BASELINE_MEAN, xend = BASELINE_MEAN + ABS_CHANGE, yend = reorder(OUTCOME_CODE, RELATIVE_CHANGE_MEAN)), color = "red", linewidth = 0.8) +
+  geom_point(aes(x = BASELINE_MEAN, shape = "Baseline"), color = "red", size = 3, stroke = 1.5) +
+  geom_point(aes(x = BASELINE_MEAN + ABS_CHANGE, shape = "After Event"), color = "red", size = 4) +
   scale_shape_manual(values = c("Baseline" = 1, "After Event" = 16), name = "") +
   labs(title = "Estimated Change in Average Prescription Rates After Event (Relative to Baseline)",
        x = "Prescription Rate",
@@ -187,4 +199,50 @@ p <- ggplot(dataset_with_baseline, aes(y = reorder(OUTCOME_CODE, RELATIVE_CHANGE
   theme(axis.text.y = element_text(size = 8),legend.position = "bottom")
 
 # Combine all plots into a single figure
-ggsave(filename = paste0(outdir, "Supplementary_RelativeChangeEstimates_", DATE, ".png"), plot = p, width = 12, height = 8)
+ggsave(filename = paste0(outdir, "Supplementary_RelativeChangeEstimates_V1_", DATE, ".png"), plot = p1, width = 12, height = 8)
+
+# Plot V2
+# Calculate 95% CI for relative change
+dataset_with_baseline <- dataset_with_baseline %>%
+  mutate(
+    RELATIVE_CHANGE_SE = abs(ABS_CHANGE_SE / BASELINE_MEAN),
+    RELATIVE_CHANGE_CI_LOW = RELATIVE_CHANGE_MEAN - 1.96 * RELATIVE_CHANGE_SE,
+    RELATIVE_CHANGE_CI_UP = RELATIVE_CHANGE_MEAN + 1.96 * RELATIVE_CHANGE_SE
+  )
+p2 <- ggplot(dataset_with_baseline, aes(y = reorder(OUTCOME_CODE, RELATIVE_CHANGE_MEAN))) +
+  geom_vline(xintercept = 1, linetype = "dashed", color = "grey", linewidth = 0.8) +
+  geom_point(aes(x = RELATIVE_CHANGE_MEAN), color = "red", size = 3, fill = "red") +
+  geom_errorbarh(aes(xmin = RELATIVE_CHANGE_CI_LOW, xmax = RELATIVE_CHANGE_CI_UP), height = 0.2, color = "red", linewidth = 0.8) +
+  geom_text(aes(x = RELATIVE_CHANGE_MEAN, label = paste0(round(RELATIVE_CHANGE_MEAN, 3), "\n[", round(RELATIVE_CHANGE_CI_LOW, 3), ", ", round(RELATIVE_CHANGE_CI_UP, 3), "]")), hjust = -0.1, vjust = 0.5, size = 2.5) +
+  labs(title = "Estimated Relative Change in Prescription Rates After Event (95% CI)",
+       x = "Relative Change",
+       y = "ATC Code") +
+  theme_minimal() +
+  theme(axis.text.y = element_text(size = 8), legend.position = "bottom")
+
+
+# Combine all plots into a single figure
+ggsave(filename = paste0(outdir, "Supplementary_RelativeChangeEstimates_V2_", DATE, ".png"), plot = p2, width = 12, height = 8)
+
+# Plot V3:
+# compare relative changes based on different baselines (mean vs 2021)
+# Calculate 95% CI for 2021 relative change
+dataset_with_baseline <- dataset_with_baseline %>%
+  mutate(
+    RELATIVE_CHANGE_2021_SE = abs(ABS_CHANGE_SE / BASELINE_2021),
+    RELATIVE_CHANGE_2021_CI_LOW = RELATIVE_CHANGE_2021 - 1.96 * RELATIVE_CHANGE_2021_SE,
+    RELATIVE_CHANGE_2021_CI_UP = RELATIVE_CHANGE_2021 + 1.96 * RELATIVE_CHANGE_2021_SE
+  )
+p3 <- ggplot(dataset_with_baseline, aes(x = RELATIVE_CHANGE_MEAN, y = RELATIVE_CHANGE_2021)) +
+  geom_point(color = "darkred", size = 3) +
+  geom_errorbarh(aes(xmin = RELATIVE_CHANGE_CI_LOW, xmax = RELATIVE_CHANGE_CI_UP), height = 0.05, color = "darkred", linewidth = 0.6, alpha = 0.7) +
+  geom_errorbar(aes(ymin = RELATIVE_CHANGE_2021_CI_LOW, ymax = RELATIVE_CHANGE_2021_CI_UP), width = 0.05, color = "darkred", linewidth = 0.6, alpha = 0.7) +
+  geom_text(aes(label = OUTCOME_CODE), size = 2, hjust = -0.2, vjust = -0.2) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "grey", linewidth = 0.8) +
+  labs(title = "Relative Change: Mean Baseline vs. 2021 Baseline (95% CI)",
+        x = "Relative Change (Mean Baseline)",
+        y = "Relative Change (2021 Baseline)") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+ggsave(filename = paste0(outdir, "Supplementary_RelativeChangeEstimates_V3_", DATE, ".png"), plot = p3, width = 12, height = 8)
