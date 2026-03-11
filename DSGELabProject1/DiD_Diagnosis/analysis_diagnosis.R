@@ -107,6 +107,7 @@ cat("Events per year: [", events_year_str, "]\n")
 
 # STEP 4: DiD Analysis using 'did' package
 
+set.seed(09152024)
 att_gt_res <- att_gt(
     yname = "N",
     tname = "T",
