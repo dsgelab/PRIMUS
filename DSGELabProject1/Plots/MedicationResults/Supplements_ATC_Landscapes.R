@@ -15,45 +15,43 @@ suppressPackageStartupMessages({
 })
 
 ##### Arguments
-DATE = "20260129"
+DATE = "20260316"
 dataset_file <- paste0('/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_', DATE, '/Results_', DATE, '/Results_ATC_', DATE, '.csv')
 events_file = paste0("/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_", DATE, "/ProcessedEvents_", DATE, "/processed_events.parquet")
 outcomes_file = paste0("/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_", DATE, "/ProcessedOutcomes_", DATE, "/processed_outcomes.parquet")
 doctor_list = "/media/volume/Projects/DSGELabProject1/doctors_20250424.csv"
 covariate_file = "/media/volume/Projects/DSGELabProject1/doctor_characteristics_20250520.csv"
 renamed_ATC_file = "/media/volume/Projects/ATC_renamed_codes.csv"
-outdir = "/media/volume/Projects/DSGELabProject1/Plots/Supplements/"
+outdir = "/media/volume/Projects/DSGELabProject1/Plots/Results_20260316/"
+if (!dir.exists(outdir)) {dir.create(outdir, recursive = TRUE)}
 
+##### Main
 dataset <- read_csv(dataset_file, show_col_types = FALSE)
+
 # Filter only codes with at least 300 cases available
 dataset <- dataset[dataset$N_CASES >= 300, ]
 
-# STEP 1:
-# Apply FDR multiple testing correction
-dataset$PVAL_ADJ_FDR <- p.adjust(dataset$PVAL_ABS_CHANGE, method = "bonferroni")
-dataset$SIGNIFICANT_CHANGE <- dataset$PVAL_ADJ_FDR < 0.05
+# Apply multiple test correction
+dataset$PVAL_ADJ <- p.adjust(dataset$PVAL_ABS_CHANGE, method = "bonferroni")
+dataset$SIGNIFICANT_CHANGE <- dataset$PVAL_ADJ < 0.05
 
-# STEP 2:
-# Select only robust results, i.e those point / events with:
-# A. an average prescription rate before event significantly non-different from controls
-# B. an average prescription rate after event significantly different from controls
-# Also apply FDR multiple testing correction here
-dataset$PVAL_PRE_ADJ_FDR <- p.adjust(dataset$PVAL_PRE, method = "bonferroni")
-dataset$PVAL_POST_ADJ_FDR <- p.adjust(dataset$PVAL_POST, method = "bonferroni")    
-dataset$SIGNIFICANT_ROBUST <- (dataset$PVAL_PRE_ADJ_FDR >= 0.05) & (dataset$PVAL_POST_ADJ_FDR < 0.05)
+# Apply correction also to the pre and post event p-values
+dataset$PVAL_PRE_ADJ <- p.adjust(dataset$PVAL_PRE, method = "bonferroni")
+dataset$PVAL_POST_ADJ <- p.adjust(dataset$PVAL_POST, method = "bonferroni")    
 
-# STEP 3:
-# Create a combined significance variable with two levels
+# Create a significance variable with two levels
 dataset$SIG_TYPE <- case_when(
-  dataset$SIGNIFICANT_CHANGE & dataset$SIGNIFICANT_ROBUST ~ "Significant",
+  dataset$SIGNIFICANT_CHANGE ~ "Significant",
   TRUE ~ "Not Significant"
 )
 
-# prepare vectors for validation plots
+# Extract list of significant medications for plots
 code_list = dataset %>%
     filter(SIG_TYPE == "Significant") %>%
     pull(OUTCOME_CODE) %>%
     unique()
+
+#-----------------------------------------------
 p <- list()
 
 for (code in code_list) {
@@ -69,7 +67,6 @@ for (code in code_list) {
 
     for (atc_group_code in atc_group_codes) {
 
-        #### Main
         N_THREADS = 10
         setDTthreads(N_THREADS) 
 
@@ -90,7 +87,7 @@ for (code in code_list) {
         # If the code is an old code that have been modified, exit analysis
         if (event_actual_code %in% renamed_ATC$ATC_OLD) {
             cat(paste0("Event code ", event_actual_code, " is an old code. Exiting analysis.\n"))
-            quit(status = 0)
+            next
         }
         # If input code is a new code, keep as is and rename other codes to the new one
         if (event_actual_code %in% renamed_ATC$ATC_NEW) {
@@ -104,13 +101,13 @@ for (code in code_list) {
         # 3. outcome
         # check if outcome code is a new code that has been renamed, if so load also old codes, rename columns and merge them
         if (outcome_code %in% renamed_ATC$ATC_NEW) {
-            outcome_cols1 = c("DOCTOR_ID", "YEAR", paste0("N_", outcome_code), paste0("Y_", outcome_code), paste0("first_year_", outcome_code), paste0("last_year_", outcome_code))
+            outcome_cols1 = c("DOCTOR_ID", "YEAR", "N_general", paste0("N_", outcome_code), paste0("Y_", outcome_code), paste0("first_year_", outcome_code), paste0("last_year_", outcome_code))
             outcomes = as.data.table(read_parquet(outcomes_file, col_select = outcome_cols1))
 
             old_codes = unique(renamed_ATC[ATC_NEW == outcome_code, ATC_OLD])
             # Loop through each old code and stack them
             for(old_code in old_codes) {
-                outcome_cols2 = c("DOCTOR_ID", "YEAR", paste0("N_", old_code), paste0("Y_", old_code), paste0("first_year_", old_code), paste0("last_year_", old_code))
+                outcome_cols2 = c("DOCTOR_ID", "YEAR", "N_general", paste0("N_", old_code), paste0("Y_", old_code), paste0("first_year_", old_code), paste0("last_year_", old_code))
                 outcomes2 = as.data.table(read_parquet(outcomes_file, col_select = outcome_cols2))     
                 setnames(outcomes2, 
                     old = c(paste0("N_", old_code), paste0("Y_", old_code), paste0("first_year_", old_code), paste0("last_year_", old_code)),
@@ -118,7 +115,7 @@ for (code in code_list) {
                 outcomes = rbind(outcomes, outcomes2)
             }
         } else {
-            outcomes_cols = c("DOCTOR_ID", "YEAR", paste0("N_", outcome_code), paste0("Y_", outcome_code), paste0("first_year_", outcome_code), paste0("last_year_", outcome_code))
+            outcomes_cols = c("DOCTOR_ID", "YEAR", "N_general", paste0("N_", outcome_code), paste0("Y_", outcome_code), paste0("first_year_", outcome_code), paste0("last_year_", outcome_code))
             outcomes = as.data.table(read_parquet(outcomes_file, col_select = outcomes_cols))
         }
         outcomes_filtered = outcomes[DOCTOR_ID %in% doctor_ids] # QC : only selected doctors
@@ -182,11 +179,26 @@ for (code in code_list) {
                 SPECIALTY = factor(SPECIALTY, levels = c("", setdiff(unique(df_complete$SPECIALTY), ""))),
                 SEX = factor(SEX, levels = c(1, 2), labels = c("Male", "Female")),
                 Y = get(paste0("Y_", outcome_code)),
-                Ni = get(paste0("N_", outcome_code))
+                Ni = get(paste0("N_", outcome_code)),
+                N = N_general
             )
         ]
         # Replace missing Y values with 0s 
         df_model[is.na(Y), Y := 0]
+
+        # To ensure results are robust will apply "empirical bayes shrinkage" to doctors with low total prescriptions in a given year
+        # Will shrink the ratio toward the mean within the doctor trajectory
+        N_THRESHOLD = 5
+        # Calculate mean Y for each doctor (using only observations where N >= N_THRESHOLD)
+        df_model[, Y_mean := mean(Y[N >= N_THRESHOLD], na.rm = TRUE), by = DOCTOR_ID]
+        # Apply empirical Bayes shrinkage: adjust Y values where N < N_THRESHOLD
+        df_model[, Y := fifelse(
+            N < N_THRESHOLD, 
+            ((N * Y + N_THRESHOLD * Y_mean) / (N + N_THRESHOLD)), 
+            Y
+        )]
+        df_model[, Y_mean := NULL]
+
         # prepare variables as requested by did package
         df_model$ID <- as.integer(factor(df_model$DOCTOR_ID))                      
         df_model$G <- ifelse(is.na(df_model$EVENT_YEAR), 0, df_model$EVENT_YEAR)    
@@ -213,5 +225,5 @@ for (code in code_list) {
 }
 
 # Combine all plots into a single figure
-combined_plot <- wrap_plots(p, ncol = 3)
-ggsave(filename = paste0(outdir, "Supplements_Nplots", DATE, ".png"), plot = combined_plot, width = 24, height = 16)
+combined_plot <- wrap_plots(p, ncol = 5)
+ggsave(filename = paste0(outdir, "Supplements_ATC_Landscapes_", DATE, ".png"), plot = combined_plot, width = 24, height = 12)

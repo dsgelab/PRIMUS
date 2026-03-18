@@ -15,47 +15,43 @@ suppressPackageStartupMessages({
 })
 
 ##### Arguments
-DATE = "20260129"
-dataset_file <- paste0('/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_', DATE, '/Results_', DATE, '/Results_ATC_', DATE, '.csv')
+DATE = "20260316"
+dataset_file = paste0('/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_', DATE, '/Results_', DATE, '/Results_ATC_', DATE, '.csv')
 events_file = paste0("/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_", DATE, "/ProcessedEvents_", DATE, "/processed_events.parquet")
 outcomes_file = paste0("/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_", DATE, "/ProcessedOutcomes_", DATE, "/processed_outcomes.parquet")
 doctor_list = "/media/volume/Projects/DSGELabProject1/doctors_20250424.csv"
 covariate_file = "/media/volume/Projects/DSGELabProject1/doctor_characteristics_20250520.csv"
 renamed_ATC_file = "/media/volume/Projects/ATC_renamed_codes.csv"
-outdir = "/media/volume/Projects/DSGELabProject1/Plots/Supplements/"
+outdir = "/media/volume/Projects/DSGELabProject1/Plots/Results_20260316/"
 if (!dir.exists(outdir)) {dir.create(outdir, recursive = TRUE)}
 
-
+##### Main
 dataset <- read_csv(dataset_file, show_col_types = FALSE)
+
 # Filter only codes with at least 300 cases available
 dataset <- dataset[dataset$N_CASES >= 300, ]
 
-# STEP 1:
-# Apply FDR multiple testing correction
-dataset$PVAL_ADJ_FDR <- p.adjust(dataset$PVAL_ABS_CHANGE, method = "bonferroni")
-dataset$SIGNIFICANT_CHANGE <- dataset$PVAL_ADJ_FDR < 0.05
+# Apply multiple test correction
+dataset$PVAL_ADJ <- p.adjust(dataset$PVAL_ABS_CHANGE, method = "bonferroni")
+dataset$SIGNIFICANT_CHANGE <- dataset$PVAL_ADJ < 0.05
 
-# STEP 2:
-# Select only robust results, i.e those point / events with:
-# A. an average prescription rate before event significantly non-different from controls
-# B. an average prescription rate after event significantly different from controls
-# Also apply FDR multiple testing correction here
-dataset$PVAL_PRE_ADJ_FDR <- p.adjust(dataset$PVAL_PRE, method = "bonferroni")
-dataset$PVAL_POST_ADJ_FDR <- p.adjust(dataset$PVAL_POST, method = "bonferroni")    
-dataset$SIGNIFICANT_ROBUST <- (dataset$PVAL_PRE_ADJ_FDR >= 0.05) & (dataset$PVAL_POST_ADJ_FDR < 0.05)
+# Apply correction also to the pre and post event p-values
+dataset$PVAL_PRE_ADJ <- p.adjust(dataset$PVAL_PRE, method = "bonferroni")
+dataset$PVAL_POST_ADJ <- p.adjust(dataset$PVAL_POST, method = "bonferroni")    
 
-# STEP 3:
-# Create a combined significance variable with two levels
+# Create a significance variable with two levels
 dataset$SIG_TYPE <- case_when(
-  dataset$SIGNIFICANT_CHANGE & dataset$SIGNIFICANT_ROBUST ~ "Significant",
+  dataset$SIGNIFICANT_CHANGE ~ "Significant",
   TRUE ~ "Not Significant"
 )
 
-# prepare vectors for validation plots
+# Extract list of significant medications for plots
 code_list = dataset %>%
     filter(SIG_TYPE == "Significant") %>%
     pull(OUTCOME_CODE) %>%
     unique()
+
+# -----------------------------------------------
 result_list_1 = list()
 
 for (code in code_list) {
@@ -154,24 +150,46 @@ for (code in code_list) {
         # Replace missing Y values with 0s 
         df_model[is.na(Y), Y := 0]
 
-        # Calculate percentiles based on sorted unique values (bottom 10% and top 10%)
-        # Need to do this based on cases to avoid empty datasets
-        unique_birth_years <- sort(unique(df_model[EVENT == 1, BIRTH_YEAR]))
-        p10 <- unique_birth_years[ceiling(length(unique_birth_years) * 0.10)]
-        p90 <- unique_birth_years[floor(length(unique_birth_years) * 0.90)]
+        # To ensure results are robust will apply "empirical bayes shrinkage" to doctors with low total prescriptions in a given year
+        # Will shrink the ratio toward the mean within the doctor trajectory
+        N_THRESHOLD = 5
+        # Calculate mean Y for each doctor (using only observations where N >= N_THRESHOLD)
+        df_model[, Y_mean := mean(Y[N >= N_THRESHOLD], na.rm = TRUE), by = DOCTOR_ID]
+        # Apply empirical Bayes shrinkage: adjust Y values where N < N_THRESHOLD
+        df_model[, Y := fifelse(
+            N < N_THRESHOLD, 
+            ((N * Y + N_THRESHOLD * Y_mean) / (N + N_THRESHOLD)), 
+            Y
+        )]
+        df_model[, Y_mean := NULL]
+
+        # STEP 3: Calculate prescription tier based on pre-event prescriptions
+        # For controls and cases, calculate mean prescriptions before event
+        df_model[, prescription_tier := NA_character_]
+        df_model[, prescription_tier_value := {
+            event_year <- EVENT_YEAR[1]
+            if (!is.na(event_year)) {
+            round(mean(Ni[YEAR < event_year], na.rm = TRUE), 0)
+            } else {
+            round(mean(Ni, na.rm = TRUE), 0)
+            }
+        }, by = DOCTOR_ID]
+
+        # Calculate percentiles (for both cases and controls)
+        p10 <- quantile(df_model$prescription_tier_value, probs = 0.10, na.rm = TRUE)
+        p90 <- quantile(df_model$prescription_tier_value, probs = 0.90, na.rm = TRUE)
 
         # Create tier categories (for both cases and controls)
-        df_model[, prescription_tier_value := BIRTH_YEAR]
         df_model[, prescription_tier := fcase(
-            prescription_tier_value <= p10, paste0("Low (<=", p10, ")"),
-            prescription_tier_value >= p90, paste0("High (>=", p90, ")"),
-            default = NA_character_
+            prescription_tier_value <= p10, paste0("Low (0-", floor(p10), ")"),
+            prescription_tier_value >= p90, paste0("High (", floor(p90) + 1, "+)"),
+            default = NA
         )]
 
         # Convert prescription_tier to a factor with ordered levels
         df_model[, prescription_tier := factor(prescription_tier, levels = c(
-            paste0("Low (<=", p10, ")"),
-            paste0("High (>=", p90, ")")
+            paste0("Low (0-", floor(p10), ")"),
+            paste0("High (", floor(p90) + 1, "+)")
         ))]
 
         # Report statistics on doctors per tier
@@ -184,15 +202,7 @@ for (code in code_list) {
         tiers <- levels(df_model$prescription_tier)[!is.na(levels(df_model$prescription_tier))]
 
         for (tier in tiers) {
-            if (tier == tiers[1]) {
-                df_tier <- df_model[prescription_tier_value <= p10 | is.na(prescription_tier_value)]
-            } else {
-                df_tier <- df_model[prescription_tier_value >= p90 | is.na(prescription_tier_value)]
-            }
-
-            # Keep only doctors who have N >= 5 for ALL years they appear in the data
-            docs_to_keep <- df_tier[, .(all_years_ok = all(N >= 5)), by = DOCTOR_ID][all_years_ok == TRUE, DOCTOR_ID]
-            df_tier <- df_tier[DOCTOR_ID %in% docs_to_keep]
+            df_tier <- df_model[prescription_tier == tier, ]
             
             n_cases_tier <- length(unique(df_tier[!is.na(EVENT_YEAR), DOCTOR_ID]))
             n_controls_tier <- length(unique(df_tier[is.na(EVENT_YEAR), DOCTOR_ID]))
@@ -207,7 +217,7 @@ for (code in code_list) {
                 tname = "T",
                 idname = "ID",
                 gname = "G",
-                xformla = ~ SEX + SPECIALTY,
+                xformla = ~ BIRTH_YEAR + SEX + SPECIALTY,
                 data = df_tier,
                 est_method = "dr",
                 control_group = "notyettreated",
@@ -267,7 +277,6 @@ for (code in code_list) {
         # combine results and save
         result_df <- do.call(rbind, result_list_2)
         result_df$code <- code
-        #write.csv(result_df, file.path(outdir, paste0("TempData/Results_PrescriptionTiers_", code, ".csv")), row.names = FALSE)
         result_list_1[[code]] <- result_df
 
     }, error = function(e) {
@@ -292,7 +301,7 @@ results_wide <- combined_results %>%
     pivot_wider(
         id_cols = code,
         names_from = tier_name,
-        values_from = c(absolute_change, absolute_change_se, p_value_change, tier_range),
+        values_from = c(absolute_change, absolute_change_se, p_value_change, n_cases, n_controls, tier_range),
         names_glue = "{tier_name}_{.value}"
     )
 
@@ -318,4 +327,4 @@ results_wide$tier_significance <- apply(results_wide, 1, function(row) {
 })
 
 # Save final results
-write.csv(results_wide, file.path(outdir, "Results_PrescriptionTiers_Age_20260310.csv"), row.names = FALSE)
+write.csv(results_wide, paste0(outdir, "Supplements_StratifiedAnalysis_PrescriptionTiers_", DATE, ".csv"), row.names = FALSE)

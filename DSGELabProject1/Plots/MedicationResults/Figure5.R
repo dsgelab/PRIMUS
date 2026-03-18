@@ -10,7 +10,7 @@ library(readr)
 library(tidyr)
 library(scales)
 library(gridExtra)
-library(grid)
+library(grid) # Provides rectGrob, gpar, unit
 library(ggrepel)
 library(metafor)
 
@@ -19,22 +19,11 @@ library(metafor)
 # GLOBAL SETTINGS: Paths, dates, plot constants
 # ============================================================================
 
-DATE <- "20260129"
-dataset_file <- paste0(
-    '/media/volume/Projects/DSGELabProject1/DiD_Experiments/',
-    'DiD_Medications_', DATE,
-    '_FE_MetaAnalysis/Results_', DATE,
-    '/Results_ATC_', DATE, '.csv'
-)
-relative_change_file <- paste0(
-    "/media/volume/Projects/DSGELabProject1/Plots/Supplements/",
-    "Supplementary_RelativeChangeEstimates_20260129.csv"
-)
-validation_data_file <- paste0(
-    "/media/volume/Projects/DSGELabProject1/Plots/Supplements/",
-    "TempData/temp_results_20260203.csv"
-)
-OutDir <- "/media/volume/Projects/DSGELabProject1/Plots/Figure5/"
+DATE <- "20260316"
+dataset_file <- paste0('/media/volume/Projects/DSGELabProject1/DiD_Experiments/','DiD_Medications_', DATE, '/Results_', DATE, '/Results_ATC_', DATE, '.csv')
+relative_change_file <- "/media/volume/Projects/DSGELabProject1/Plots/Results_20260316/Supplements_RelativeChange_Estimates_20260316.csv"
+validation_data_file <- "/media/volume/Projects/DSGELabProject1/Plots/Results_20260316/did_longitudinal_estimates_20260316.csv"
+OutDir <- "/media/volume/Projects/DSGELabProject1/Plots/Results_20260316/"
 if (!dir.exists(OutDir)) dir.create(OutDir, recursive = TRUE)
 
 # Plot size constants
@@ -42,7 +31,7 @@ JITTER_RANGE        <- 0.2
 POINT_SIZE_SIG      <- 4
 POINT_SIZE_NOT_SIG  <- 2
 ALPHA_SIG           <- 1
-ALPHA_NOT_SIG       <- 0.2
+ALPHA_NOT_SIG       <- 0.3
 
 
 # ============================================================================
@@ -69,20 +58,45 @@ atc_chapter_map <- c(
 
 # Color-blind friendly palette (one color per chapter)
 cb_palette <- c(
-    "#E69F00", "#56B4E9", "#000000", "#F0E442", "#0072B2",
-    "#D55E00", "#E7298A", "#999999", "#CC79A7", "#E6AB02",
-    "#7570B3", "#66A61E", "#009E73", "#A6761D", "#666666"
+    "#E69F00",  # A - Alimentary Tract and Metabolism
+    "#56B4E9",  # B - Blood and Blood Forming Organs
+    "#009E73",  # C - Cardiovascular System
+    "#D55E00",  # D - Dermatologicals
+    "#CC79A7",  # G - Genito Urinary System and Sex Hormones
+    "#0072B2",  # H - Systemic Hormonal Preparations
+    "#F0E442",  # J - Antiinfectives for Systemic Use
+    "#999999",  # L - Antineoplastic and Immunomodulating Agents
+    "#E7298A",  # M - Musculo-Skeletal System
+    "#7570B3",  # N - Nervous System
+    "#66A61E",  # P - Antiparasitic Products
+    "#A6761D",  # R - Respiratory System
+    "#999999",  # S - Sensory Organs
+    "#E6AB02"  # V - Various
 )
 
 # Medications of interest: ATC code → readable label
 code_labels <- tibble(
     OUTCOME_CODE = c(
-        "M01AH05", "N05CF02", "C10AA07", "N02CC07",
-        "N02BE01", "N06AX26", "R01AD58"
+        "A06AC01",
+        "C10AA07",
+        "M01AH05",
+        "N02CC07",
+        "N05CF02",
+        "N06AX26",
+        "R01AD12",
+        "R01AD58",
+        "R03AK10"
     ),
     LABEL = c(
-        "etoricoxib", "zolpidem", "rosuvastatin", "frovatriptan",
-        "paracetamol", "vortioxetine", "fluticasone, combinations"
+        "ispaghula (psylla seeds)",
+        "rosuvastatin",
+        "etoricoxib",
+        "frovatriptan",
+        "zolpidem",
+        "vortioxetine",
+        "fluticasone furoate",
+        "fluticasone, combinations",
+        "vilanterol and fluticasone furoate"
     )
 )
 
@@ -93,26 +107,21 @@ code_labels <- tibble(
 
 dataset <- read_csv(dataset_file, show_col_types = FALSE)
 
-# Keep only codes with at least 300 cases
-dataset <- dataset %>% filter(N_CASES >= 300)
+# Filter only codes with at least 300 cases available
+dataset <- dataset[dataset$N_CASES >= 300, ]
 
-# --- Significance flags ---
+# Apply multiple test correction
+dataset$PVAL_ADJ <- p.adjust(dataset$PVAL_ABS_CHANGE, method = "bonferroni")
+dataset$SIGNIFICANT_CHANGE <- dataset$PVAL_ADJ < 0.05
 
-# Bonferroni-corrected p-value for the absolute change
-dataset$PVAL_ADJ_FDR      <- p.adjust(dataset$PVAL_ABS_CHANGE, method = "bonferroni")
-dataset$SIGNIFICANT_CHANGE <- dataset$PVAL_ADJ_FDR < 0.05
-
-# Robustness check:
-#   PRE  test: prescription rate before event NOT significantly different from controls (p >= 0.05)
-#   POST test: prescription rate after  event IS significantly different from controls (p < 0.05)
-dataset$PVAL_PRE_ADJ_FDR  <- p.adjust(dataset$PVAL_PRE,  method = "bonferroni")
-dataset$PVAL_POST_ADJ_FDR <- p.adjust(dataset$PVAL_POST, method = "bonferroni")
-dataset$SIGNIFICANT_ROBUST <- (dataset$PVAL_PRE_ADJ_FDR >= 0.05) & (dataset$PVAL_POST_ADJ_FDR < 0.05)
+# Apply correction also to the pre and post event p-values
+dataset$PVAL_PRE_ADJ <- p.adjust(dataset$PVAL_PRE, method = "bonferroni")
+dataset$PVAL_POST_ADJ <- p.adjust(dataset$PVAL_POST, method = "bonferroni")    
 
 # Combined significance label (used for shape/size/alpha mapping)
 dataset$SIG_TYPE <- factor(
     case_when(
-        dataset$SIGNIFICANT_CHANGE & dataset$SIGNIFICANT_ROBUST ~ "Significant",
+        dataset$SIGNIFICANT_CHANGE ~ "Significant",
         TRUE ~ "Not Significant"
     ),
     levels = c("Significant", "Not Significant")
@@ -194,7 +203,7 @@ p1 <- ggplot(dataset, aes(x = x_jittered, y = ABS_CHANGE, color = CHAPTER_NAME))
   ) +
   theme_minimal() +
   theme(
-    axis.text.x  = element_text(size = 8, angle = 20, hjust = 1),
+    axis.text.x  = element_text(size = 10, angle = 20, hjust = 1),
     axis.text.y  = element_text(size = 10),
     axis.title.y = element_text(size = 12),
     axis.title.x = element_text(size = 12),
@@ -205,19 +214,10 @@ p1 <- ggplot(dataset, aes(x = x_jittered, y = ABS_CHANGE, color = CHAPTER_NAME))
 
 # ============================================================================
 # SECTION 2: RELATIVE CHANGE FILE — absolute and relative summaries per code
+# (commented out — not needed for the current figure)
 # ============================================================================
 
 rel_data <- read_csv(relative_change_file, show_col_types = FALSE)
-
-# Compute SE and 95% CI for both absolute and relative change
-rel_data <- rel_data %>%
-    mutate(
-        RELATIVE_CHANGE_SE     = abs(ABS_CHANGE_SE / BASELINE_MEAN),
-        RELATIVE_CHANGE_CI_LOW = RELATIVE_CHANGE_MEAN - 1.96 * RELATIVE_CHANGE_SE,
-        RELATIVE_CHANGE_CI_UP  = RELATIVE_CHANGE_MEAN + 1.96 * RELATIVE_CHANGE_SE,
-        ABS_CHANGE_CI_LOW      = ABS_CHANGE - 1.96 * ABS_CHANGE_SE,
-        ABS_CHANGE_CI_UP       = ABS_CHANGE + 1.96 * ABS_CHANGE_SE
-    )
 
 # Annotate each code with its ATC chapter name and readable medication label
 rel_data <- rel_data %>%
@@ -225,55 +225,34 @@ rel_data <- rel_data %>%
         MED_CHAPTER  = substr(OUTCOME_CODE, 1, 1),
         CHAPTER_NAME = factor(atc_chapter_map[MED_CHAPTER], levels = levels(dataset$CHAPTER_NAME))
     ) %>%
-    left_join(code_labels, by = "OUTCOME_CODE") %>%
-    mutate(LABEL = paste0(LABEL, "\n(ATC: ", OUTCOME_CODE, ")"))
+    left_join(code_labels, by = "OUTCOME_CODE")
 
+# Sort results by their absolute change values (descending)
+sorted_codes <- dataset %>%
+    filter(OUTCOME_CODE %in% code_labels$OUTCOME_CODE) %>%
+    arrange(desc(ABS_CHANGE)) %>%
+    pull(OUTCOME_CODE)
 
-# ============================================================================
-# PANEL 2 (top right): Absolute change summary — dot + error bar, all codes
-# ============================================================================
-
-# Compute the ordering by ABS_CHANGE once and reuse it in both panels
-# so that absolute and relative change plots share the same y-axis order.
-# Use LABEL (readable name) as the display variable, ordered by ABS_CHANGE.
-abs_order     <- order(rel_data$ABS_CHANGE)
-ordered_labels <- rel_data$LABEL[abs_order]              
-rel_data$LABEL_ORDERED <- factor(rel_data$LABEL, levels = ordered_labels)
-
-p_abs_summary <- ggplot(
-    rel_data,
-    aes(x = ABS_CHANGE, y = LABEL_ORDERED, color = CHAPTER_NAME)
-) +
-    geom_vline(xintercept = 0, linetype = "dashed", color = "grey", linewidth = 0.8) +
-    geom_point(size = 3) +
-    geom_errorbarh(
-        aes(xmin = ABS_CHANGE_CI_LOW, xmax = ABS_CHANGE_CI_UP),
-        height = 0.2, linewidth = 0.8
-    ) +
-    scale_color_manual(values = chapter_color_map, name = "ATC Chapter") +
-    xlim(0, 0.01) +
-    labs(title = expression(bold("B. ") ~ "Absolute Change, for Significant Medications"), x = "Absolute Change", y = "") +
-    theme_minimal() +
-    theme(
-        axis.text.y  = element_text(size = 10),
-        axis.title.x = element_text(size = 12),
-        plot.title   = element_text(size = 14),
-        legend.position = "none"
-    )
+rel_data <- rel_data %>%
+    mutate(LABEL_ORDERED = factor(LABEL, levels = rev(code_labels$LABEL[code_labels$OUTCOME_CODE %in% sorted_codes]))) %>%
+    arrange(LABEL_ORDERED) %>%
+    mutate(LABEL_ORDERED = paste0(LABEL, "\n(ATC: ", OUTCOME_CODE, ")"))
 
 
 # ============================================================================
 # PANEL 3 (center right): Relative change — dot + error bar, no text labels
+# (commented out — not needed for the current figure)
 # ============================================================================
 
+    
 p_ratio_combined <- ggplot(
     rel_data,
-    aes(x = RELATIVE_CHANGE_MEAN, y = LABEL_ORDERED, color = CHAPTER_NAME)
+    aes(x = REL_CHANGE, y = LABEL_ORDERED, color = CHAPTER_NAME)
 ) +
     geom_vline(xintercept = 1, linetype = "dashed", color = "grey", linewidth = 0.8) +
     geom_point(size = 3) +
     geom_errorbarh(
-        aes(xmin = RELATIVE_CHANGE_CI_LOW, xmax = RELATIVE_CHANGE_CI_UP),
+        aes(xmin = REL_CHANGE_CI_LOW, xmax = REL_CHANGE_CI_UP),
         height = 0.2, linewidth = 0.8
     ) +
     scale_color_manual(values = chapter_color_map, name = "ATC Chapter") +
@@ -350,19 +329,44 @@ for (code in sort(unique(val_data$code), decreasing = TRUE)) {
     data_plot_all <- rbind(data_plot_all, data_plot)
 }
 
-
 # ============================================================================
 # HELPER: longitudinal DiD time-series plot for any medication code
 #
 # Identical visual style for every medication — color and title are derived
 # automatically from the ATC chapter color map and the code_labels table.
+#
+# FIX: plot.margin right side is set large (55pt) so the bracket annotation
+# (which overflows xlim via clip = "off") renders inside the plot's own
+# viewport margin rather than being clipped by a grid cell boundary.
 # ============================================================================
 
-make_longitudinal_plot <- function(med_code, data_all, color_map, label_tbl) {
+make_longitudinal_plot <- function(med_code, data_all, color_map, label_tbl, show_y_title = TRUE) {
 
-    plot_data <- data_all  %>% filter(code == med_code)
+    plot_data <- data_all %>% filter(code == med_code)
     med_color <- color_map[[ plot_data$CHAPTER_NAME[1] ]]
     med_label <- label_tbl$LABEL[ label_tbl$OUTCOME_CODE == med_code ]
+
+    abs_change_row <- dataset %>% filter(OUTCOME_CODE == med_code)
+    diff_val <- abs_change_row$ABS_CHANGE[1]
+    se_diff  <- abs_change_row$ABS_CHANGE_SE[1]
+    diff_lo  <- diff_val - 1.96 * se_diff
+    diff_hi  <- diff_val + 1.96 * se_diff
+    
+    pre_mean   <- plot_data$avg_effect_before[1]
+    post_mean  <- plot_data$avg_effect_after[1]
+
+    fmt <- function(x) formatC(x, format = "f", digits = 4)
+    bracket_label <- paste0(
+        "\u0394 = ", fmt(diff_val),
+        "\n[", fmt(diff_lo), ", ", fmt(diff_hi), "]"
+    )
+
+    bx        <- 3.7
+    tick_len  <- 0.15
+    label_x   <- bx + 0.15
+    label_y   <- (pre_mean + post_mean) / 2
+
+    y_title <- if (show_y_title) "Prescription Rate Difference\n(compared to controls)" else NULL
 
     ggplot(plot_data, aes(x = time, y = att)) +
         geom_line(color = med_color) +
@@ -380,78 +384,85 @@ make_longitudinal_plot <- function(med_code, data_all, color_map, label_tbl) {
         ) +
         geom_hline(yintercept = 0, linetype = "dashed", color = "grey") +
         geom_vline(xintercept = 0, linetype = "dashed", color = "grey") +
-        # Pooled pre-period average + 95% CI (faint red horizontal segments)
-        geom_segment(aes(x = -3.5, xend = -0.5,
-                         y = avg_effect_before, yend = avg_effect_before),
-                     color = "red", alpha = 0.3, linewidth = 0.3) +
-        geom_segment(aes(x = -3.5, xend = -0.5,
-                         y = ci_pre_lower, yend = ci_pre_lower),
-                     color = "red", alpha = 0.3, linewidth = 0.3, linetype = "dashed") +
-        geom_segment(aes(x = -3.5, xend = -0.5,
-                         y = ci_pre_upper, yend = ci_pre_upper),
-                     color = "red", alpha = 0.3, linewidth = 0.3, linetype = "dashed") +
-        # Pooled post-period average + 95% CI
-        geom_segment(aes(x = 0.5, xend = 3.5,
-                         y = avg_effect_after, yend = avg_effect_after),
-                     color = "red", alpha = 0.3, linewidth = 0.3) +
-        geom_segment(aes(x = 0.5, xend = 3.5,
-                         y = ci_post_lower, yend = ci_post_lower),
-                     color = "red", alpha = 0.3, linewidth = 0.3, linetype = "dashed") +
-        geom_segment(aes(x = 0.5, xend = 3.5,
-                         y = ci_post_upper, yend = ci_post_upper),
-                     color = "red", alpha = 0.3, linewidth = 0.3, linetype = "dashed") +
+
+        geom_segment(aes(x = -3.5, xend = -0.5, y = avg_effect_before, yend = avg_effect_before),
+                     color = "black", alpha = 0.3, linewidth = 0.3) +
+        geom_segment(aes(x = -3.5, xend = -0.5, y = ci_pre_lower, yend = ci_pre_lower),
+                     color = "black", alpha = 0.3, linewidth = 0.3, linetype = "dashed") +
+        geom_segment(aes(x = -3.5, xend = -0.5, y = ci_pre_upper, yend = ci_pre_upper),
+                     color = "black", alpha = 0.3, linewidth = 0.3, linetype = "dashed") +
+
+        geom_segment(aes(x = 0.5, xend = 3.5, y = avg_effect_after, yend = avg_effect_after),
+                     color = "black", alpha = 0.3, linewidth = 0.3) +
+        geom_segment(aes(x = 0.5, xend = 3.5, y = ci_post_lower, yend = ci_post_lower),
+                     color = "black", alpha = 0.3, linewidth = 0.3, linetype = "dashed") +
+        geom_segment(aes(x = 0.5, xend = 3.5, y = ci_post_upper, yend = ci_post_upper),
+                     color = "black", alpha = 0.3, linewidth = 0.3, linetype = "dashed") +
+
+        annotate("segment",
+                 x = bx, xend = bx, y = pre_mean, yend = post_mean,
+                 color = "black", linewidth = 0.5) +
+        annotate("segment",
+                 x = bx - tick_len, xend = bx, y = pre_mean, yend = pre_mean,
+                 color = "black", linewidth = 0.5) +
+        annotate("segment",
+                 x = bx - tick_len, xend = bx, y = post_mean, yend = post_mean,
+                 color = "black", linewidth = 0.5) +
+        annotate("text",
+                 x = label_x, y = label_y,
+                 label = bracket_label,
+                 hjust = 0, vjust = 0.5, size = 2.5, lineheight = 0.9) +
+
         scale_alpha_identity() +
-        coord_cartesian(ylim = c(-0.001, 0.01)) +
+        coord_cartesian(ylim = c(-0.001, 0.01), xlim = c(-3.5, 3.5), clip = "off") +
         labs(
             title = med_label,
             x = "Years from Event",
-            y = "Prescription Rate Difference\n(compared to controls)"
+            y = y_title
         ) +
         theme_minimal() +
         theme(
-            plot.title = element_text(size = 10, face = "bold", color = med_color),
-            axis.title = element_text(size = 9),
-            axis.text  = element_text(size = 8)
+            plot.title   = element_text(size = 12, face = "bold", color = med_color),
+            axis.title   = element_text(size = 9),
+            axis.text    = element_text(size = 8),
+            # FIX: Large right margin gives clip="off" overflow room within the
+            # plot's own viewport, so bracket text is never cut by a cell edge.
+            # Adjust the 55pt value up/down to taste (try 50–70).
+            plot.margin  = margin(5, 55, 5, 5)
         )
 }
 
-
 # ============================================================================
-# SECTION 4: BUILD THE 7 LONGITUDINAL PLOTS sorted by absolute change
+# SECTION 4: BUILD THE 10 LONGITUDINAL PLOTS sorted by absolute change
 #
 # Order: highest absolute change first (top-left), lowest last.
 # Each medication gets its own explicitly named plot object so that no plot
 # shares axis scales, limits, or theme guidelines with any other.
 # ============================================================================
 
-# Sort the 7 medication codes by descending absolute change
-sorted_codes <- rel_data %>%
-    filter(OUTCOME_CODE %in% code_labels$OUTCOME_CODE) %>%
-    arrange(desc(ABS_CHANGE)) %>%
-    pull(OUTCOME_CODE)
-
-# Build one longitudinal plot per medication — each stored as a separate object
-lp1 <- make_longitudinal_plot(sorted_codes[1], data_plot_all, chapter_color_map, code_labels)
-lp2 <- make_longitudinal_plot(sorted_codes[2], data_plot_all, chapter_color_map, code_labels)
-lp3 <- make_longitudinal_plot(sorted_codes[3], data_plot_all, chapter_color_map, code_labels)
-lp4 <- make_longitudinal_plot(sorted_codes[4], data_plot_all, chapter_color_map, code_labels)
-lp5 <- make_longitudinal_plot(sorted_codes[5], data_plot_all, chapter_color_map, code_labels)
-lp6 <- make_longitudinal_plot(sorted_codes[6], data_plot_all, chapter_color_map, code_labels)
-lp7 <- make_longitudinal_plot(sorted_codes[7], data_plot_all, chapter_color_map, code_labels)
-
+# Only plots 1 and 6 get y axis title
+lp1  <- make_longitudinal_plot(sorted_codes[1],  data_plot_all, chapter_color_map, code_labels, show_y_title = TRUE)
+lp2  <- make_longitudinal_plot(sorted_codes[2],  data_plot_all, chapter_color_map, code_labels, show_y_title = FALSE)
+lp3  <- make_longitudinal_plot(sorted_codes[3],  data_plot_all, chapter_color_map, code_labels, show_y_title = FALSE)
+lp4  <- make_longitudinal_plot(sorted_codes[4],  data_plot_all, chapter_color_map, code_labels, show_y_title = FALSE)
+lp5  <- make_longitudinal_plot(sorted_codes[5],  data_plot_all, chapter_color_map, code_labels, show_y_title = FALSE)
+lp6  <- make_longitudinal_plot(sorted_codes[6],  data_plot_all, chapter_color_map, code_labels, show_y_title = TRUE)
+lp7  <- make_longitudinal_plot(sorted_codes[7],  data_plot_all, chapter_color_map, code_labels, show_y_title = FALSE)
+lp8  <- make_longitudinal_plot(sorted_codes[8],  data_plot_all, chapter_color_map, code_labels, show_y_title = FALSE)
+lp9  <- make_longitudinal_plot(sorted_codes[9],  data_plot_all, chapter_color_map, code_labels, show_y_title = FALSE)
 
 # ============================================================================
 # FINAL FIGURE — assembled with grid.arrange / arrangeGrob
 #
+# FIX: Spacer grobs removed entirely. The large right plot.margin on each
+# longitudinal plot is sufficient to prevent bracket label clipping, and
+# the 5-column layout gives each plot equal natural breathing room.
+#
 #   Column 1 (full height) : Panel A — p1 with textGrob title above
-#   Column 2               : Panel B — title grob + 2×4 grid where cells 1–7
-#                            are lp1–lp7 and cell 8 is p_ratio_combined (C)
-#                            p_ratio_combined has its own textGrob title in cell 8
+#   Column 2               : Panel B — title grob + 2×5 grid of lp1–lp10
 # ============================================================================
 
 # Panel A title grob
-# --- Panel title grobs (all use the same font settings) ---
-
 a_title_grob <- textGrob(
     "A.  Individual Estimates",
     gp   = gpar(fontsize = 14, fontface = "bold"),
@@ -474,7 +485,6 @@ c_title_grob <- textGrob(
 )
 
 # --- Panel A: title + plot stacked, proportional heights ---
-# Title takes a small fixed slice; p1 fills the rest
 panel_A <- arrangeGrob(
     a_title_grob,
     p1,
@@ -490,35 +500,32 @@ panel_C <- arrangeGrob(
     heights = unit(c(1, 9), "null")
 )
 
-# --- Bottom section: Panel B title spanning full width, then 2×4 grid ---
-# Row 1 : B title (full width)
-# Row 2 : lp1 lp2 lp3 lp4
-# Row 3 : lp5 lp6 lp7 panel_C
+# --- Panel B: 2x5 grid of longitudinal plots ---
 panel_BC <- arrangeGrob(
     b_title_grob,
-    lp1, lp2, lp3, lp4,
-    lp5, lp6, lp7, panel_C,
+    lp1, lp2, lp3, lp4, lp5,
+    lp6, lp7, lp8, lp9, panel_C,
     layout_matrix = rbind(
-        c(1, 1, 1, 1),
-        c(2, 3, 4, 5),
-        c(6, 7, 8, 9)
+        c(1, 1, 1, 1, 1),
+        c(2, 3, 4, 5, 6),
+        c(7, 8, 9, 10, 11)
     ),
     heights = unit(c(1, 9, 9), "null")
 )
 
-# --- Final figure: Panel A on top (40%), Panel BC below (60%) ---
+# --- Final figure: Panel A on top (40%), Panel BC on bottom (60%) ---
 p_final <- arrangeGrob(
     panel_A,
     panel_BC,
-    nrow    = 2,
+    nrow   = 2,
     heights = unit(c(4, 6), "null")
 )
 
 ggsave(
-    filename = paste0(OutDir, "Figure5_V1_20260309.png"),
+    filename = paste0(OutDir, "Figure5_20260316.png"),
     plot     = p_final,
     width    = 20,
-    height   = 10.8,
+    height   = 12,
     dpi      = 300,
     device   = "png"
 )

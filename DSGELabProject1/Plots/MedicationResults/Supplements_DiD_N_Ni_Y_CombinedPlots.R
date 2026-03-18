@@ -15,45 +15,44 @@ suppressPackageStartupMessages({
 })
 
 ##### Arguments
-DATE = "20260129"
+DATE = "20260316"
 dataset_file <- paste0('/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_', DATE, '/Results_', DATE, '/Results_ATC_', DATE, '.csv')
 events_file = paste0("/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_", DATE, "/ProcessedEvents_", DATE, "/processed_events.parquet")
 outcomes_file = paste0("/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_", DATE, "/ProcessedOutcomes_", DATE, "/processed_outcomes.parquet")
 doctor_list = "/media/volume/Projects/DSGELabProject1/doctors_20250424.csv"
 covariate_file = "/media/volume/Projects/DSGELabProject1/doctor_characteristics_20250520.csv"
 renamed_ATC_file = "/media/volume/Projects/ATC_renamed_codes.csv"
-outdir = "/media/volume/Projects/DSGELabProject1/Plots/Supplements/"
+outdir = "/media/volume/Projects/DSGELabProject1/Plots/Results_20260316/"
+if (!dir.exists(outdir)) {dir.create(outdir, recursive = TRUE)}
+outfile = paste0(outdir, "did_N_Ni_Y_results", DATE, ".csv")
 
+##### Main
 dataset <- read_csv(dataset_file, show_col_types = FALSE)
+
 # Filter only codes with at least 300 cases available
 dataset <- dataset[dataset$N_CASES >= 300, ]
 
-# STEP 1:
-# Apply FDR multiple testing correction
-dataset$PVAL_ADJ_FDR <- p.adjust(dataset$PVAL_ABS_CHANGE, method = "bonferroni")
-dataset$SIGNIFICANT_CHANGE <- dataset$PVAL_ADJ_FDR < 0.05
+# Apply multiple test correction
+dataset$PVAL_ADJ <- p.adjust(dataset$PVAL_ABS_CHANGE, method = "bonferroni")
+dataset$SIGNIFICANT_CHANGE <- dataset$PVAL_ADJ < 0.05
 
-# STEP 2:
-# Select only robust results, i.e those point / events with:
-# A. an average prescription rate before event significantly non-different from controls
-# B. an average prescription rate after event significantly different from controls
-# Also apply FDR multiple testing correction here
-dataset$PVAL_PRE_ADJ_FDR <- p.adjust(dataset$PVAL_PRE, method = "bonferroni")
-dataset$PVAL_POST_ADJ_FDR <- p.adjust(dataset$PVAL_POST, method = "bonferroni")    
-dataset$SIGNIFICANT_ROBUST <- (dataset$PVAL_PRE_ADJ_FDR >= 0.05) & (dataset$PVAL_POST_ADJ_FDR < 0.05)
+# Apply correction also to the pre and post event p-values
+dataset$PVAL_PRE_ADJ <- p.adjust(dataset$PVAL_PRE, method = "bonferroni")
+dataset$PVAL_POST_ADJ <- p.adjust(dataset$PVAL_POST, method = "bonferroni")    
 
-# STEP 3:
-# Create a combined significance variable with two levels
+# Create a significance variable with two levels
 dataset$SIG_TYPE <- case_when(
-  dataset$SIGNIFICANT_CHANGE & dataset$SIGNIFICANT_ROBUST ~ "Significant",
+  dataset$SIGNIFICANT_CHANGE ~ "Significant",
   TRUE ~ "Not Significant"
 )
 
-# prepare vectors for validation plots
+# Extract list of significant medications for plots
 code_list = dataset %>%
     filter(SIG_TYPE == "Significant") %>%
     pull(OUTCOME_CODE) %>%
     unique()
+
+#-----------------------------------------------
 p <- list()
 
 for (code in code_list) {
@@ -94,13 +93,13 @@ for (code in code_list) {
     # 3. outcome
     # check if outcome code is a new code that has been renamed, if so load also old codes, rename columns and merge them
     if (outcome_code %in% renamed_ATC$ATC_NEW) {
-        outcome_cols1 = c("DOCTOR_ID", "YEAR", paste0("N_", outcome_code), paste0("Y_", outcome_code), paste0("first_year_", outcome_code), paste0("last_year_", outcome_code))
+        outcome_cols1 = c("DOCTOR_ID", "YEAR", "N_general", paste0("N_", outcome_code), paste0("Y_", outcome_code), paste0("first_year_", outcome_code), paste0("last_year_", outcome_code))
         outcomes = as.data.table(read_parquet(outcomes_file, col_select = outcome_cols1))
 
         old_codes = unique(renamed_ATC[ATC_NEW == outcome_code, ATC_OLD])
         # Loop through each old code and stack them
         for(old_code in old_codes) {
-            outcome_cols2 = c("DOCTOR_ID", "YEAR", paste0("N_", old_code), paste0("Y_", old_code), paste0("first_year_", old_code), paste0("last_year_", old_code))
+            outcome_cols2 = c("DOCTOR_ID", "YEAR", "N_general", paste0("N_", old_code), paste0("Y_", old_code), paste0("first_year_", old_code), paste0("last_year_", old_code))
             outcomes2 = as.data.table(read_parquet(outcomes_file, col_select = outcome_cols2))     
             setnames(outcomes2, 
                 old = c(paste0("N_", old_code), paste0("Y_", old_code), paste0("first_year_", old_code), paste0("last_year_", old_code)),
@@ -108,7 +107,7 @@ for (code in code_list) {
             outcomes = rbind(outcomes, outcomes2)
         }
     } else {
-        outcomes_cols = c("DOCTOR_ID", "YEAR", paste0("N_", outcome_code), paste0("Y_", outcome_code), paste0("first_year_", outcome_code), paste0("last_year_", outcome_code))
+        outcomes_cols = c("DOCTOR_ID", "YEAR", "N_general", paste0("N_", outcome_code), paste0("Y_", outcome_code), paste0("first_year_", outcome_code), paste0("last_year_", outcome_code))
         outcomes = as.data.table(read_parquet(outcomes_file, col_select = outcomes_cols))
     }
     outcomes_filtered = outcomes[DOCTOR_ID %in% doctor_ids] # QC : only selected doctors
@@ -173,11 +172,26 @@ for (code in code_list) {
             SPECIALTY = factor(SPECIALTY, levels = c("", setdiff(unique(df_complete$SPECIALTY), ""))),
             SEX = factor(SEX, levels = c(1, 2), labels = c("Male", "Female")),
             Y = get(paste0("Y_", outcome_code)),
-            Ni = get(paste0("N_", outcome_code))
+            Ni = get(paste0("N_", outcome_code)),
+            N = N_general
         )
     ]
     # Replace missing Y values with 0s 
     df_model[is.na(Y), Y := 0]
+
+    # To ensure results are robust will apply "empirical bayes shrinkage" to doctors with low total prescriptions in a given year
+    # Will shrink the ratio toward the mean within the doctor trajectory
+    N_THRESHOLD = 5
+    # Calculate mean Y for each doctor (using only observations where N >= N_THRESHOLD)
+    df_model[, Y_mean := mean(Y[N >= N_THRESHOLD], na.rm = TRUE), by = DOCTOR_ID]
+    # Apply empirical Bayes shrinkage: adjust Y values where N < N_THRESHOLD
+    df_model[, Y := fifelse(
+        N < N_THRESHOLD, 
+        ((N * Y + N_THRESHOLD * Y_mean) / (N + N_THRESHOLD)), 
+        Y
+    )]
+    df_model[, Y_mean := NULL]
+
     # prepare variables as requested by did package
     df_model$ID <- as.integer(factor(df_model$DOCTOR_ID))                      
     df_model$G <- ifelse(is.na(df_model$EVENT_YEAR), 0, df_model$EVENT_YEAR)    
@@ -186,71 +200,111 @@ for (code in code_list) {
     # Calculate number of cases and controls
     n_cases <- length(unique(df_model[df_model$EVENT == 1, DOCTOR_ID]))
     n_controls <- length(unique(df_model[df_model$EVENT == 0, DOCTOR_ID]))
-    cat(paste0("Cases: ", n_cases, "\n"))
-    cat(paste0("Controls: ", n_controls, "\n"))
-
-    # For cases, count number of unique doctors per event cohorts (i.e., number of events per year)
-    events_per_year <- df_model[df_model$EVENT == 1, .(N = uniqueN(DOCTOR_ID)), by = EVENT_YEAR][order(EVENT_YEAR)]
-    events_year_str <- paste0(events_per_year$EVENT_YEAR, ":", events_per_year$N, collapse = ", ")
-    cat("Events per year: [", events_year_str, "]\n")
 
     # STEP 5: DiD Analysis using 'did' package
 
     set.seed(09152024)
-    att_gt_res <- att_gt(
+        
+    # Analysis 1: Using Y (ratio outcome)
+    att_gt_res_Y <- att_gt(
         yname = "Y",
         tname = "T",
         idname = "ID",
         gname = "G",
         xformla = ~ BIRTH_YEAR + SEX + SPECIALTY,
         data = df_model,
-        est_method = "dr",                      # doubly robust (for covariate adj.)
-        control_group = "notyettreated",        # use not-yet-treated as control group
+        est_method = "dr",
+        control_group = "notyettreated",
         clustervars = "ID",
-        pl = TRUE,                              # parallel processing
+        pl = TRUE,
         cores = N_THREADS
     )
 
-    # use "group" effect (time of event) instead of "dynamic" effect (time from event)
-    agg_group <- aggte(att_gt_res, type = "group", na.rm = TRUE)
-    results <- data.frame(
-        time = agg_group$egt,
-        att = agg_group$att.egt,
-        se = agg_group$se.egt
+    agg_dynamic_Y <- aggte(att_gt_res_Y, type = "dynamic", na.rm = TRUE)
+    results_Y <- data.frame(
+        time = agg_dynamic_Y$egt,
+        att = agg_dynamic_Y$att.egt,
+        se = agg_dynamic_Y$se.egt,
+        outcome = "Y (Medication Ratio)"
     )
 
+    # Analysis 2: Using Ni (count outcome)
+    att_gt_res_Ni <- att_gt(
+        yname = "Ni",
+        tname = "T",
+        idname = "ID",
+        gname = "G",
+        xformla = ~ BIRTH_YEAR + SEX + SPECIALTY,
+        data = df_model,
+        est_method = "dr",
+        control_group = "notyettreated",
+        clustervars = "ID",
+        pl = TRUE,
+        cores = N_THREADS
+    )
+
+    agg_dynamic_Ni <- aggte(att_gt_res_Ni, type = "dynamic", na.rm = TRUE)
+    results_Ni <- data.frame(
+        time = agg_dynamic_Ni$egt,
+        att = agg_dynamic_Ni$att.egt,
+        se = agg_dynamic_Ni$se.egt,
+        outcome = "Ni (Medication count)"
+    )
+
+    # Analysis 3: Using N (total prescriptions)
+    att_gt_res_N <- att_gt(
+        yname = "N",
+        tname = "T",
+        idname = "ID",
+        gname = "G",
+        xformla = ~ BIRTH_YEAR + SEX + SPECIALTY,
+        data = df_model,
+        est_method = "dr",
+        control_group = "notyettreated",
+        clustervars = "ID",
+        pl = TRUE,
+        cores = N_THREADS
+    )
+
+    agg_dynamic_N <- aggte(att_gt_res_N, type = "dynamic", na.rm = TRUE)
+    results_N <- data.frame(
+        time = agg_dynamic_N$egt,
+        att = agg_dynamic_N$att.egt,
+        se = agg_dynamic_N$se.egt,
+        outcome = "N (Total Prescriptions)"
+    )
+
+    # Combine all three results
+    results_combined <- rbind(results_Y, results_Ni, results_N)
+    results_combined$outcome <- factor(results_combined$outcome, levels = c("N (Total Prescriptions)", "Ni (Medication count)", "Y (Medication Ratio)"))
+
     # save results to file
-    TODAY = format(Sys.Date(), "%Y%m%d")
-    results$code <- code
-    if (!file.exists(paste0(outdir, "TempData/temp_results_CohortEffect_", TODAY, ".csv"))) {
-        write_csv(results, paste0(outdir, "TempData/temp_results_CohortEffect_", TODAY, ".csv"))
+    results_combined$code <- code
+    if (!file.exists(outfile)) {
+        write_csv(results_combined, outfile)
     } else {
-        write_csv(results, paste0(outdir, "TempData/temp_results_CohortEffect_", TODAY, ".csv"), append = TRUE)
+        write_csv(results_combined, outfile, append = TRUE)
     }
 
-    events_per_year <- df_model[df_model$EVENT == 1, .(N = uniqueN(DOCTOR_ID)), by = EVENT_YEAR][order(EVENT_YEAR)]
-    events_year_str_1 <- paste0(events_per_year[EVENT_YEAR < 2010, ]$EVENT_YEAR, ":", events_per_year[EVENT_YEAR < 2010, ]$N, collapse = ", ")
-    events_year_str_2 <- paste0(events_per_year[EVENT_YEAR >= 2010, ]$EVENT_YEAR, ":", events_per_year[EVENT_YEAR >= 2010, ]$N, collapse = ", ")
-
-    subtitle_text <- paste0(
-    "N Cases: ", n_cases, " | N Controls: ", n_controls, "\n",
-    "Events per year: \n[ ", events_year_str_1, " ]\n[ ", events_year_str_2, " ]"
-    )   
-
-    p[[code]] <- ggplot(results, aes(x = time, y = att)) +
-        geom_line(color = "#2ca02c") +
+    # Create combined plot with three facets (one on top of the other)
+    data_plot <- results_combined[results_combined$time >= -3 & results_combined$time <= 3, ]
+    p[[code]] <- ggplot(data_plot, aes(x = time, y = att)) +
+        geom_line(color = "#1f77b4") +
         geom_point() +
-        geom_errorbar(aes(ymin = att - 1.96 * se, ymax = att + 1.96 * se),width = 0.2, color = "#2ca02c") +
-        geom_hline(yintercept = 0, linetype = "dashed", color = "grey") +
+        geom_errorbar(aes(ymin = att - 1.96 * se, ymax = att + 1.96 * se), width = 0.2, color = "#1f77b4") +
+        geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+        facet_wrap(~ outcome, ncol = 1, scales = "free_y") +
         labs(
-            title = paste0("medication ATC:", code),
-            subtitle = subtitle_text,
-            x = "Event Year (Case Cohort)",
-            y = "Staggered DiD model Estimate \n(Change in Prescription Rate)"
+            title = paste0("Medication ATC: ", outcome_code),
+            subtitle = paste0("Cases: ", n_cases, ", Controls: ", n_controls),
+            x = "Years from Event",
+            y = "Change in Prescription Behavior\n(Difference in Difference ATT)"
         ) +
-        theme_minimal()      
+        theme_minimal() +
+        theme(strip.text = element_text(face = "bold"))
+
 }
 
 # Combine all plots into a single figure
-combined_plot <- wrap_plots(p, ncol = 3)
-ggsave(filename = paste0(outdir, "Supplementary_CohortEffectDiD_", DATE, ".png"), plot = combined_plot, width = 30, height = 15)
+combined_plot <- wrap_plots(p, ncol = 5)
+ggsave(filename = paste0(outdir, "Supplements_DiD_N_Ni_Y_CombinedPlots_", DATE, ".png"), plot = combined_plot, width = 24, height = 16)

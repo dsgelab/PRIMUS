@@ -10,68 +10,38 @@ suppressPackageStartupMessages({
     library(dplyr)
     library(tidyr)
     library(lubridate)
-    library(did)          # Callaway & Sant'Anna DiD estimator
+    library(did)          
     library(ggplot2)
-    library(gridExtra)    # arrangeGrob / grid.arrange for panel figures
+    library(gridExtra)    
     library(metafor)
     library(readr)
 })
 
 # --- Analysis date stamp (determines which result files are loaded) ----------
-DATE <- "20260129"
+DATE <- "20260316"
 
 # --- Input files -------------------------------------------------------------
-dataset_file   <- paste0('/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_', DATE,'_FE_MetaAnalysis/Results_',          DATE, '/Results_ATC_',         DATE, '.csv')
-events_file    <- paste0('/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_', DATE,'_FE_MetaAnalysis/ProcessedEvents_',  DATE, '/processed_events.parquet')
-outcomes_file  <- paste0('/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_', DATE,'_FE_MetaAnalysis/ProcessedOutcomes_', DATE, '/processed_outcomes.parquet')
+dataset_file   <- paste0('/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_', DATE,'/Results_', DATE, '/Results_ATC_', DATE, '.csv')
+events_file    <- paste0('/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_', DATE,'/ProcessedEvents_',  DATE, '/processed_events.parquet')
+outcomes_file  <- paste0('/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_', DATE,'/ProcessedOutcomes_', DATE, '/processed_outcomes.parquet')
 doctor_list    <- '/media/volume/Projects/DSGELabProject1/doctors_20250424.csv'
 covariate_file <- '/media/volume/Projects/DSGELabProject1/doctor_characteristics_20250520.csv'
 renamed_ATC_file <- '/media/volume/Projects/ATC_renamed_codes.csv'
 
 # --- Output directory --------------------------------------------------------
-outdir <- '/media/volume/Projects/DSGELabProject1/Plots/Supplements/'
+outdir <- '/media/volume/Projects/DSGELabProject1/Plots/Results_20260316/'
 if (!dir.exists(outdir)) dir.create(outdir, recursive = TRUE)
+outfile <- paste0(outdir, paste0("did_common_statins_post2011_", DATE, ".csv"))
 
 # --- Parallelism -------------------------------------------------------------
 N_THREADS <- 10
 setDTthreads(N_THREADS)
 
 # -----------------------------------------------------------------------------
-# 2. SIGNIFICANCE FILTERING on the pre-computed results table
+# 2. STATIN NAME LOOKUP AND COLOUR PALETTES
 # -----------------------------------------------------------------------------
 
-dataset <- read_csv(dataset_file, show_col_types = FALSE)
-
-# Retain only ATC codes with a minimum number of cases for reliable estimation
-dataset <- dataset[dataset$N_CASES >= 300, ]
-
-# Bonferroni correction for the overall pre-to-post absolute change in
-# prescription rate (tests whether any change occurred at all)
-dataset$PVAL_ADJ_FDR      <- p.adjust(dataset$PVAL_ABS_CHANGE, method = "bonferroni")
-dataset$SIGNIFICANT_CHANGE <- dataset$PVAL_ADJ_FDR < 0.05
-
-# Bonferroni correction for the pre-period parallel-trends test (PVAL_PRE)
-# and the post-period effect test (PVAL_POST).
-# A result is considered "robust" when:
-#   (a) pre-period prescription rates are NOT significantly different from
-#       controls (parallel trends assumption holds), AND
-#   (b) post-period prescription rates ARE significantly different from controls
-dataset$PVAL_PRE_ADJ_FDR   <- p.adjust(dataset$PVAL_PRE,  method = "bonferroni")
-dataset$PVAL_POST_ADJ_FDR  <- p.adjust(dataset$PVAL_POST, method = "bonferroni")
-dataset$SIGNIFICANT_ROBUST <- (dataset$PVAL_PRE_ADJ_FDR  >= 0.05) &
-                               (dataset$PVAL_POST_ADJ_FDR  < 0.05)
-
-# Combined significance label used for downstream colouring / filtering
-dataset$SIG_TYPE <- case_when(
-    dataset$SIGNIFICANT_CHANGE & dataset$SIGNIFICANT_ROBUST ~ "Significant",
-    TRUE ~ "Not Significant"
-)
-
-# -----------------------------------------------------------------------------
-# 3. STATIN NAME LOOKUP AND COLOUR PALETTES
-# -----------------------------------------------------------------------------
-
-# Complete C10AA → generic drug name lookup
+# drug name lookup
 all_statin_names <- c(
     "C10AA01" = "simvastatin",
     "C10AA02" = "lovastatin",
@@ -82,7 +52,7 @@ all_statin_names <- c(
     "C10AA07" = "rosuvastatin"
 )
 
-# 7-colour palette for Plot A — one colour per statin, colourblind-friendly
+# colour palette for Plot A 
 palette_all <- c(
     "simvastatin"  = "#E63946",
     "lovastatin"   = "#9B59B6",
@@ -93,17 +63,17 @@ palette_all <- c(
     "rosuvastatin" = "#000000"
 )
 
-# 3-colour subset for Plot B — picks the same hues as above for the focal trio
+# subset for Plot B
 focal_statins <- c(
     "C10AA01" = "simvastatin",
     "C10AA05" = "atorvastatin",
     "C10AA07" = "rosuvastatin"
 )
-palette_focal <- palette_all[focal_statins]   # names are drug names
+palette_focal <- palette_all[focal_statins]  
 
 
 # -----------------------------------------------------------------------------
-# 4. PLOT A — Statin prescription landscape
+# 3. PLOT A — Statin prescription landscape
 # -----------------------------------------------------------------------------
 
 focal_code   <- "C10AA07"
@@ -140,50 +110,12 @@ for (atc_group_code in atc_group_codes) {
     # --- Reload events for this iteration ------------------------------------
     events_iter <- as.data.table(read_parquet(events_file))
     events_iter[, CODE := as.character(CODE)]
-
-    # Skip deprecated ATC codes that have been renamed in the reference file
-    if (event_actual_code %in% renamed_ATC$ATC_OLD) {
-        cat(sprintf("Skipping %s: deprecated code (renamed).\n", event_actual_code))
-        next
-    }
-    # If the code has superseded older codes, unify them under the new code
-    if (event_actual_code %in% renamed_ATC$ATC_NEW) {
-        old_codes <- renamed_ATC[ATC_NEW == event_actual_code, ATC_OLD]
-        events_iter[CODE %in% old_codes, CODE := event_actual_code]
-        cat(sprintf("%s is a new code; merged old codes: {%s}.\n",
-                    event_actual_code, paste(old_codes, collapse = ", ")))
-    }
-
     events_iter <- events_iter[startsWith(CODE, event_actual_code)]
 
     # --- Load outcomes for this sub-code -------------------------------------
-    # Handle the case where the outcome column may be stored under an old code
-    if (outcome_code %in% renamed_ATC$ATC_NEW) {
-        outcome_cols <- c("DOCTOR_ID", "YEAR",
-                          paste0("N_", outcome_code), paste0("Y_", outcome_code),
-                          paste0("first_year_", outcome_code), paste0("last_year_", outcome_code))
-        outcomes_iter <- as.data.table(read_parquet(outcomes_file, col_select = outcome_cols))
-
-        # Stack outcomes stored under the old codes after renaming their columns
-        for (old_code in unique(renamed_ATC[ATC_NEW == outcome_code, ATC_OLD])) {
-            old_cols <- c("DOCTOR_ID", "YEAR",
-                          paste0("N_", old_code), paste0("Y_", old_code),
-                          paste0("first_year_", old_code), paste0("last_year_", old_code))
-            outcomes_old <- as.data.table(read_parquet(outcomes_file, col_select = old_cols))
-            setnames(outcomes_old,
-                     old = c(paste0("N_", old_code), paste0("Y_", old_code),
-                             paste0("first_year_", old_code), paste0("last_year_", old_code)),
-                     new = c(paste0("N_", outcome_code), paste0("Y_", outcome_code),
-                             paste0("first_year_", outcome_code), paste0("last_year_", outcome_code)))
-            outcomes_iter <- rbind(outcomes_iter, outcomes_old)
-        }
-    } else {
-        outcome_cols  <- c("DOCTOR_ID", "YEAR",
-                           paste0("N_", outcome_code), paste0("Y_", outcome_code),
-                           paste0("first_year_", outcome_code), paste0("last_year_", outcome_code))
-        outcomes_iter <- as.data.table(read_parquet(outcomes_file, col_select = outcome_cols))
-    }
-
+    outcome_cols  <- c("DOCTOR_ID", "YEAR", "N_general", paste0("N_", outcome_code), paste0("Y_", outcome_code), paste0("first_year_", outcome_code), paste0("last_year_", outcome_code))
+    outcomes_iter <- as.data.table(read_parquet(outcomes_file, col_select = outcome_cols))
+    
     # Restrict to doctors in the validated doctor list
     outcomes_filtered <- outcomes_iter[DOCTOR_ID %in% doctor_ids]
 
@@ -221,13 +153,9 @@ for (atc_group_code in atc_group_codes) {
 
     df_complete <- df_complete[YEAR >= buffered_min_year & YEAR <= buffered_max_year]
     # Also exclude doctors whose prescribing event falls outside the buffered window
-    df_complete <- df_complete[
-        is.na(EVENT_YEAR) | (EVENT_YEAR >= buffered_min_year & EVENT_YEAR <= buffered_max_year)
-    ]
+    df_complete <- df_complete[is.na(EVENT_YEAR) | (EVENT_YEAR >= buffered_min_year & EVENT_YEAR <= buffered_max_year)]
 
     # --- Pension-age filter --------------------------------------------------
-    # Remove doctors who received (or prescribed) the statin after typical
-    # retirement age, as their prescription behaviour is less interpretable.
     PENSION_AGE          <- 60
     events_after_pension <- df_complete[AGE_AT_EVENT > PENSION_AGE & !is.na(AGE_AT_EVENT),unique(DOCTOR_ID)]
     df_complete <- df_complete[!(DOCTOR_ID %in% events_after_pension) & AGE <= PENSION_AGE]
@@ -237,9 +165,14 @@ for (atc_group_code in atc_group_codes) {
         SPECIALTY = factor(SPECIALTY, levels = c("", setdiff(unique(df_complete$SPECIALTY), ""))),
         SEX       = factor(SEX, levels = c(1, 2), labels = c("Male", "Female")),
         Y         = get(paste0("Y_", outcome_code)),
-        Ni        = get(paste0("N_", outcome_code))
+        Ni        = get(paste0("N_", outcome_code)),
+        N         = N_general
     )]
     df_model[is.na(Y), Y := 0]   # Replace missing prescription ratios with 0
+
+    # keep only doctors who have N >= 5 (for all years they appear in the data)
+    docs_to_keep <- df_model[, .(all_years_ok = all(N >= 5)), by = DOCTOR_ID][all_years_ok == TRUE, DOCTOR_ID]
+    df_model <- df_model[DOCTOR_ID %in% docs_to_keep]
 
     # Assign did-package variables: unit ID, treatment cohort, and time
     df_model[, `:=`(
@@ -265,8 +198,7 @@ for (atc_group_code in atc_group_codes) {
 landscape_all <- do.call(rbind, landscape_results)
 
 # Build Plot A — colour by statin name, not raw ATC code
-plot_A <- ggplot(landscape_all, aes(x = YEAR, y = AVG_N,
-                                    color = STATIN_NAME, group = STATIN_NAME)) +
+plot_A <- ggplot(landscape_all, aes(x = YEAR, y = AVG_N, color = STATIN_NAME, group = STATIN_NAME)) +
     geom_line() +
     geom_point() +
     scale_color_manual(values = palette_all) +
@@ -279,7 +211,7 @@ plot_A <- ggplot(landscape_all, aes(x = YEAR, y = AVG_N,
 
 # Save Plot A individually
 ggsave(
-    file.path(outdir, "Supplementary_StationPrescriptionLandscape_20260310.png"),
+    paste0(outdir, "Supplement_StationPrescriptionLandscape_", DATE,".png"),
     plot_A, width = 10, height = 6, dpi = 300
 )
 
@@ -287,8 +219,6 @@ ggsave(
 # 4. PLOT B — Zoom-in DiD results for the three most common statins
 # -----------------------------------------------------------------------------
 
-# Event code for the "treatment" event: a doctor's own first statin purchase.
-# "Purch_C10AA" captures all statin purchases across the C10AA class.
 event_code <- 'Purch_C10AA'
 
 # Parse the event source (e.g. "Purch") and the ATC prefix from the combined string
@@ -298,9 +228,7 @@ event_actual_code <- event_code_parts[2]
 
 # Reload raw events and filter to the statin class
 events_raw2 <- as.data.table(read_parquet(events_file))
-events_statin <- events_raw2[
-    SOURCE == event_source & startsWith(as.character(CODE), event_actual_code)
-]
+events_statin <- events_raw2[SOURCE == event_source & startsWith(as.character(CODE), event_actual_code)]
 
 # Three focal statins (most commonly prescribed within C10AA).
 # The lookup and palette subset are already defined in Section 3 above.
@@ -310,13 +238,11 @@ did_results_list <- list()
 for (outcome_code in names(focal_statins)) {
 
     # --- Load outcomes for this statin ---------------------------------------
-    outcomes_cols <- c("DOCTOR_ID", "YEAR",
-                       paste0("N_", outcome_code), paste0("Y_", outcome_code),
-                       paste0("first_year_", outcome_code), paste0("last_year_", outcome_code))
+    outcomes_cols <- c("DOCTOR_ID", "YEAR", "N_general", paste0("N_", outcome_code), paste0("Y_", outcome_code), paste0("first_year_", outcome_code), paste0("last_year_", outcome_code))
     outcomes_iter <- as.data.table(read_parquet(outcomes_file, col_select = outcomes_cols))
 
     # --- Filter events: for this outcome, the "event" is a doctor's first
-    #     prescription of exactly this statin code
+    # prescription of exactly this statin code
     events_focal <- events_statin[, .(PATIENT_ID, CODE, DATE)]
     events_focal <- events_focal[CODE == outcome_code]
     setnames(events_focal, "PATIENT_ID", "DOCTOR_ID")
@@ -358,8 +284,7 @@ for (outcome_code in names(focal_statins)) {
 
     # --- Pension-age filter --------------------------------------------------
     PENSION_AGE          <- 60
-    events_after_pension <- df_complete[AGE_AT_EVENT > PENSION_AGE & !is.na(AGE_AT_EVENT),
-                                        unique(DOCTOR_ID)]
+    events_after_pension <- df_complete[AGE_AT_EVENT > PENSION_AGE & !is.na(AGE_AT_EVENT),unique(DOCTOR_ID)]
     df_complete <- df_complete[!(DOCTOR_ID %in% events_after_pension) & AGE <= PENSION_AGE]
 
     # --- Prepare model data frame --------------------------------------------
@@ -367,9 +292,23 @@ for (outcome_code in names(focal_statins)) {
         SPECIALTY = factor(SPECIALTY, levels = c("", setdiff(unique(df_complete$SPECIALTY), ""))),
         SEX       = factor(SEX, levels = c(1, 2), labels = c("Male", "Female")),
         Y         = get(paste0("Y_", outcome_code)),
-        Ni        = get(paste0("N_", outcome_code))
+        Ni        = get(paste0("N_", outcome_code)),
+        N         = N_general
     )]
     df_model[is.na(Y), Y := 0]
+    
+    # To ensure results are robust will apply "empirical bayes shrinkage" to doctors with low total prescriptions in a given year
+    # Will shrink the ratio toward the mean within the doctor trajectory
+    N_THRESHOLD = 5
+    # Calculate mean Y for each doctor (using only observations where N >= N_THRESHOLD)
+    df_model[, Y_mean := mean(Y[N >= N_THRESHOLD], na.rm = TRUE), by = DOCTOR_ID]
+    # Apply empirical Bayes shrinkage: adjust Y values where N < N_THRESHOLD
+    df_model[, Y := fifelse(
+        N < N_THRESHOLD, 
+        ((N * Y + N_THRESHOLD * Y_mean) / (N + N_THRESHOLD)), 
+        Y
+    )]
+    df_model[, Y_mean := NULL]
 
     # Restrict to events that occurred after 2008 (simvastatin drop starts) + 3 years (washout period before event) = 2011
     df_model <- df_model[is.na(EVENT_YEAR) | EVENT_YEAR > 2011]
@@ -384,10 +323,6 @@ for (outcome_code in names(focal_statins)) {
     # --- Summary counts ------------------------------------------------------
     n_cases    <- uniqueN(df_model[EVENT == 1, DOCTOR_ID])
     n_controls <- uniqueN(df_model[EVENT == 0, DOCTOR_ID])
-    events_per_year <- df_model[EVENT == 1, .(N = uniqueN(DOCTOR_ID)), by = EVENT_YEAR][order(EVENT_YEAR)]
-    cat(sprintf("%-14s | Cases: %d | Controls: %d | Events/year: [%s]\n",
-                focal_statins[outcome_code], n_cases, n_controls,
-                paste0(events_per_year$EVENT_YEAR, ":", events_per_year$N, collapse = ", ")))
 
     # --- Callaway & Sant'Anna (2021) DiD estimation --------------------------
     # Doubly-robust estimator with "not-yet-treated" control group.
@@ -414,7 +349,6 @@ for (outcome_code in names(focal_statins)) {
         time       = agg_dynamic$egt,
         att        = agg_dynamic$att.egt,
         se         = agg_dynamic$se.egt,
-        outcome    = "Y",
         n_cases    = n_cases,
         n_controls = n_controls
     )
@@ -447,10 +381,12 @@ plot_B <- ggplot(data_plot, aes(x = time, y = att,color = outcome_label, group =
 
 # Save Plot B individually
 ggsave(
-    file.path(outdir, "Supplementary_DiD_MostCommonStatins_20260310.png"),
+    paste0(outdir, "Supplements_DiD_MostCommonStatins_", DATE, ".png"),
     plot_B, width = 10, height = 6, dpi = 300
 )
 
+# Also export result to file
+write_csv(results_combined, outfile)
 
 # -----------------------------------------------------------------------------
 # 5. COMBINED PANEL FIGURE  (Plot A  |  Plot B)
@@ -481,6 +417,6 @@ combined_figure <- arrangeGrob(grob_A_no_legend, grob_B_no_legend, nrow = 1, bot
 
 # Save combined figure
 ggsave(
-    file.path(outdir, "Supplementary_RosuvastatinValidation_HOR_20260310.png"),
+    paste0(outdir, "Supplements_RosuvastatinValidation_" ,DATE, ".png"),
     combined_figure, width = 14, height = 6, dpi = 300
 )
