@@ -60,13 +60,13 @@ event_ids <- unique(events$PATIENT_ID)
 # 3. outcome
 # check if outcome code is a new code that has been renamed, if so load also old codes, rename columns and merge them
 if (outcome_code %in% renamed_ATC$ATC_NEW) {
-    outcome_cols1 = c("DOCTOR_ID", "YEAR", paste0("N_", outcome_code), paste0("Y_", outcome_code), paste0("first_year_", outcome_code), paste0("last_year_", outcome_code))
+    outcome_cols1 = c("DOCTOR_ID", "YEAR", "N_general", paste0("N_", outcome_code), paste0("Y_", outcome_code), paste0("first_year_", outcome_code), paste0("last_year_", outcome_code))
     outcomes = as.data.table(read_parquet(outcomes_file, col_select = outcome_cols1))
 
     old_codes = unique(renamed_ATC[ATC_NEW == outcome_code, ATC_OLD])
     # Loop through each old code and stack them
     for(old_code in old_codes) {
-        outcome_cols2 = c("DOCTOR_ID", "YEAR", paste0("N_", old_code), paste0("Y_", old_code), paste0("first_year_", old_code), paste0("last_year_", old_code))
+        outcome_cols2 = c("DOCTOR_ID", "YEAR", "N_general", paste0("N_", old_code), paste0("Y_", old_code), paste0("first_year_", old_code), paste0("last_year_", old_code))
         outcomes2 = as.data.table(read_parquet(outcomes_file, col_select = outcome_cols2))     
         setnames(outcomes2, 
             old = c(paste0("N_", old_code), paste0("Y_", old_code), paste0("first_year_", old_code), paste0("last_year_", old_code)),
@@ -74,7 +74,7 @@ if (outcome_code %in% renamed_ATC$ATC_NEW) {
         outcomes = rbind(outcomes, outcomes2)
     }
 } else {
-    outcomes_cols = c("DOCTOR_ID", "YEAR", paste0("N_", outcome_code), paste0("Y_", outcome_code), paste0("first_year_", outcome_code), paste0("last_year_", outcome_code))
+    outcomes_cols = c("DOCTOR_ID", "YEAR", "N_general", paste0("N_", outcome_code), paste0("Y_", outcome_code), paste0("first_year_", outcome_code), paste0("last_year_", outcome_code))
     outcomes = as.data.table(read_parquet(outcomes_file, col_select = outcomes_cols))
 }
 outcomes_filtered = outcomes[DOCTOR_ID %in% doctor_ids] # QC : only selected doctors
@@ -139,11 +139,26 @@ df_model <- as.data.table(df_complete)[
         SPECIALTY = factor(SPECIALTY, levels = c("", setdiff(unique(df_complete$SPECIALTY), ""))),
         SEX = factor(SEX, levels = c(1, 2), labels = c("Male", "Female")),
         Y = get(paste0("Y_", outcome_code)),
-        Ni = get(paste0("N_", outcome_code))
+        Ni = get(paste0("N_", outcome_code)),
+        N = N_general
     )
 ]
 # Replace missing Y values with 0s 
 df_model[is.na(Y), Y := 0]
+
+# To ensure results are robust will apply "empirical bayes shrinkage" to doctors with low total prescriptions in a given year
+# Will shrink the ratio toward the mean within the doctor trajectory
+N_THRESHOLD = 5
+# Calculate mean Y for each doctor (using only observations where N >= N_THRESHOLD)
+df_model[, Y_mean := mean(Y[N >= N_THRESHOLD], na.rm = TRUE), by = DOCTOR_ID]
+# Apply empirical Bayes shrinkage: adjust Y values where N < N_THRESHOLD
+df_model[, Y := fifelse(
+    N < N_THRESHOLD, 
+    ((N * Y + N_THRESHOLD * Y_mean) / (N + N_THRESHOLD)), 
+    Y
+)]
+df_model[, Y_mean := NULL]
+
 # prepare variables as requested by did package
 df_model$ID <- as.integer(factor(df_model$DOCTOR_ID))                      
 df_model$G <- ifelse(is.na(df_model$EVENT_YEAR), 0, df_model$EVENT_YEAR)    
@@ -214,9 +229,6 @@ absolute_change_se <- sqrt(se_post^2 + se_pre^2)
 score_abs <- absolute_change / absolute_change_se
 p_value_change <- 2 * (1 - pnorm(abs(score_abs)))
 
-relative_change <- ifelse(avg_effect_before == 0, NA, avg_effect_after / avg_effect_before)
-relative_change_se <- sqrt((se_post / avg_effect_before)^2 + (avg_effect_after * se_pre / avg_effect_before^2)^2)
-
 # ============================================================================
 # EXPORT RESULTS TO CSV
 # ============================================================================
@@ -226,9 +238,7 @@ output <- c(
     event_code,
     outcome_code,
     absolute_change,
-    relative_change,
     absolute_change_se,
-    relative_change_se,
     p_value_change,
     p_value_pre,
     p_value_post,
