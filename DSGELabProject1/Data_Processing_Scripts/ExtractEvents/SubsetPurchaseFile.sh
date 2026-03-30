@@ -1,13 +1,13 @@
 # Define global variables
 INPUT_CSV="/media/volume/Projects/DSGELabProject1/ProcessedData/AllConnectedPurchases_20250421.csv"
-OUTPUT_CSV="/media/volume/Projects/DSGELabProject1/ProcessedData/AllConnectedPurchases_FirstEvents_20250421.csv"
+OUTPUT_CSV="/media/volume/Projects/DSGELabProject1/ProcessedData/AllConnectedPurchases_FirstEvents_20260330.csv"
 TMPDIR="/media/volume"  # Temp files go here if RAM runs out
 
 # Step 1: filter columns and write header
 awk -F, '
-BEGIN {OFS=","; print "PATIENT_ID,PURCHASE_DATE,ATC_CODE"}
+BEGIN {OFS=","; print "PATIENT_ID,PURCHASE_DATE,ATC_CODE,DOCTOR_ID"}
 NR > 1 {
-    print $1, $2, $3
+    print $1, $2, $3, $4
 }' "$INPUT_CSV" > step1.csv
 
 # Step 2: sort by PATIENT_ID, then ATC_CODE, then PURCHASE_DATE
@@ -16,7 +16,7 @@ sort --parallel=$(nproc) -S75% --temporary-directory="$TMPDIR" -t, -k1,1 -k3,3 -
 
 # Step 3: keep first occurrence of each ATC_CODE per PATIENT_ID
 awk -F, '
-BEGIN {OFS=","; print "PATIENT_ID,PURCHASE_DATE,ATC_CODE"}
+BEGIN {OFS=","; print "PATIENT_ID,PURCHASE_DATE,ATC_CODE,DOCTOR_ID"}
 NR > 1 && !seen[$1","$3]++ {
     print
 }' step2.csv > "$OUTPUT_CSV"
