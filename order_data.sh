@@ -1,6 +1,21 @@
-output_dir="/media/volume/Data_20250430/"
-sources=(Data_THL_2698_14.02.00_2023_pk1_kauppanimi Data_THL_2698_14.02.00_2023_pk1_kayntisyy_folk Data_THL_2698_14.02.00_2023_pk1_korjaus2 Data_THL_2698_14.02.00_2023_pk1_uudelleen)
-registers=(DVV ETK Kela Reseptikeskus THL Tilastokeskus Valvira)
+output_dir="/media/volume/Data_20260319/"
+sources=(
+  "Data_THL_2698_14.02.00_2023_korjaus"
+  "Data_THL_2698_14.02.00_2023_pk1_kauppanimi"
+  "Data_THL_2698_14.02.00_2023_pk1_kayntisyy_folk"
+  "Data_THL_2698_14.02.00_2023_pk1_korjaus2"
+  "Data_THL_2698_14.02.00_2023_pk1_uudelleen"
+  "Data_THL_5214_140600_2025"
+)
+registers=(
+  "DVV"
+  "ETK"
+  "Kela"
+  "Reseptikeskus"
+  "THL"
+  "Tilastokeskus"
+  "Valvira"
+)
 
 start=$(date +%s)
 

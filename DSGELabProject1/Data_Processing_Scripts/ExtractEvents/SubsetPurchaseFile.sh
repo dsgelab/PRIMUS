@@ -7,7 +7,7 @@ TMPDIR="/media/volume"  # Temp files go here if RAM runs out
 awk -F, '
 BEGIN {OFS=","; print "PATIENT_ID,PURCHASE_DATE,ATC_CODE,DOCTOR_ID"}
 NR > 1 {
-    print $1, $2, $3, $4
+    print $1, $2, $3, $6
 }' "$INPUT_CSV" > step1.csv
 
 # Step 2: sort by PATIENT_ID, then ATC_CODE, then PURCHASE_DATE
