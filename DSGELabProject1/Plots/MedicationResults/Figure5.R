@@ -524,7 +524,7 @@ p_final <- arrangeGrob(
 ggsave(
     filename = paste0(OutDir, "Figure5_20260316.png"),
     plot     = p_final,
-    width    = 20,
+    width    = 24,
     height   = 12,
     dpi      = 300,
     device   = "png"
