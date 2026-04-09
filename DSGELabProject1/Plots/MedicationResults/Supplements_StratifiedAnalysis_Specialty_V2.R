@@ -293,8 +293,34 @@ write.csv(combined_results,
 # FOREST PLOT: absolute change by specialty
 # -----------------------------------------------
 
-# uncomment to read in file, if running separately from the above code block 
-# combined_results <- read_csv(paste0(outdir, "Supplements_StratifiedAnalysis_Specialty_V2_", DATE, ".csv"), show_col_types = FALSE)
+# reload data if running separately from the above code block
+combined_results <- read_csv(paste0(outdir, "Supplements_StratifiedAnalysis_Specialty_V2_", DATE, ".csv"), show_col_types = FALSE)
+
+# Medications of interest: ATC code → readable label
+code_labels <- tibble(
+    OUTCOME_CODE = c(
+        "A06AC01",
+        "C10AA07",
+        "M01AH05",
+        "N02CC07",
+        "N05CF02",
+        "N06AX26",
+        "R01AD12",
+        "R01AD58",
+        "R03AK10"
+    ),
+    LABEL = c(
+        "ispaghula (psylla seeds)",
+        "rosuvastatin",
+        "etoricoxib",
+        "frovatriptan",
+        "zolpidem",
+        "vortioxetine",
+        "fluticasone furoate",
+        "fluticasone, combinations",
+        "vilanterol and fluticasone furoate"
+    )
+)
 
 # 1. Build complete grid and compute CIs (same as before)
 all_specialties_global <- sort(unique(combined_results$specialty))
@@ -309,51 +335,51 @@ plot_grid <- expand.grid(
 plot_data <- plot_grid %>%
     left_join(combined_results, by = c("code", "specialty")) %>%
     mutate(
-        absolute_change = ifelse(
-            !is.na(n_cases) & !is.na(n_controls) & n_cases > 30 & n_controls > 30,
-            absolute_change, NA_real_
-        ),
-        absolute_change_se = ifelse(
-            !is.na(n_cases) & !is.na(n_controls) & n_cases > 30 & n_controls > 30,
-            absolute_change_se, NA_real_
-        ),
+        across(c(absolute_change, absolute_change_se, p_value, n_cases, n_controls),
+               ~ ifelse(is.na(n_cases) | is.na(n_controls) | n_cases < 30 | n_controls < 30, NA_real_, .)),
         ci_lo = absolute_change - 1.96 * absolute_change_se,
         ci_hi = absolute_change + 1.96 * absolute_change_se
     ) %>%
+    left_join(code_labels, by = c("code" = "OUTCOME_CODE")) %>%
+    mutate(code_label = ifelse(!is.na(LABEL), LABEL, code),LABEL = NULL) %>%
     group_by(specialty) %>%
-    filter(any(!is.na(absolute_change))) %>%   # drop specialties with no available estimate
+    filter(any(!is.na(absolute_change))) %>%
     ungroup()
 
 # Keep only specialties that still have at least one estimate
 all_specialties_global <- all_specialties_global[all_specialties_global %in% unique(plot_data$specialty)]
 
+# Order codes by overall absolute change
+code_order <- code_labels %>%
+    filter(OUTCOME_CODE %in% all_codes) %>%
+    pull(LABEL)
+
 plot_data <- plot_data %>%
     mutate(
         specialty = factor(specialty, levels = rev(all_specialties_global)),
-        code = factor(code, levels = all_codes)
+        code_label = factor(code_label, levels = code_order)
     )
 
 # 2. Dodge offset so multiple codes per specialty row don't overlap
-#    position_dodgev() requires ggstance; use a manual numeric offset instead
-n_codes     <- length(all_codes)
-dodge_step  <- 0.7 / n_codes                          # total band = 0.7 units
+n_codes     <- length(unique(plot_data$code_label))
+dodge_step  <- 0.7 / n_codes
 code_offsets <- seq(-(n_codes - 1) / 2, (n_codes - 1) / 2) * dodge_step
-names(code_offsets) <- all_codes
+names(code_offsets) <- as.character(code_order)
 
 plot_data <- plot_data %>%
-    mutate(y_dodge = as.numeric(specialty) + code_offsets[as.character(code)])
+    mutate(y_dodge = as.numeric(specialty) + code_offsets[as.character(code_label)])
 
-# 3. Colour palette — up to 9 codes; uses a colorblind-friendly qualitative ramp
+# 3. Colour palette — up to 9 codes; uses muted/colorblind-friendly palette
 code_colours <- setNames(
-    RColorBrewer::brewer.pal(n_codes, "Set1"),
-    all_codes
+    RColorBrewer::brewer.pal(max(3, n_codes), "Set1")[seq_len(n_codes)],
+    code_order
 )
 
 # 4. Draw the plot
 plot_data <- plot_data %>%
-    mutate(alpha_val = ifelse(!is.na(p_value) & p_value <= 0.05, 1, 0.1))
-
-forest_plot <- ggplot(plot_data, aes(x = absolute_change, y = y_dodge, colour = code)) +
+    mutate(alpha_val = ifelse(!is.na(p_value) & p_value <= 0.05, 1, 0.1)) %>%
+    arrange(desc(n_cases))   # larger dots drawn first → sit in background
+forest_plot <- ggplot(plot_data, aes(x = absolute_change, y = y_dodge, colour = code_label)) +
     geom_vline(xintercept = 0, linetype = "dashed", colour = "grey60", linewidth = 0.5) +
     geom_errorbarh(
         aes(xmin = ci_lo, xmax = ci_hi, alpha = alpha_val),
@@ -362,18 +388,31 @@ forest_plot <- ggplot(plot_data, aes(x = absolute_change, y = y_dodge, colour = 
         na.rm     = TRUE
     ) +
     geom_point(
-        aes(alpha = alpha_val),
-        shape = 18,
-        size  = 2.2,
-        na.rm = TRUE
+        aes(alpha = alpha_val, fill = code_label, size = n_cases),
+        shape  = 21,
+        colour = "black",
+        stroke = 0.5,
+        na.rm  = TRUE
     ) +
-    # Restore specialty labels on Y axis
+    scale_size_area(
+        name     = "N cases",
+        max_size = 6,
+        breaks   = function(x) {
+            mn <- min(plot_data$n_cases, na.rm = TRUE)
+            mx <- max(plot_data$n_cases, na.rm = TRUE)
+            round(c(mn, mn + (mx - mn) / 3, mn + 2 * (mx - mn) / 3, mx))
+        }
+    ) +
     scale_y_continuous(
         breaks = seq_along(all_specialties_global),
         labels = rev(all_specialties_global)
     ) +
-    scale_colour_manual(values = code_colours, name = "Code") +
-    scale_alpha_identity() +
+    scale_colour_manual(values = code_colours, guide = "none") +
+    scale_fill_manual(
+        values = code_colours,
+        name   = "Medication",
+        guide  = guide_legend(override.aes = list(shape = 21, colour = "black", size = 3.5))
+    ) +    scale_alpha_identity() +
     labs(
         x       = "Absolute change in prescription rate (95 % CI)",
         y       = NULL,
@@ -381,15 +420,15 @@ forest_plot <- ggplot(plot_data, aes(x = absolute_change, y = y_dodge, colour = 
     ) +
     theme_bw(base_size = 9) +
     theme(
-        axis.text.y        = element_text(size = 7),
-        axis.text.x        = element_text(size = 7),
+        axis.text.y        = element_text(size = 10),
+        axis.text.x        = element_text(size = 10),
         panel.grid.major.y = element_line(colour = "grey93", linewidth = 0.3),
         panel.grid.minor   = element_blank(),
         legend.position    = "right",
-        legend.title       = element_text(face = "bold", size = 8),
-        legend.text        = element_text(size = 7),
-        plot.title         = element_text(face = "bold", size = 11),
-        plot.caption       = element_text(size = 7, colour = "grey50"),
+        legend.title       = element_text(face = "bold", size = 10),
+        legend.text        = element_text(size = 10),
+        plot.title         = element_text(face = "bold", size = 10),
+        plot.caption       = element_text(size = 10, colour = "grey50"),
         plot.margin        = margin(8, 12, 8, 8)
     )
 
@@ -397,8 +436,8 @@ forest_plot <- ggplot(plot_data, aes(x = absolute_change, y = y_dodge, colour = 
 ggsave(
     filename = paste0(outdir, "ForestPlot_StratifiedAnalysis_Specialty_AllCodes_30MIN_", DATE, ".png"),
     plot     = forest_plot,
-    width    = 12,
-    height   = 8,
+    width    = 10,
+    height   = 10,
     units    = "in",
     dpi      = 300
 )
@@ -483,6 +522,3 @@ heterogeneity_table$heterogeneous <- ifelse(
     NA
 )
 write.csv(heterogeneity_table,paste0(outdir, "Supplements_HeterogeneityQ_ByCode_", DATE, ".csv"),row.names = FALSE)
- 
-
- 

@@ -203,70 +203,34 @@ for (code in code_list) {
                 se = agg_dynamic$se.egt
             )
 
-            # For medications results will consider ATT and SE in a 3 year window before and after event (t=0)
-            before_idx <- results$time %in% c(-3, -2, -1)
-            after_idx <- results$time %in% c(1, 2, 3)
-
-            # Meta-analysis of pre-period estimates
-            pre_data <- data.frame(
-                estimate = results$att[before_idx],
-                se = results$se[before_idx]
-            )
-            pre_meta <- metafor::rma(yi = estimate, sei = se, data = pre_data, method = "FE")
-            avg_effect_before <- pre_meta$b[,1]
-            se_pre <- pre_meta$se
-            p_value_pre <- pre_meta$pval
-
-            # Meta-analysis of post-period estimates
-            post_data <- data.frame(
-                estimate = results$att[after_idx],
-                se = results$se[after_idx]
-            )
-            post_meta <- metafor::rma(yi = estimate, sei = se, data = post_data, method = "FE")
-            avg_effect_after <- post_meta$b[,1]
-            se_post <- post_meta$se
-            p_value_post <- post_meta$pval
-
-            # Absolute change and relative change estimates
-            absolute_change <- avg_effect_after - avg_effect_before
-            absolute_change_se <- sqrt(se_post^2 + se_pre^2)
-            score_abs <- absolute_change / absolute_change_se
-            p_value_change <- 2 * (1 - pnorm(abs(score_abs)))
-
+            # Compute absolute change (post-event average ATT) and its SE
+            results_post <- results[results$time >= 0, ]
+            absolute_change <- mean(results_post$att, na.rm = TRUE)
+            absolute_change_se <- sqrt(mean(results_post$se^2, na.rm = TRUE))
+            p_value_change <- 2 * (1 - pnorm(abs(absolute_change / absolute_change_se)))
 
             result_list_2[[tier]] <- data.frame(
-                prescription_tier = tier,
+                code = code,
+                tier_name = tier,
+                absolute_change = absolute_change,
+                absolute_change_se = absolute_change_se,
+                p_value_change = p_value_change,
                 n_cases = n_cases_tier,
-                n_controls = n_controls_tier,
-                absolute_change = round(absolute_change, 5),
-                absolute_change_se = round(absolute_change_se, 5),
-                p_value_change = round(p_value_change, 5)
+                n_controls = n_controls_tier
             )
         }
 
-        # combine results and save
-        result_df <- do.call(rbind, result_list_2)
-        result_df$code <- code
-        result_list_1[[code]] <- result_df
+        result_list_1[[code]] <- do.call(rbind, result_list_2)
 
     }, error = function(e) {
-    result_list_1[[code]] <- NULL
-  })
+        cat(sprintf("Error for code %s: %s\n", code, e$message))
+    })
 }
 
-# join all data into final table
-# Combine all results into one data frame
+# Combine results
 combined_results <- do.call(rbind, result_list_1)
-rownames(combined_results) <- NULL
 
-# Extract and simplify tier information
-combined_results <- combined_results %>%
-    mutate(
-        tier_name = gsub("\\s*\\([^)]*\\)", "", prescription_tier),
-        tier_range = gsub(".*\\((.*)\\).*", "\\1", prescription_tier)
-    )
-
-# Make results wide: pivot so each row is a code and columns are tier-specific values
+# Pivot to wide format
 results_wide <- combined_results %>%
     pivot_wider(
         id_cols = code,
@@ -298,3 +262,120 @@ results_wide$tier_significance <- apply(results_wide, 1, function(row) {
 
 # Save final results
 write.csv(results_wide, paste0(outdir, "Supplements_StratifiedAnalysis_SelfPrescription_", DATE, ".csv"), row.names = FALSE)
+
+# -----------------------------------------------
+# Forest plot – stratified by self-prescription (Yes vs No)
+# -----------------------------------------------
+
+# Medications of interest: ATC code → readable label
+code_labels <- tibble(
+    OUTCOME_CODE = c(
+        "A06AC01",
+        "C10AA07",
+        "M01AH05",
+        "N02CC07",
+        "N05CF02",
+        "N06AX26",
+        "R01AD12",
+        "R01AD58",
+        "R03AK10"
+    ),
+    LABEL = c(
+        "ispaghula (psylla seeds)",
+        "rosuvastatin",
+        "etoricoxib",
+        "frovatriptan",
+        "zolpidem",
+        "vortioxetine",
+        "fluticasone furoate",
+        "fluticasone, combinations",
+        "vilanterol and fluticasone furoate"
+    )
+)
+
+# reload data if running this section independently
+results_wide <- read.csv(paste0(outdir, "Supplements_StratifiedAnalysis_SelfPrescription_", DATE, ".csv"))
+
+# Pivot results_wide to long format: one row per (code x group)
+plot_data <- bind_rows(
+    results_wide %>% transmute(code, group = "Yes", absolute_change = Yes_absolute_change, absolute_change_se = Yes_absolute_change_se, n_cases = Yes_n_cases),
+    results_wide %>% transmute(code, group = "No",  absolute_change = No_absolute_change,  absolute_change_se = No_absolute_change_se,  n_cases = No_n_cases)
+) %>%
+    left_join(code_labels, by = c("code" = "OUTCOME_CODE")) %>%
+    mutate(
+        ci_lo = absolute_change - 1.96 * absolute_change_se,
+        ci_hi = absolute_change + 1.96 * absolute_change_se
+    )
+
+# Order medications by mean effect
+label_order <- dataset %>%
+    filter(OUTCOME_CODE %in% plot_data$code) %>%
+    arrange(ABS_CHANGE) %>%
+    pull(OUTCOME_CODE) %>%
+    unique() %>%
+    {tibble(code = .) %>% left_join(code_labels, by = c("code" = "OUTCOME_CODE")) %>% pull(LABEL)}
+
+# Rescale n_cases to dot size
+n_range <- range(plot_data$n_cases, na.rm = TRUE)
+rescale_size <- function(x, from = n_range, to = c(1.5, 8)) {
+    if (diff(from) == 0) return(rep(mean(to), length(x)))
+    (x - from[1]) / diff(from) * diff(to) + to[1]
+}
+
+DODGE <- 0.22   # vertical separation between Yes/No within each medication row
+
+plot_data <- plot_data %>%
+    mutate(
+        LABEL   = factor(LABEL, levels = label_order),
+        group   = factor(group, levels = c("Yes", "No")),
+        y_pos   = as.numeric(LABEL) + ifelse(group == "Yes", +DODGE, -DODGE),
+        pt_size = rescale_size(n_cases)
+    )
+
+forest_plot <- ggplot(plot_data, aes(x = absolute_change, y = y_pos, colour = group)) +
+    geom_vline(xintercept = 0, linetype = "dashed", colour = "grey60", linewidth = 0.5) +
+    geom_errorbarh(
+        aes(xmin = ci_lo, xmax = ci_hi),
+        height = DODGE * 0.7, linewidth = 0.65, na.rm = TRUE
+    ) +
+    geom_point(aes(size = pt_size), shape = 16, na.rm = TRUE) +
+    scale_y_continuous(
+        breaks = seq_along(label_order),
+        labels = label_order,
+        expand = expansion(add = 0.6)
+    ) +
+    scale_size_identity() +
+    scale_colour_manual(
+        values = c("Yes" = "#E41A1C", "No" = "#377EB8"),
+        name   = "Self-prescription"
+    ) +
+    labs(
+        x     = "Absolute change in prescription rate (95% CI)",
+        y     = NULL,
+        title = "Stratified analysis by self-prescription"
+    ) +
+    annotate("text", x = -Inf, y = -Inf, hjust = -0.05, vjust = -0.5,
+             label = sprintf("Dot size proportional to n cases"),
+             size = 2.5, colour = "grey50") +
+    theme_bw(base_size = 9) +
+    theme(
+        axis.text.y        = element_text(size = 10, face = "bold"),
+        axis.text.x        = element_text(size = 10),
+        panel.grid.major.y = element_line(colour = "grey93", linewidth = 0.3),
+        panel.grid.minor   = element_blank(),
+        legend.position    = "right",
+        legend.title       = element_text(face = "bold", size = 10),
+        legend.text        = element_text(size = 10),
+        plot.title         = element_text(face = "bold", size = 10),
+        plot.margin        = margin(8, 12, 8, 8)
+    ) +
+    guides(colour = guide_legend(override.aes = list(size = 4)))
+
+ggsave(
+    filename = paste0(outdir, "ForestPlot_StratifiedAnalysis_SelfPrescription_", DATE, ".png"),
+    plot     = forest_plot,
+    width    = 10,
+    height   = 10,
+    units    = "in",
+    dpi      = 300
+)

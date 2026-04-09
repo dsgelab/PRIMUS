@@ -15,9 +15,12 @@ scripts=(
     "Supplements_StratifiedAnalysis_Age.R"
     "Supplements_StratifiedAnalysis_Sex.R"
     "Supplements_StratifiedAnalysis_Specialty.R"
+    "Supplements_StratifiedAnalysis_Specialty_V2.R"
+    "Supplements_StratifiedAnalysis_SelfPrescription.R"
     "Supplements_StratifiedAnalysis_PrescriptionTier.R"
     "Supplements_PostDefinition.R"
     "Supplements_ATC_Landscape.R"
+    "Supplements_ExperimentComparison.R"
 )
 
 # Check if all scripts exist before running
