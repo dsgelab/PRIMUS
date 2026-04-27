@@ -379,11 +379,12 @@ code_colours <- setNames(
 plot_data <- plot_data %>%
     mutate(alpha_val = ifelse(!is.na(p_value) & p_value <= 0.05, 1, 0.1)) %>%
     arrange(desc(n_cases))   # larger dots drawn first → sit in background
-forest_plot <- ggplot(plot_data, aes(x = absolute_change, y = y_dodge, colour = code_label)) +
-    geom_vline(xintercept = 0, linetype = "dashed", colour = "grey60", linewidth = 0.5) +
-    geom_errorbarh(
-        aes(xmin = ci_lo, xmax = ci_hi, alpha = alpha_val),
-        height    = dodge_step * 0.6,
+
+forest_plot <- ggplot(plot_data, aes(x = y_dodge, y = absolute_change, colour = code_label)) +
+    geom_hline(yintercept = 0, linetype = "dashed", colour = "grey60", linewidth = 0.5) +
+    geom_errorbar(
+        aes(ymin = ci_lo, ymax = ci_hi, alpha = alpha_val),
+        width    = dodge_step * 0.6,
         linewidth = 0.5,
         na.rm     = TRUE
     ) +
@@ -403,7 +404,7 @@ forest_plot <- ggplot(plot_data, aes(x = absolute_change, y = y_dodge, colour = 
             round(c(mn, mn + (mx - mn) / 3, mn + 2 * (mx - mn) / 3, mx))
         }
     ) +
-    scale_y_continuous(
+    scale_x_continuous(
         breaks = seq_along(all_specialties_global),
         labels = rev(all_specialties_global)
     ) +
@@ -412,19 +413,20 @@ forest_plot <- ggplot(plot_data, aes(x = absolute_change, y = y_dodge, colour = 
         values = code_colours,
         name   = "Medication",
         guide  = guide_legend(override.aes = list(shape = 21, colour = "black", size = 3.5))
-    ) +    scale_alpha_identity() +
+    ) +
+    scale_alpha_identity() +
     labs(
-        x       = "Absolute change in prescription rate (95 % CI)",
-        y       = NULL,
+        y       = "Absolute change in prescription rate (95 % CI)",
+        x       = NULL,
         title   = "Stratified analysis by specialty"
     ) +
     theme_bw(base_size = 9) +
     theme(
+        axis.text.x        = element_text(size = 10, angle = 45, hjust = 1),
         axis.text.y        = element_text(size = 10),
-        axis.text.x        = element_text(size = 10),
-        panel.grid.major.y = element_line(colour = "grey93", linewidth = 0.3),
+        panel.grid.major.x = element_line(colour = "grey93", linewidth = 0.3),
         panel.grid.minor   = element_blank(),
-        legend.position    = "right",
+        legend.position    = "bottom",
         legend.title       = element_text(face = "bold", size = 10),
         legend.text        = element_text(size = 10),
         plot.title         = element_text(face = "bold", size = 10),
@@ -436,7 +438,7 @@ forest_plot <- ggplot(plot_data, aes(x = absolute_change, y = y_dodge, colour = 
 ggsave(
     filename = paste0(outdir, "ForestPlot_StratifiedAnalysis_Specialty_AllCodes_30MIN_", DATE, ".png"),
     plot     = forest_plot,
-    width    = 10,
+    width    = 14,
     height   = 10,
     units    = "in",
     dpi      = 300
