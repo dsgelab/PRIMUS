@@ -478,21 +478,6 @@ df_model[is.na(N), N := 0]
 
 # ---------------------------------------------------------------------------
 # Plot case-only centered on event month
-
-# Compute age-at-event quartile breakpoints
-age_at_event_vals <- df_complete %>%
-    filter(EVENT == 1) %>%
-    distinct(DOCTOR_ID, AGE_AT_EVENT) %>%
-    pull(AGE_AT_EVENT)
-
-age_quartile_breaks <- quantile(age_at_event_vals, probs = c(0, 0.25, 0.5, 0.75, 1), na.rm = TRUE)
-
-# Build quartile labels (e.g. "Q1: 28-33")
-age_quartile_labels <- paste0(
-    c("Q1", "Q2", "Q3", "Q4"), ": ",
-    floor(age_quartile_breaks[1:4]), "-", floor(age_quartile_breaks[2:5])
-)
-
 cases_centered <- df_complete %>%
     filter(EVENT == 1) %>%
     mutate(
@@ -502,15 +487,9 @@ cases_centered <- df_complete %>%
             EVENT_YEAR >= 2013 & EVENT_YEAR <= 2022 ~ "2013-2022",
             TRUE ~ NA_character_
         ),
-        age_at_event_group = cut(
-            AGE_AT_EVENT,
-            breaks  = age_quartile_breaks,
-            labels  = age_quartile_labels,
-            include.lowest = TRUE
-        ),
         rel_month = MONTH - EVENT_MONTH
     ) %>%
-    filter(!is.na(event_group), !is.na(age_at_event_group), rel_month >= -36, rel_month <= 36)
+    filter(!is.na(event_group), rel_month >= -36, rel_month <= 36)
 
 # Per-group n cases (for subtitles)
 n_cases_by_group <- cases_centered %>%
@@ -518,7 +497,7 @@ n_cases_by_group <- cases_centered %>%
     count(event_group, name = "n_cases")
 
 cases_centered_summary <- cases_centered %>%
-    group_by(event_group, age_at_event_group, rel_month) %>%
+    group_by(event_group, rel_month) %>%
     summarise(
         mean_n = mean(N, na.rm = TRUE),
         se     = sd(N, na.rm = TRUE) / sqrt(n()),
@@ -537,8 +516,7 @@ plot_list <- lapply(seq_along(event_groups_ordered), function(i) {
 
     dat <- cases_centered_summary %>% filter(event_group == grp)
 
-    ggplot(dat, aes(x = rel_month, y = mean_n,
-                    color = age_at_event_group, fill = age_at_event_group)) +
+    ggplot(dat, aes(x = rel_month, y = mean_n)) +
         geom_ribbon(aes(ymin = mean_n - 1.96 * se, ymax = mean_n + 1.96 * se),
                     alpha = 0.15, color = NA) +
         geom_line(linewidth = 1) +
@@ -548,10 +526,8 @@ plot_list <- lapply(seq_along(event_groups_ordered), function(i) {
         labs(
             title    = paste0(label, ". ", grp),
             subtitle = paste0("N cases: ", n_grp),
-            x        = "Months from event",
-            y        = "Mean total prescriptions",
-            color    = "Age at event (quartile)",
-            fill     = "Age at event (quartile)"
+            x        = "Months from Event",
+            y        = "Mean Number of Prescriptions"
         ) +
         theme_minimal() +
         ylim(0, 150) +
