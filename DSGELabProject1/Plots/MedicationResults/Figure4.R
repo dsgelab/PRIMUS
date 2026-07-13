@@ -33,6 +33,8 @@ POINT_SIZE_NOT_SIG  <- 2
 ALPHA_SIG           <- 1
 ALPHA_NOT_SIG       <- 0.3
 
+TODAY <- format(Sys.Date(), "%Y%m%d")
+
 
 # ============================================================================
 # SHARED REFERENCE DATA: ATC chapter map, color palette, medication labels
@@ -122,6 +124,7 @@ dataset <- read_csv(dataset_file, show_col_types = FALSE)
 dataset <- dataset[dataset$N_CASES >= 300, ]
 
 # Apply multiple test correction
+# Note: Using Bonferroni correction here, since it is a very conservative approach.
 dataset$PVAL_ADJ <- p.adjust(dataset$PVAL_ABS_CHANGE, method = "bonferroni")
 dataset$SIGNIFICANT_CHANGE <- dataset$PVAL_ADJ < 0.05
 
@@ -139,7 +142,6 @@ dataset$SIG_TYPE <- factor(
 )
 
 # --- Chapter annotation ---
-
 dataset <- dataset %>%
     mutate(
         MED_CHAPTER  = substr(OUTCOME_CODE, 1, 1),
@@ -160,9 +162,8 @@ chapter_color_map <- setNames(
 # Pull out the labeled medication rows for text annotations in p1
 robust_result_labels <- dataset %>% inner_join(code_labels, by = "OUTCOME_CODE")
 
-
 # ============================================================================
-# PANEL 1 (left, full height): Jittered boxplot of absolute change by chapter
+# PANEL 1 : Jittered plot of absolute change by chapter
 # ============================================================================
 
 # Reproducible jitter positions stored on the dataset
@@ -210,22 +211,21 @@ p1 <- ggplot(dataset, aes(x = x_jittered, y = ABS_CHANGE, color = CHAPTER_NAME))
   ) +
   labs(
     x = NULL,
-    y = "Change in Prescription Rate"
+    y = "Change in Prescription Rate \n(before vs after event, 3 year window)"
   ) +
   theme_minimal() +
   theme(
     axis.text.x  = element_text(size = 10, angle = 20, hjust = 1),
     axis.text.y  = element_text(size = 10),
-    axis.title.y = element_text(size = 12),
-    axis.title.x = element_text(size = 12),
+    axis.title.y = element_text(size = 10),
+    axis.title.x = element_text(size = 10),
     legend.position = "none"
   ) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgrey")
 
 
 # ============================================================================
-# SECTION 2: RELATIVE CHANGE FILE — absolute and relative summaries per code
-# (commented out — not needed for the current figure)
+# PANEL 3: Relative change 
 # ============================================================================
 
 rel_data <- read_csv(relative_change_file, show_col_types = FALSE)
@@ -245,16 +245,10 @@ sorted_codes <- dataset %>%
     pull(OUTCOME_CODE)
 
 rel_data <- rel_data %>%
-    mutate(LABEL_ORDERED = factor(LABEL, levels = rev(code_labels$LABEL[code_labels$OUTCOME_CODE %in% sorted_codes]))) %>%
+    filter(OUTCOME_CODE %in% sorted_codes) %>%  
+    mutate(LABEL_ORDERED = factor(LABEL, levels = rev(code_labels$LABEL))) %>%
     arrange(LABEL_ORDERED)
 
-
-# ============================================================================
-# PANEL 3 (center right): Relative change — dot + error bar, no text labels
-# (commented out — not needed for the current figure)
-# ============================================================================
-
-    
 p_ratio_combined <- ggplot(
     rel_data,
     aes(x = REL_CHANGE, y = LABEL_ORDERED, color = CHAPTER_NAME)
@@ -281,7 +275,7 @@ p_ratio_combined <- ggplot(
 
 
 # ============================================================================
-# SECTION 3: VALIDATION DATA — time-series (att) per selected medication
+# PANEL 2: VALIDATION DATA — time-series (att) per selected medication
 # ============================================================================
 
 val_data <- read_csv(validation_data_file, show_col_types = FALSE)
@@ -345,9 +339,6 @@ for (code in sort(unique(val_data$code), decreasing = TRUE)) {
 # Identical visual style for every medication — color and title are derived
 # automatically from the ATC chapter color map and the code_labels table.
 #
-# FIX: plot.margin right side is set large (55pt) so the bracket annotation
-# (which overflows xlim via clip = "off") renders inside the plot's own
-# viewport margin rather than being clipped by a grid cell boundary.
 # ============================================================================
 
 make_longitudinal_plot <- function(med_code, data_all, color_map, label_tbl, show_y_title = TRUE) {
@@ -376,7 +367,7 @@ make_longitudinal_plot <- function(med_code, data_all, color_map, label_tbl, sho
     label_x   <- bx + 0.15
     label_y   <- (pre_mean + post_mean) / 2
 
-    y_title <- if (show_y_title) "Prescription Rate Difference\n(compared to controls)" else NULL
+    y_title <- if (show_y_title) "Prescription Rate Differences \n(compared to controls)" else NULL
 
     ggplot(plot_data, aes(x = time, y = att)) +
         geom_line(color = med_color) +
@@ -435,19 +426,15 @@ make_longitudinal_plot <- function(med_code, data_all, color_map, label_tbl, sho
             plot.title   = element_text(size = 12, face = "bold", color = med_color),
             axis.title   = element_text(size = 9),
             axis.text    = element_text(size = 8),
-            # FIX: Large right margin gives clip="off" overflow room within the
-            # plot's own viewport, so bracket text is never cut by a cell edge.
-            # Adjust the 55pt value up/down to taste (try 50–70).
             plot.margin  = margin(5, 55, 5, 5)
         )
 }
 
 # ============================================================================
-# SECTION 4: BUILD THE 10 LONGITUDINAL PLOTS sorted by absolute change
+# Build the longitudinal plots sorted by absolute change
 #
 # Order: highest absolute change first (top-left), lowest last.
-# Each medication gets its own explicitly named plot object so that no plot
-# shares axis scales, limits, or theme guidelines with any other.
+# Each medication gets its own explicitly named plot object so that no plot shares axis scales, limits, or theme guidelines with any other.
 # ============================================================================
 
 # Only plots 1 and 6 get y axis title
@@ -462,33 +449,26 @@ lp8  <- make_longitudinal_plot(sorted_codes[8],  data_plot_all, chapter_color_ma
 lp9  <- make_longitudinal_plot(sorted_codes[9],  data_plot_all, chapter_color_map, code_labels, show_y_title = FALSE)
 
 # ============================================================================
-# FINAL FIGURE — assembled with grid.arrange / arrangeGrob
-#
-# FIX: Spacer grobs removed entirely. The large right plot.margin on each
-# longitudinal plot is sufficient to prevent bracket label clipping, and
-# the 5-column layout gives each plot equal natural breathing room.
-#
-#   Column 1 (full height) : Panel A — p1 with textGrob title above
-#   Column 2               : Panel B — title grob + 2×5 grid of lp1–lp10
+# FINAL FIGURE 
 # ============================================================================
 
 # Panel A title grob
 a_title_grob <- textGrob(
-    "A.  Individual Estimates",
+    "A.  Absolute Change Estimates, by ATC Chapter",
     gp   = gpar(fontsize = 14, fontface = "bold"),
     just = "left",
     x    = unit(0.01, "npc")
 )
 
 b_title_grob <- textGrob(
-    "B.  Zoom-in Medication Estimates",
+    "B.  Difference-in-Differences Estimates",
     gp   = gpar(fontsize = 14, fontface = "bold"),
     just = "left",
     x    = unit(0.01, "npc")
 )
 
 c_title_grob <- textGrob(
-    "C.  Relative Change, for Significant Medications",
+    "C.  Relative Change Estimates",
     gp   = gpar(fontsize = 14, fontface = "bold"),
     just = "left",
     x    = unit(0.01, "npc")
@@ -532,7 +512,7 @@ p_final <- arrangeGrob(
 )
 
 ggsave(
-    filename = paste0(OutDir, "Figure5_20260316_NEW.png"),
+    filename = paste0(OutDir, "Figure4_", TODAY, ".png"),
     plot     = p_final,
     width    = 24,
     height   = 12,
