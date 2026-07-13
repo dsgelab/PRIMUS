@@ -51,6 +51,10 @@ code_list = dataset %>%
     pull(OUTCOME_CODE) %>%
     unique()
 
+# Manually add (extra) medication:
+# simvastatin (C10AA01), atorvastatin (C10AA05), and sumatriptan (N02CC01) 
+code_list <- c(code_list, "C10AA01", "C10AA05", "N02CC01")
+
 #-----------------------------------------------
 # Part 1: Calculate baseline rates
 
@@ -176,13 +180,13 @@ p1 <- ggplot(dataset_with_baseline, aes(y = reorder(OUTCOME_CODE, REL_CHANGE))) 
 ggsave(filename = paste0(outdir, "Supplements_RelativeChange_Plot1_", DATE, ".png"), plot = p1, width = 12, height = 8)
 
 # Plot V2
-# Calculate 95% CI for relative change
+# Calculate 95% CI for relative change and p-value for H0: REL_CHANGE = 1
 dataset_with_baseline <- dataset_with_baseline %>%
   mutate(
     REL_CHANGE_SE = abs(ABS_CHANGE_SE / BASELINE_MEAN),
     REL_CHANGE_CI_LOW = REL_CHANGE - 1.96 * REL_CHANGE_SE,
     REL_CHANGE_CI_UP = REL_CHANGE + 1.96 * REL_CHANGE_SE,
-    PVAL_REL_CHANGE = 2 * (1 - pnorm(abs(REL_CHANGE / REL_CHANGE_SE)))
+    PVAL_REL_CHANGE = 2 * (1 - pnorm(abs((REL_CHANGE - 1) / REL_CHANGE_SE)))
   )
 p2 <- ggplot(dataset_with_baseline, aes(y = reorder(OUTCOME_CODE, REL_CHANGE))) +
   geom_vline(xintercept = 1, linetype = "dashed", color = "grey", linewidth = 0.8) +

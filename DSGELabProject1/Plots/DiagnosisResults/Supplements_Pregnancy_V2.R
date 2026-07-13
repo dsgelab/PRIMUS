@@ -25,6 +25,7 @@ pregnancies_file = "/media/volume/Projects/DSGELabProject1/ProcessedData/AllPreg
 relatives_file = "/media/volume/Projects/DSGELabProject1/doctors_and_relative_20250521.csv"
 outcomes_file   <- paste0("/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Diagnosis_",DATE_DATA, "/ProcessedOutcomes_", DATE_DATA, "/processed_outcomes.parquet")
 covariates_file = "/media/volume/Projects/DSGELabProject1/doctor_characteristics_20250520.csv"
+marriage_info_file = "/media/volume/Data_20250430/DVV/FD_2698_Tulokset 2024-09-11 AVIOLIITOT.csv"
 
 DATE <- format(Sys.time(), "%Y%m%d")
 outdir = paste0("/media/volume/Projects/DSGELabProject1/Plots/Supplements/Supplements_Pregnancy_Base_", DATE, "/")
@@ -205,6 +206,35 @@ p_dynamic_female <- ggplot(data_plot, aes(x = time, y = att)) +
 
 # ---------------------------------------------------------------------------
 # Males
+
+# clean marriage info
+marriage_info <- fread(marriage_info_file)
+marriage_info <- marriage_info %>%
+    rename(
+        DOCTOR_ID      = "FID",
+        SPOUSE_ID      = "FID2",
+        MARITAL_STATUS = "Tutkhenk_nykyinen_siviilisaaty"
+    ) %>%
+    mutate(
+        START_DATE = as.Date(as.character(Alkupaiva), format = "%Y%m%d"),
+        END_DATE   = as.Date(as.character(Paattymispaiva), format = "%Y%m%d")
+    ) %>%
+    mutate(
+        START_YEAR = if_else(is.na(year(START_DATE)), 1998, year(START_DATE)),
+        END_YEAR   = if_else(is.na(year(END_DATE)),   2023, year(END_DATE))
+    ) %>%
+    filter(
+        DOCTOR_ID %in% doctor_ids,
+        MARITAL_STATUS == 2,
+        !is.na(SPOUSE_ID)
+    ) %>%
+    select(DOCTOR_ID, SPOUSE_ID, START_YEAR, END_YEAR)
+
+# filter events that happened during marriage
+spouse_events <- spouse_events %>%
+    inner_join(marriage_info, by = "DOCTOR_ID") %>%
+    filter(SPOUSE_EVENT_YEAR >= START_YEAR & SPOUSE_EVENT_YEAR <= END_YEAR)
+
 df_model_male <- df_model %>%
     filter(SEX == "Male") %>%
     left_join(spouse_events, by = "DOCTOR_ID") %>%
@@ -359,21 +389,42 @@ spouse_events <- relatives %>%
     select(DOCTOR_ID, SPOUSE_EVENT_DATE) %>%
     distinct()
 
-# Filter only events and outcomes after cutoff date (2012-01-01) 
-# This is to ensure that the did model can run by reducing the total number of time units used by more than half
-#       T = 1, .. , (2022-2012)*12 + 12 = 132 months 
-# vs    T = 1, .. , (2022-1998)*12 + 12 = 300 months
+# clean marriage info
+marriage_info <- fread(marriage_info_file)
+marriage_info <- marriage_info %>%
+    rename(
+        DOCTOR_ID      = "FID",
+        SPOUSE_ID      = "FID2",
+        MARITAL_STATUS = "Tutkhenk_nykyinen_siviilisaaty"
+    ) %>%
+    mutate(
+        START_DATE = as.Date(as.character(Alkupaiva), format = "%Y%m%d"),
+        END_DATE   = as.Date(as.character(Paattymispaiva), format = "%Y%m%d")
+    ) %>%
+    mutate(
+        START_DATE = if_else(is.na(START_DATE), as.Date("1998-01-01"), START_DATE),
+        END_DATE   = if_else(is.na(END_DATE),   as.Date("2022-12-31"), END_DATE)
+    ) %>%
+    filter(
+        DOCTOR_ID %in% doctor_ids,
+        MARITAL_STATUS == 2,
+        !is.na(SPOUSE_ID)
+    ) %>%
+    select(DOCTOR_ID, SPOUSE_ID, START_DATE, END_DATE)
+
+# filter events that happened during marriage
+spouse_events <- spouse_events %>%
+    inner_join(marriage_info, by = "DOCTOR_ID") %>%
+    filter(SPOUSE_EVENT_DATE >= START_DATE & SPOUSE_EVENT_DATE <= END_DATE) %>%
+    select(DOCTOR_ID, SPOUSE_EVENT_DATE) 
 
 events = spouse_events %>% 
     filter(DOCTOR_ID %in% pregnancy_males_ids) %>% 
-    rename(DATE = SPOUSE_EVENT_DATE) %>%
-    filter(DATE >= as.Date("2012-01-01"))
+    rename(DATE = SPOUSE_EVENT_DATE)
 events = events[events[, .I[which.min(DATE)], by = .(DOCTOR_ID)]$V1] # only use first event
 
 outcomes = outcomes %>% 
-    filter(DOCTOR_ID %in% doctor_ids) %>% 
-    filter(YEAR >= 2012) %>%
-    mutate(MONTH = MONTH - ((2012-1998)*12)) # convert to months since 2012-01
+    filter(DOCTOR_ID %in% doctor_ids) 
 
 # Merge events with outcomes
 df_merged = left_join(outcomes, events, by = "DOCTOR_ID")
@@ -381,7 +432,7 @@ df_merged = df_merged %>%
     mutate(
         EVENT = if_else(!is.na(DATE), 1, 0),
         EVENT_YEAR = if_else(!is.na(DATE), as.numeric(format(DATE, "%Y")), NA_real_),
-        EVENT_MONTH = if_else(!is.na(DATE), (as.numeric(format(DATE, "%Y")) - 2012) * 12 + as.numeric(format(DATE, "%m")), NA_real_),
+        EVENT_MONTH = if_else(!is.na(DATE), (as.numeric(format(DATE, "%Y")) - 1998) * 12 + as.numeric(format(DATE, "%m")), NA_real_),
     ) %>%
     select(-DATE)
 
@@ -426,53 +477,99 @@ n_controls <- df_model %>% filter(EVENT == 0) %>% pull(DOCTOR_ID) %>% unique() %
 df_model[is.na(N), N := 0]
 
 # ---------------------------------------------------------------------------
-# Run DiD model
-# NOTE: to make the model run with the large number of time units (months), we are not including covariates in the model
-att_gt_res <- att_gt(
-    yname = "N",
-    tname = "T",
-    idname = "ID",
-    gname = "G",
-    data = df_model,
-    est_method = "dr",
-    control_group = "notyettreated",
-    clustervars = "ID",
-    pl = TRUE,
-    cores = N_THREADS
+# Plot case-only centered on event month
+
+# Compute age-at-event quartile breakpoints
+age_at_event_vals <- df_complete %>%
+    filter(EVENT == 1) %>%
+    distinct(DOCTOR_ID, AGE_AT_EVENT) %>%
+    pull(AGE_AT_EVENT)
+
+age_quartile_breaks <- quantile(age_at_event_vals, probs = c(0, 0.25, 0.5, 0.75, 1), na.rm = TRUE)
+
+# Build quartile labels (e.g. "Q1: 28-33")
+age_quartile_labels <- paste0(
+    c("Q1", "Q2", "Q3", "Q4"), ": ",
+    floor(age_quartile_breaks[1:4]), "-", floor(age_quartile_breaks[2:5])
 )
 
-agg_dynamic <- aggte(att_gt_res, type = "dynamic", na.rm = TRUE)
-results_df <- data.frame(
-    time    = agg_dynamic$egt,
-    att     = agg_dynamic$att.egt,
-    se      = agg_dynamic$se.egt
-)
+cases_centered <- df_complete %>%
+    filter(EVENT == 1) %>%
+    mutate(
+        event_group = case_when(
+            EVENT_YEAR < 2003              ~ "Before 2003",
+            EVENT_YEAR >= 2003 & EVENT_YEAR < 2013 ~ "2003-2012",
+            EVENT_YEAR >= 2013 & EVENT_YEAR <= 2022 ~ "2013-2022",
+            TRUE ~ NA_character_
+        ),
+        age_at_event_group = cut(
+            AGE_AT_EVENT,
+            breaks  = age_quartile_breaks,
+            labels  = age_quartile_labels,
+            include.lowest = TRUE
+        ),
+        rel_month = MONTH - EVENT_MONTH
+    ) %>%
+    filter(!is.na(event_group), !is.na(age_at_event_group), rel_month >= -36, rel_month <= 36)
 
-# Save monthly male long results
-write.csv(results_df,
-          paste0(outdir, "Supplements_Pregnancy_Male_ZOOM_MONTHS_Long_", DATE, ".csv"),
-          row.names = FALSE)
+# Per-group n cases (for subtitles)
+n_cases_by_group <- cases_centered %>%
+    distinct(DOCTOR_ID, event_group) %>%
+    count(event_group, name = "n_cases")
 
-results_filtered <- results_df %>% filter(time >= -WIN*12 & time <= WIN*12)
-p <- ggplot(results_filtered, aes(x = time, y = att)) +
-    geom_line(color = "#1f77b4") +
-    geom_point() +
-    geom_errorbar(aes(ymin = att - 1.96 * se, ymax = att + 1.96 * se), width = 0.2, color = "#1f77b4") +
-    geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
-    labs(
-        title = "Effect of Pregnancy on Overall Prescriptions - Male doctors (ZOOM in Months)",
-        subtitle = paste0("Cases: ", n_cases, ", Controls: ", n_controls),
-        x = "Months from Event",
-        y = "change in total number of prescriptions"
-    ) +
-    scale_x_continuous(limits = c(-WIN*12, WIN*12), breaks = seq(-WIN*12, WIN*12, 12)) +
-    theme_minimal()
+cases_centered_summary <- cases_centered %>%
+    group_by(event_group, age_at_event_group, rel_month) %>%
+    summarise(
+        mean_n = mean(N, na.rm = TRUE),
+        se     = sd(N, na.rm = TRUE) / sqrt(n()),
+        .groups = "drop"
+    )
+
+# Build one plot per event_group, each with its own title + subtitle (n cases)
+event_groups_ordered <- c("Before 2003", "2003-2012", "2013-2022")
+panel_labels <- c("A", "B", "C")
+
+plot_list <- lapply(seq_along(event_groups_ordered), function(i) {
+    grp   <- event_groups_ordered[i]
+    label <- panel_labels[i]
+    n_grp <- n_cases_by_group %>% filter(event_group == grp) %>% pull(n_cases)
+    n_grp <- if (length(n_grp) == 0) 0L else n_grp
+
+    dat <- cases_centered_summary %>% filter(event_group == grp)
+
+    ggplot(dat, aes(x = rel_month, y = mean_n,
+                    color = age_at_event_group, fill = age_at_event_group)) +
+        geom_ribbon(aes(ymin = mean_n - 1.96 * se, ymax = mean_n + 1.96 * se),
+                    alpha = 0.15, color = NA) +
+        geom_line(linewidth = 1) +
+        geom_point(size = 1) +
+        geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+        scale_x_continuous(limits = c(-36, 36), breaks = seq(-36, 36, 12)) +
+        labs(
+            title    = paste0(label, ". ", grp),
+            subtitle = paste0("N cases: ", n_grp),
+            x        = "Months from event",
+            y        = "Mean total prescriptions",
+            color    = "Age at event (quartile)",
+            fill     = "Age at event (quartile)"
+        ) +
+        theme_minimal() +
+        ylim(0, 150) +
+        theme(
+            plot.title    = element_text(face = "bold"),
+            plot.subtitle = element_text(color = "grey40"),
+            legend.position = "bottom"
+        )
+})
+
+p_cases <- wrap_plots(plot_list, ncol = 1) +
+    plot_layout(guides = "collect") &
+    theme(legend.position = "bottom")
 
 ggsave(
-    filename = paste0(outdir, "Plot_Supplements_Pregnancy_Male_ZOOM_MONTHS_", DATE, ".png"),
-    plot = p,
-    width = 10, 
-    height = 8, 
-    dpi = 300
+    filename = paste0(outdir, "Plot_Supplements_Pregnancy_Cases_Centered", DATE, ".png"),
+    plot     = p_cases,
+    width    = 10,
+    height   = 12,
+    dpi      = 300
 )
-

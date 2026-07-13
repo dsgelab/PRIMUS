@@ -88,7 +88,7 @@ code_labels <- tibble(
         "R03AK10"
     ),
     LABEL = c(
-        "ispaghula (psylla seeds)",
+        "psylla seeds",
         "rosuvastatin",
         "etoricoxib",
         "frovatriptan",
@@ -97,6 +97,17 @@ code_labels <- tibble(
         "fluticasone furoate",
         "fluticasone, combinations",
         "vilanterol and fluticasone furoate"
+    ),
+    LABEL_WITH_INDICATION = c(
+        "psylla seeds \n(constipation)",
+        "rosuvastatin \n(CVD, hypercholesterolemia)",
+        "etoricoxib \n(acute pain, arthritis)",
+        "frovatriptan \n(migraine)",
+        "zolpidem \n(insomnia)",
+        "vortioxetine \n(depression)",
+        "fluticasone furoate \n(allergic rhinitis)",
+        "fluticasone, combinations \n(allergic rhinitis)",
+        "vilanterol and fluticasone furoate \n(COPD, asthma)"
     )
 )
 
@@ -169,7 +180,7 @@ robust_result_labels$x_jittered <- dataset$x_jittered[
 
 p1 <- ggplot(dataset, aes(x = x_jittered, y = ABS_CHANGE, color = CHAPTER_NAME)) +
   geom_point(aes(shape = SIG_TYPE, size = SIG_TYPE, alpha = SIG_TYPE)) +
-  geom_text_repel(data = robust_result_labels, aes(label = LABEL), 
+  geom_text_repel(data = robust_result_labels, aes(label = LABEL_WITH_INDICATION), 
                     size = 4, 
                     show.legend = FALSE,
                     max.overlaps = Inf,
@@ -199,7 +210,7 @@ p1 <- ggplot(dataset, aes(x = x_jittered, y = ABS_CHANGE, color = CHAPTER_NAME))
   ) +
   labs(
     x = NULL,
-    y = "Absolute Change in Prescription Rate"
+    y = "Change in Prescription Rate"
   ) +
   theme_minimal() +
   theme(
@@ -235,8 +246,7 @@ sorted_codes <- dataset %>%
 
 rel_data <- rel_data %>%
     mutate(LABEL_ORDERED = factor(LABEL, levels = rev(code_labels$LABEL[code_labels$OUTCOME_CODE %in% sorted_codes]))) %>%
-    arrange(LABEL_ORDERED) %>%
-    mutate(LABEL_ORDERED = paste0(LABEL, "\n(ATC: ", OUTCOME_CODE, ")"))
+    arrange(LABEL_ORDERED)
 
 
 # ============================================================================
@@ -263,8 +273,8 @@ p_ratio_combined <- ggplot(
     theme(
         axis.text.y  = element_text(size = 10),
         axis.text.x  = element_text(size = 10),
-        axis.title.x = element_text(size = 12),
-        axis.title.y = element_text(size = 12),
+        axis.title.x = element_text(size = 10),
+        axis.title.y = element_text(size = 10),
         plot.title   = element_text(size = 14),
         legend.position = "none"
     )
@@ -522,7 +532,7 @@ p_final <- arrangeGrob(
 )
 
 ggsave(
-    filename = paste0(OutDir, "Figure5_20260316.png"),
+    filename = paste0(OutDir, "Figure5_20260316_NEW.png"),
     plot     = p_final,
     width    = 24,
     height   = 12,

@@ -315,49 +315,59 @@ label_order <- dataset %>%
     unique() %>%
     {tibble(code = .) %>% left_join(code_labels, by = c("code" = "OUTCOME_CODE")) %>% pull(LABEL)}
 
-# Rescale n_cases to dot size
-n_range <- range(plot_data$n_cases, na.rm = TRUE)
-rescale_size <- function(x, from = n_range, to = c(1.5, 8)) {
-    if (diff(from) == 0) return(rep(mean(to), length(x)))
-    (x - from[1]) / diff(from) * diff(to) + to[1]
-}
-
-DODGE <- 0.22   # vertical separation between Yes/No within each medication row
-
 plot_data <- plot_data %>%
     mutate(
         LABEL   = factor(LABEL, levels = label_order),
         group   = factor(group, levels = c("Yes", "No")),
-        y_pos   = as.numeric(LABEL) + ifelse(group == "Yes", +DODGE, -DODGE),
-        pt_size = rescale_size(n_cases)
+        y_pos   = as.numeric(LABEL) + ifelse(group == "Yes", +0.1, -0.1),
+        n_label = paste0("N = ", n_cases)
     )
+
+# Add significance star per medication if tiers differ 
+star_df <- results_wide %>%
+    transmute(code, tier_pvalue = as.numeric(tier_significance)) %>%
+    left_join(code_labels, by = c("code" = "OUTCOME_CODE")) %>%
+    mutate(
+        y_center = match(LABEL, label_order),
+        star = ifelse(!is.na(tier_pvalue) & tier_pvalue < 0.05, "*", "")
+    )
+
+# Compute x position for stars (just to the right of the largest CI)
+star_x_base <- max(plot_data$ci_hi, na.rm = TRUE)
+star_x_range <- diff(range(c(plot_data$ci_lo, plot_data$ci_hi), na.rm = TRUE))
+if (is.na(star_x_range) || star_x_range == 0) star_x_range <- abs(star_x_base) * 0.05 + 0.01
+star_df <- star_df %>% mutate(x_star = star_x_base + 0.06 * star_x_range)
 
 forest_plot <- ggplot(plot_data, aes(x = absolute_change, y = y_pos, colour = group)) +
     geom_vline(xintercept = 0, linetype = "dashed", colour = "grey60", linewidth = 0.5) +
     geom_errorbarh(
         aes(xmin = ci_lo, xmax = ci_hi),
-        height = DODGE * 0.7, linewidth = 0.65, na.rm = TRUE
+        height = 0.15, linewidth = 0.65, na.rm = TRUE
     ) +
-    geom_point(aes(size = pt_size), shape = 16, na.rm = TRUE) +
+    geom_point(size = 3, shape = 16, na.rm = TRUE) +
+    geom_text(aes(y = y_pos + 0.07, label = n_label), size = 2.5, vjust = 0, na.rm = TRUE) +
+    geom_text(
+        data = star_df %>% filter(star != ""),
+        aes(x = x_star, y = y_center, label = star),
+        inherit.aes = FALSE,
+        size = 5,
+        fontface = "bold",
+        colour = "black"
+    ) +
     scale_y_continuous(
         breaks = seq_along(label_order),
         labels = label_order,
         expand = expansion(add = 0.6)
     ) +
-    scale_size_identity() +
     scale_colour_manual(
-        values = c("Yes" = "#E41A1C", "No" = "#377EB8"),
+        values = c("Yes" = "#FF9500", "No" = "#1F77B4"),
         name   = "Self-prescription"
     ) +
     labs(
-        x     = "Absolute change in prescription rate (95% CI)",
-        y     = NULL,
-        title = "Stratified analysis by self-prescription"
+        x     = "Change in prescription rate",
+        y     = NULL
     ) +
-    annotate("text", x = -Inf, y = -Inf, hjust = -0.05, vjust = -0.5,
-             label = sprintf("Dot size proportional to n cases"),
-             size = 2.5, colour = "grey50") +
-    theme_bw(base_size = 9) +
+    theme_minimal(base_size = 9) +
     theme(
         axis.text.y        = element_text(size = 10, face = "bold"),
         axis.text.x        = element_text(size = 10),

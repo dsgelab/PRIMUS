@@ -387,50 +387,60 @@ label_order <- dataset %>%
     pull(OUTCOME_CODE) %>%
     unique()
 
-# Rescale n_cases to dot size
-n_range <- range(plot_data$n_cases, na.rm = TRUE)
-rescale_size <- function(x, from = n_range, to = c(1.5, 8)) {
-    if (diff(from) == 0) return(rep(mean(to), length(x)))
-    (x - from[1]) / diff(from) * diff(to) + to[1]
-}
-
-DODGE <- 0.22   # vertical separation between Low/High within each medication row
-
 # Create y_label factor with levels ordered by dataset label order
 plot_data <- plot_data %>%
     mutate(
         y_label = factor(y_label, levels = unique(tier_labels$y_label[match(label_order, tier_labels$code)])),
         group   = factor(group, levels = c("Low", "High")),
-        y_pos   = as.numeric(y_label) + ifelse(group == "Low", -DODGE, +DODGE),
-        pt_size = rescale_size(n_cases)
+        y_pos   = as.numeric(y_label) + ifelse(group == "Low", -0.1, +0.1),
+        n_label = paste0("N = ", n_cases)
     )
+
+# Add significance star per medication if tiers differ 
+star_df <- results_wide %>%
+    transmute(code, tier_pvalue = as.numeric(tier_significance)) %>%
+    left_join(tier_labels, by = "code") %>%
+    mutate(
+        y_center = as.numeric(factor(y_label, levels = unique(tier_labels$y_label[match(label_order, tier_labels$code)]))),
+        star = ifelse(!is.na(tier_pvalue) & tier_pvalue < 0.05, "*", "")
+    )
+
+# Compute x position for stars (just to the right of the largest CI)
+star_x_base <- max(plot_data$ci_hi, na.rm = TRUE)
+star_x_range <- diff(range(c(plot_data$ci_lo, plot_data$ci_hi), na.rm = TRUE))
+if (is.na(star_x_range) || star_x_range == 0) star_x_range <- abs(star_x_base) * 0.05 + 0.01
+star_df <- star_df %>% mutate(x_star = star_x_base + 0.06 * star_x_range)
 
 forest_plot <- ggplot(plot_data, aes(x = absolute_change, y = y_pos, colour = group)) +
     geom_vline(xintercept = 0, linetype = "dashed", colour = "grey60", linewidth = 0.5) +
     geom_errorbarh(
         aes(xmin = ci_lo, xmax = ci_hi),
-        height = DODGE * 0.7, linewidth = 0.65, na.rm = TRUE
+        height = 0.15, linewidth = 0.65, na.rm = TRUE
     ) +
-    geom_point(aes(size = pt_size), shape = 16, na.rm = TRUE) +
+    geom_point(size = 3, shape = 16, na.rm = TRUE) +
+    geom_text(aes(y = y_pos + 0.07, label = n_label), size = 2.5, vjust = 0, na.rm = TRUE) +
+    geom_text(
+        data = star_df %>% filter(star != ""),
+        aes(x = x_star, y = y_center, label = star),
+        inherit.aes = FALSE,
+        size = 5,
+        fontface = "bold",
+        colour = "black"
+    ) +
     scale_y_continuous(
         breaks = seq_along(label_order),
         labels = unique(tier_labels$y_label[match(label_order, tier_labels$code)]),
         expand = expansion(add = 0.6)
     ) +
-    scale_size_identity() +
     scale_colour_manual(
-        values = c("Low" = "#E41A1C", "High" = "#377EB8"),
+        values = c("Low" = "#377EB8", "High" = "#F28E2B"),
         name   = "Prescription tier"
     ) +
     labs(
-        x     = "Absolute change in prescription rate (95% CI)",
-        y     = NULL,
-        title = "Stratified analysis by prescription tier"
+        x     = "Change in prescription rate",
+        y     = NULL
     ) +
-    annotate("text", x = -Inf, y = -Inf, hjust = -0.05, vjust = -0.5,
-             label = sprintf("Dot size proportional to n cases"),
-             size = 2.5, colour = "grey50") +
-    theme_bw(base_size = 9) +
+    theme_minimal(base_size = 9) +
     theme(
         axis.text.y        = element_text(size = 10, face = "bold"),
         axis.text.x        = element_text(size = 10),
