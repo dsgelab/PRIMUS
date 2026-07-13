@@ -39,14 +39,16 @@ suppressPackageStartupMessages({
 # ============================================================
 
 DATE_3A     <- "20260219"
-DATE_3BD    <- "20260625"
-DATE_3CE    <- "20260625"
+DATE_3BD    <- "20260709"
+DATE_3C     <- "20260625"
+DATE_3E     <- "20260709"
 
 results_3A_file    <- paste0('/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Diagnosis_', DATE_3A, '/Results_', DATE_3A, '/Results_ICD_', DATE_3A, '.csv')
-results_3B_file    <- paste0('/media/volume/Projects/DSGELabProject1/Plots/Supplements/Supplements_DepressionBurnout_Base_', DATE_3BD, '/Supplements_DepressionBurnout_BaseDiD_Long_', DATE_3BD, '.csv')
-results_3C_file    <- paste0('/media/volume/Projects/DSGELabProject1/Plots/Supplements/Supplements_Pregnancy_Base_', DATE_3CE, '/Supplements_Pregnancy_Female_Long_', DATE_3CE, '.csv')
+results_3B_file    <- paste0('/media/volume/Projects/DSGELabProject1/Plots/Supplements/Supplements_Distress_', DATE_3BD, '/Supplements_DepressionBurnout_PhenotypeComparison_V1_', DATE_3BD, '.csv')
+results_3C1_file    <- paste0('/media/volume/Projects/DSGELabProject1/Plots/Supplements/Supplements_Pregnancy_Base_', DATE_3C, '/Supplements_Pregnancy_Female_Long_', DATE_3C, '.csv')
+results_3C2_file    <- paste0('/media/volume/Projects/DSGELabProject1/Plots/Supplements/Supplements_Pregnancy_Base_', DATE_3C, '/Supplements_Pregnancy_Male_Long_', DATE_3C, '.csv')
 results_3D_file    <- paste0('...')
-results_3E_file    <- paste0('/media/volume/Projects/DSGELabProject1/Plots/Supplements/Supplements_Pregnancy_Base_', DATE_3CE, '/Supplements_Pregnancy_Male_Long_', DATE_3CE, '.csv')
+results_3E_file    <- paste0('/media/volume/Projects/DSGELabProject1/Plots/Supplements/Supplements_I80_subcodes_', DATE_3E, '/DiD_results_I80_subcodes_', DATE_3E, '.csv')
 
 TODAY   <- format(Sys.Date(), "%Y%m%d")
 outdir  <- paste0("/media/volume/Projects/DSGELabProject1/Plots/Figure3/Figure3_", TODAY, "/")
@@ -58,89 +60,32 @@ setDTthreads(N_THREADS)
 # Window size (years either side of event)
 WIN <- 3
 
-# Event-code regex patterns
-ChildBirth        <- "O80|O81|O82|O83|O84"
-DepressionBurnOut <- "F32|F33(?!\\.4)|F43|Z73"   # F33.4 (remission) excluded
-
-# Human-readable phenotype labels
-depr_label  <- "ICD-10 {F32, F33 excl. F33.4, F43, Z73}"
-birth_label <- "ICD-10 {O80, O81, O82, O83, O84}"
-
-
 # ============================================================
-# 2. Helper: bracket annotation for DiD plots
-#    Highlights the t = 0 estimate with horizontal reference
-#    lines (point estimate + 95 % CI) and a vertical bracket
-#    that reports the exact ATT value at the event year.
-# ============================================================
-
-add_bracket_annotation <- function(plot, results, win = WIN) {
-
-    # Extract the t = 0 row
-    t0 <- results %>% filter(time == 0)
-    if (nrow(t0) == 0) return(plot)   # safety: no t=0 in data
-
-    est    <- t0$att[1]
-    ci_lo  <- est - t0$se[1] * 1.96
-    ci_hi  <- est + t0$se[1] * 1.96
-
-    # Bracket geometry — placed just to the right of t = 0
-    bx       <- 0.2
-    tick_len <- 0.05
-    label_x  <- bx + 0.05
-    # Bracket runs from y = 0 to y = est (estimated drop at t=0)
-    y_low    <- 0
-    y_high   <- est
-    # Position label midway along the bracket
-    label_y  <- (y_low + y_high) / 2
-    bracket_label <- sprintf("drop = %.0f \nIC95%% [%.0f, %.0f]", est, ci_lo, ci_hi)
-
-    plot +
-        # Vertical bracket spanning from 0 to estimate
-        annotate("segment",
-                 x = bx, xend = bx, y = y_low, yend = y_high,
-                 color = "black", linewidth = 0.7) +
-        annotate("segment",
-                 x = bx - tick_len, xend = bx, y = y_low, yend = y_low,
-                 color = "black", linewidth = 0.7) +
-        annotate("segment",
-                 x = bx - tick_len, xend = bx, y = y_high, yend = y_high,
-                 color = "black", linewidth = 0.7) +
-        annotate("text",
-                 x = label_x, y = label_y,
-                 label = bracket_label,
-                 hjust = 0, vjust = 0.5, size = 3.5, lineheight = 0.9)
-}
-
-
-# ============================================================
-# 3. PANEL A — Individual disease scatter 
+# 2. PANEL A — Individual disease scatter 
 # ============================================================
 
 dataset <- read_csv(results_3A_file, show_col_types = FALSE)
 dataset <- dataset[dataset$N_CASES >= 300, ]
 
 # Multiple testing correction
+# Note: Using FDR correction, not as conservative as Bonferroni
 dataset$SE       <- dataset$SE_DROP
 dataset$PVAL     <- 2 * (1 - pnorm(abs(dataset$ATT_DROP / dataset$SE)))
-dataset$PVAL_ADJ_BONF <- p.adjust(dataset$PVAL, method = "bonferroni")
 dataset$PVAL_ADJ_FDR    <- p.adjust(dataset$PVAL, method = "fdr")
-dataset$SIGNIFICANT_BONF <- dataset$PVAL_ADJ_BONF < 0.05
 dataset$SIGNIFICANT_FDR <- dataset$PVAL_ADJ_FDR < 0.05
 
 dataset$SIG_TYPE <- case_when(
-    dataset$SIGNIFICANT_BONF == TRUE  ~ "Bonferroni Significant",
-    dataset$SIGNIFICANT_FDR == TRUE   ~ "FDR Significant",
+    dataset$SIGNIFICANT_FDR == TRUE   ~ "Significant",
     TRUE ~ "Not Significant"
 )
-dataset$SIG_TYPE <- factor(dataset$SIG_TYPE, levels = c("Bonferroni Significant", "FDR Significant", "Not Significant"))
+dataset$SIG_TYPE <- factor(dataset$SIG_TYPE, levels = c("Significant", "Not Significant"))
 
 dataset$EVENT_CODE  <- substr(sub(".*_", "", dataset$EVENT_CODE), 1, 3)
 dataset             <- dataset %>% mutate(MED_CHAPTER = substr(EVENT_CODE, 1, 1))
 dataset$MED_CHAPTER <- factor(dataset$MED_CHAPTER, levels = sort(unique(dataset$MED_CHAPTER)))
 
 icd10_chapter_map <- c(
-    "A" = "Certain infectious and parasitic diseases",
+    "A" = "Certain infectious \nand parasitic diseases",
     "B" = "Certain infectious and parasitic diseases",
     "C" = "Malignant neoplasms",
     "D" = "Benign or uncertain neoplasms",
@@ -157,7 +102,7 @@ icd10_chapter_map <- c(
     "O" = "Pregnancy, childbirth and the puerperium",
     "P" = "Certain conditions originating in the perinatal period",
     "Q" = "Congenital malformations, deformations \n and chromosomal abnormalities",
-    "R" = "Symptoms, signs and abnormal clinical and laboratory \nfindings, not elsewhere classified",
+    "R" = "Symptoms, signs and abnormal clinical and \nlaboratory findings, not elsewhere classified",
     "S" = "Injuries",
     "T" = "Poisoning and certain other consequences \nof external causes",
     "U" = "Codes for special purposes",
@@ -205,15 +150,38 @@ code_labels <- tibble(
 robust_result_labels <- dataset %>% inner_join(code_labels, by = "EVENT_CODE")
 
 set.seed(1)
-JITTER_RANGE        <- 0.2
-POINT_SIZE_SIG      <- 4
-POINT_SIZE_NOT_SIG  <- 2
-ALPHA_SIG           <- 1
-ALPHA_NOT_SIG       <- 0.2
-TEXT_SIZE_TITLE      <- 16
-TEXT_SIZE_AXIS_TITLE <- 14
-TEXT_SIZE_AXIS_TEXT  <- 10
-TEXT_SIZE_LEGEND     <- 12
+JITTER_RANGE            <- 0.2
+POINT_SIZE_SIG          <- 4
+POINT_SIZE_NOT_SIG      <- 2
+ALPHA_SIG               <- 1
+ALPHA_NOT_SIG           <- 0.2
+TEXT_SIZE_TITLE         <- 16
+TEXT_SIZE_AXIS_TITLE    <- 14
+TEXT_SIZE_AXIS_TEXT     <- 12
+TEXT_SIZE_LEGEND        <- 14
+CI_MULT                 <- 1.96  # 95% CI multiplier applied to all SEs
+LINEWIDTH_MAIN          <- 0.5
+POINT_SIZE_MAIN         <- 2
+ERRORBAR_WIDTH          <- 0.2
+DODGE_WIDTH             <- 0.3
+HLINE_COLOR             <- "grey50";
+HLINE_TYPE              <- "dashed";
+VLINE_COLOR             <- "grey50";
+VLINE_TYPE              <- "dashed";
+LEGEND_POSITION         <- "bottom";
+
+# Common theme layer added on top of theme_minimal() for every DiD panel
+shared_theme <- theme_minimal() +
+    theme(
+        legend.position  = LEGEND_POSITION,
+        legend.text      = element_text(size = TEXT_SIZE_LEGEND),
+        legend.title     = element_text(size = TEXT_SIZE_LEGEND),
+        axis.text.x      = element_text(size = TEXT_SIZE_AXIS_TEXT),
+        axis.text.y      = element_text(size = TEXT_SIZE_AXIS_TEXT),
+        axis.title.x     = element_text(size = TEXT_SIZE_AXIS_TITLE),
+        axis.title.y     = element_text(size = TEXT_SIZE_AXIS_TITLE),
+        plot.title       = element_text(size = TEXT_SIZE_TITLE)
+)
 
 dataset$x_jittered <- as.numeric(dataset$CHAPTER_NAME) +
     runif(nrow(dataset), -JITTER_RANGE, JITTER_RANGE)
@@ -227,7 +195,7 @@ p_A_main <- ggplot(dataset, aes(x = x_jittered, y = ATT_DROP, color = CHAPTER_NA
     geom_point(aes(shape = SIG_TYPE, size = SIG_TYPE, alpha = SIG_TYPE)) +
     geom_text_repel(data = robust_result_labels,
                     aes(label = LABEL),
-                    size = 4, show.legend = FALSE,
+                    size = 4.5, show.legend = FALSE,
                     max.overlaps = Inf, min.segment.length = 0,
                     box.padding = 0.8, point.padding = 0.5,
                     force = 3, force_pull = 1,
@@ -236,35 +204,38 @@ p_A_main <- ggplot(dataset, aes(x = x_jittered, y = ATT_DROP, color = CHAPTER_NA
                        labels = levels(dataset$CHAPTER_NAME)) +
     scale_color_manual(values = cb_palette, name = "Chapter", guide = "none") +
     scale_shape_manual(name = "Significance",
-                       values = c("Bonferroni Significant" = 17,   # filled triangle
-                                  "FDR Significant"        = 16,   # filled circle
-                                  "Not Significant"        = 16)) + # filled circle (dimmed via alpha)
+                       values = c("Significant"     = 17,       # filled triangle
+                                  "Not Significant" = 16)) +    # filled circle (dimmed via alpha)
     scale_size_manual(name  = "Significance",
-                      values = c("Bonferroni Significant" = POINT_SIZE_SIG,
-                                 "FDR Significant"        = POINT_SIZE_SIG,
-                                 "Not Significant"        = POINT_SIZE_NOT_SIG)) +
+                      values = c("Significant"      = POINT_SIZE_SIG,
+                                 "Not Significant"  = POINT_SIZE_NOT_SIG)) +
     scale_alpha_manual(name  = "Significance",
-                       values = c("Bonferroni Significant" = ALPHA_SIG,
-                                  "FDR Significant"        = ALPHA_SIG,
-                                  "Not Significant"        = ALPHA_NOT_SIG)) +
-    labs(title = expression(bold("A. Individual Diseases")),
+                       values = c("Significant"     = ALPHA_SIG,
+                                  "Not Significant" = ALPHA_NOT_SIG)) +
+    labs(title = expression(bold("A. Absolute Change Estimates, by ICD-10 Chapter")),
          x = "",
          y = "Change in Total Number of Prescriptions\n(Within the event year)") +
-    theme_minimal() +
+    shared_theme +
     theme(
-        axis.text.x  = element_text(angle = 40, hjust = 1, size = TEXT_SIZE_AXIS_TEXT),
-        axis.text.y  = element_text(size = TEXT_SIZE_AXIS_TEXT),
-        axis.title.x = element_text(size = TEXT_SIZE_AXIS_TITLE),
-        axis.title.y = element_text(size = TEXT_SIZE_AXIS_TITLE),
-        plot.title   = element_text(size = TEXT_SIZE_TITLE),
-        legend.position = "none"
+        axis.text.x     = element_text(angle = 30, hjust = 1, size = TEXT_SIZE_AXIS_TEXT),
+        legend.position = "none"   
     ) +
-    geom_hline(yintercept = 0, linetype = "dashed", color = "red")
+    geom_hline(yintercept = 0, linetype = HLINE_TYPE, color = HLINE_COLOR)
 
 # Supplementary figure: boxplot of drop across chapters
 set.seed(1)
 JITTER_RANGE <- 0.2
 dataset$x_jittered <- as.numeric(dataset$CHAPTER_NAME) + runif(nrow(dataset), -JITTER_RANGE, JITTER_RANGE)
+
+# Count observations per chapter
+chapter_counts <- dataset %>%
+    group_by(CHAPTER_NAME) %>%
+    summarise(n = n(), .groups = "drop") %>%
+    mutate(has_boxplot = n >= 3)
+
+# Add indicator to dataset
+dataset <- dataset %>%
+    left_join(chapter_counts %>% select(CHAPTER_NAME, has_boxplot), by = "CHAPTER_NAME")
 
 p_supp <- ggplot(dataset, aes(x = CHAPTER_NAME, y = ATT_DROP, colour = CHAPTER_NAME, fill = CHAPTER_NAME)) +
     geom_hline(yintercept = 0, linetype = "dashed", colour = "grey50", linewidth = 0.5) +
@@ -274,13 +245,14 @@ p_supp <- ggplot(dataset, aes(x = CHAPTER_NAME, y = ATT_DROP, colour = CHAPTER_N
         size = 1.5,
         alpha = 0.2
     ) +
-    geom_boxplot(
+    {if(any(dataset$has_boxplot)) geom_boxplot(
         aes(x = as.numeric(CHAPTER_NAME)),
+        data = dataset %>% filter(has_boxplot),
         width    = 0.45,
         alpha    = 0.3,
         outlier.shape = NA,   # outliers already visible as jittered dots
         linewidth = 0.6
-    ) +
+    )} +
     scale_x_continuous(
         breaks = seq_along(levels(dataset$CHAPTER_NAME)),
         labels = levels(dataset$CHAPTER_NAME)
@@ -291,12 +263,10 @@ p_supp <- ggplot(dataset, aes(x = CHAPTER_NAME, y = ATT_DROP, colour = CHAPTER_N
         x = "",
         y = "Change in Total Number of Prescriptions\n(Within the event year)"
     ) +
-    theme_minimal() +
+    shared_theme +
     theme(
-        axis.text.x = element_text(size = 8, angle = 45, hjust = 1),
-        axis.text.y = element_text(size = 10),
-        axis.title.y = element_text(size = 12),
-        plot.title = element_text(size = 14, face = "bold"),
+        axis.text.x = element_text(size = TEXT_SIZE_AXIS_TEXT, angle = 45, hjust = 1),
+        legend.position = "none",
         panel.grid.major.y = element_line(colour = "grey93"),
         panel.grid.minor = element_blank(),
         plot.margin = margin(8, 12, 8, 8)
@@ -308,42 +278,43 @@ ggsave(file.path(outdir, paste0("Supplementary_Chapter_Distribution_", TODAY, ".
 
 
 # ============================================================
-# 4. ANALYSIS 1 — Depression & Burnout
+# 3. EXTRA PANELS
 # ============================================================
 
 # ------------------------------------------------
-# Panel B — Depression & Burnout, all doctors
+# Panel B 
 # ------------------------------------------------
 
 # load data
 results_B <- fread(results_3B_file)
 results_B <- results_B %>% filter(time >= -WIN & time <= WIN)
 
-n_cases_B    <- 2518
-n_controls_B <- 22480
+# Distinct, fixed colors for each phenotype being compared (recycled if more than 6)
+palette   <- c("#1f77b4", "#d62728", "#2ca02c", "#ff7f0e", "#9467bd", "#8c564b")
+ph_names  <- unique(results_B$phenotype)
+phenotype_colors <- setNames(rep_len(palette, length(ph_names)), ph_names)
 
-# plot
-p_B_base <- ggplot(results_B, aes(x = time, y = att)) +
-    geom_line(color = "#d62728") +
-    geom_point(color = "#d62728") +
-    geom_errorbar(aes(ymin = att - 1.96 * se, ymax = att + 1.96 * se), width = 0.2, color = "#d62728") +
-    geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
-    geom_vline(xintercept = 0, linetype = "dotted", color = "grey50") +
+p_B <- ggplot(results_B, aes(x = time, y = att, color = phenotype, group = phenotype)) +
+    geom_line(linewidth = LINEWIDTH_MAIN, position = position_dodge(width = DODGE_WIDTH)) +
+    geom_point(size = POINT_SIZE_MAIN, position = position_dodge(width = DODGE_WIDTH)) +
+    geom_errorbar(
+        aes(ymin = att - CI_MULT * se, ymax = att + CI_MULT * se),
+        width = ERRORBAR_WIDTH, position = position_dodge(width = DODGE_WIDTH)
+    ) +
+    geom_hline(yintercept = 0, linetype = HLINE_TYPE, color = HLINE_COLOR) +
+    geom_vline(xintercept = 0, linetype = VLINE_TYPE, color = VLINE_COLOR) +
+    scale_color_manual(values = phenotype_colors) +
     labs(
-        title    = expression(bold("B. Depression & Burnout")),
-        subtitle = paste0("Phenotype definition:  ", depr_label,
-                          "\nCases:  all doctors with depression/burnout event | Controls: all other doctors",
-                          "\nCases: ", n_cases_B, "  |  Controls: ", n_controls_B),
-        x = "Years from event",
-        y = "Change in Total Number of Prescriptions\n(compared to controls)"
+        title    = expression(bold("B. Depression and Mental Distress")),
+        x        = "Years from Event",
+        y        = "Change in Total Number of Prescriptions\n(compared to controls)",
+        color    = "Phenotype"
     ) +
     scale_x_continuous(breaks = -WIN:WIN) +
-    theme_minimal()
-
-p_B <- add_bracket_annotation(p_B_base, results_B)
+    shared_theme
 
 # ------------------------------------------------
-# Panel D — Depression stratified (PLACEHOLDER)
+# Panel D 
 # ------------------------------------------------
 
 p_D <- ggplot() +
@@ -352,82 +323,100 @@ p_D <- ggplot() +
              size = 5, color = "grey45", hjust = 0.5, vjust = 0.5) +
     xlim(0, 1) + ylim(0, 1) +
     labs(
-        title    = expression(bold("D. Depression & Burnout, stratified (placeholder)"))
+        title    = expression(bold("D. Sick Leave results (placeholder)"))
     ) +
     theme_void() +
     theme(
-        plot.title      = element_text(face = "bold", size = 12, hjust = 0),
-        plot.subtitle   = element_text(size = 10, color = "grey40", hjust = 0),
+        plot.title      = element_text(face = "bold", size = TEXT_SIZE_TITLE, hjust = 0),
+        plot.subtitle   = element_text(size = TEXT_SIZE_AXIS_TITLE, color = "grey40", hjust = 0),
         plot.background = element_rect(fill = "grey97", color = "grey70", linetype = "dashed")
     )
 
-
-# ============================================================
-# 5. ANALYSIS 2 — Childbirth
-# ============================================================
-
 # ------------------------------------------------
-# Panel C — Childbirth, female doctors only
+# Panel C — Childbirth
 # ------------------------------------------------
 
 # Load data
-results_C <- fread(results_3C_file)
-results_C <- results_C %>% filter(time >= -WIN & time <= WIN)
+results_C1 <- fread(results_3C1_file)
+results_C1 <- results_C1 %>% filter(time >= -WIN & time <= WIN)
 
-n_cases_C    <- 6950
-n_controls_C <- 7250
+results_C2 <- fread(results_3C2_file)
+results_C2 <- results_C2 %>% filter(time >= -WIN & time <= WIN)
 
 # Plot
-p_C_base <- ggplot(results_C ,aes(x = time, y = att)) +
-    geom_line(color = "#2ca02c") +
-    geom_point(color = "#2ca02c") +
-    geom_errorbar(aes(ymin = att - 1.96 * se, ymax = att + 1.96 * se), width = 0.2, color = "#2ca02c") +
-    geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
-    geom_vline(xintercept = 0, linetype = "dotted", color = "grey50") +
+results_C1$doctor_sex <- "Female doctors \n(who had a childbirth event)"
+results_C2$doctor_sex <- "Male doctors \n(whose spouse had a childbirth event)"
+results_C <- bind_rows(results_C1, results_C2)
+doctor_sex_colors <- c(
+    "Female doctors \n(who had a childbirth event)" = "#2ca02c",
+    "Male doctors \n(whose spouse had a childbirth event)" = "#1f77b4"
+)
+
+p_C <- ggplot(results_C, aes(x = time, y = att, color = doctor_sex, group = doctor_sex)) +
+    geom_line(linewidth = LINEWIDTH_MAIN, position = position_dodge(width = DODGE_WIDTH)) +
+    geom_point(size = POINT_SIZE_MAIN, position = position_dodge(width = DODGE_WIDTH)) +
+    geom_errorbar(
+        aes(ymin = att - CI_MULT * se, ymax = att + CI_MULT * se),
+        width = ERRORBAR_WIDTH, position = position_dodge(width = DODGE_WIDTH)
+    ) +
+    geom_hline(yintercept = 0, linetype = HLINE_TYPE, color = HLINE_COLOR) +
+    geom_vline(xintercept = 0, linetype = VLINE_TYPE, color = VLINE_COLOR) +
+    scale_color_manual(values = doctor_sex_colors) +
     labs(
-        title    = expression(bold("C. Childbirth, female doctors")),
-        subtitle = paste0("Phenotype definition: ", birth_label,
-                          "\nCases: female doctors which had a childbirth event | Controls: other female doctors",
-                          "\nCases: ", n_cases_C, "  |  Controls: ", n_controls_C),
+        title    = expression(bold("C. Childbirth")),
         x = "Years from event",
-        y = "Change in Total Number of Prescriptions\n(compared to controls)"
+        y = "Change in Total Number of Prescriptions\n(compared to controls)",
+        color   = NULL
     ) +
     scale_x_continuous(breaks = -WIN:WIN) +
-    theme_minimal()
-
-p_C <- add_bracket_annotation(p_C_base, results_C)
+    shared_theme
 
 
 # ------------------------------------------------
-# Panel E — Childbirth, male doctors with pregnant spouse
+# Panel E — Phlebitis
 # ------------------------------------------------
 
-# Load data
+# load and prepare data
 results_E <- fread(results_3E_file)
-results_E <- results_E %>% filter(time >= -WIN & time <= WIN)
+results_E <- results_E[time >= -WIN & time <= WIN]
+results_E[, phenotype := factor(phenotype, levels = c(
+    "Unspecified", 
+    "Superficial", 
+    "Deep", 
+    "Other"
+), labels = c(
+    "Unspecified \n(lower extremities)", 
+    "Superficial \n(lower extremities)", 
+    "Deep \n(lower extremities)", 
+    "Other"
+))]
 
-n_cases_E    <- 4253
-n_controls_E <- 6850
+phenotype_colors_E <- c(
+    "Unspecified \n(lower extremities)" = "#000000",
+    "Superficial \n(lower extremities)" = "#ff7f0e",
+    "Deep \n(lower extremities)" = "#2ca02c",
+    "Other" = "#9467bd"
+)
 
-# Plot
-p_E_base <- ggplot(results_E ,aes(x = time, y = att)) +
-    geom_line(color = "#1f77b4") +
-    geom_point(color = "#1f77b4") +
-    geom_errorbar(aes(ymin = att - 1.96 * se, ymax = att + 1.96 * se), width = 0.2, color = "#1f77b4") +
-    geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
-    geom_vline(xintercept = 0, linetype = "dotted", color = "grey50") +
-    labs(
-        title    = expression(bold("E. Childbirth, male doctors")),
-        subtitle = paste0("Phenotype definition: ", birth_label, " (spouse's event)",
-                          "\nCases: male doctors with a spouse who had a childbirth event | Controls: other male doctors",
-                          "\nCases: ", n_cases_E, "  |  Controls: ", n_controls_E),
-        x = "Years from event",
-        y = "Change in Total Number of Prescriptions\n(compared to controls)"
+# plot results
+p_E <- ggplot(results_E, aes(x = time, y = att, color = phenotype, group = phenotype)) +
+    geom_line(linewidth = LINEWIDTH_MAIN, position = position_dodge(width = DODGE_WIDTH)) +
+    geom_point(size = POINT_SIZE_MAIN, position = position_dodge(width = DODGE_WIDTH)) +
+    geom_errorbar(
+        aes(ymin = att - CI_MULT * se, ymax = att + CI_MULT * se),
+        width = ERRORBAR_WIDTH, position = position_dodge(width = DODGE_WIDTH)
     ) +
+    geom_hline(yintercept = 0, linetype = HLINE_TYPE, color = HLINE_COLOR) +
+    geom_vline(xintercept = 0, linetype = VLINE_TYPE, color = VLINE_COLOR) +
+    scale_color_manual(values = phenotype_colors_E) +
     scale_x_continuous(breaks = -WIN:WIN) +
-    theme_minimal()
-
-p_E <- add_bracket_annotation(p_E_base, results_E)
+    labs(
+        title    = expression(bold("E. Phlebitis and Thrombophlebitis")),
+        x = "Years from Event",
+        y = "Change in Total Number of Prescriptions\n(compared to controls)",
+        color = "Phenotype"
+    ) +
+    shared_theme
 
 # ============================================================
 # 7. Assemble combined figure
