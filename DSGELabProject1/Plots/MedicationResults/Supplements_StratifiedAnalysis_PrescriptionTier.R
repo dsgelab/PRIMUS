@@ -16,6 +16,7 @@ suppressPackageStartupMessages({
 
 ##### Arguments
 DATE = "20260316"
+TODAY = format(Sys.Date(), "%Y%m%d")
 dataset_file = paste0('/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_', DATE, '/Results_', DATE, '/Results_ATC_', DATE, '.csv')
 events_file = paste0("/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_", DATE, "/ProcessedEvents_", DATE, "/processed_events.parquet")
 outcomes_file = paste0("/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_", DATE, "/ProcessedOutcomes_", DATE, "/processed_outcomes.parquet")
@@ -434,10 +435,10 @@ forest_plot <- ggplot(plot_data, aes(x = absolute_change, y = y_pos, colour = gr
     ) +
     scale_colour_manual(
         values = c("Low" = "#377EB8", "High" = "#F28E2B"),
-        name   = "Prescription tier"
+        name   = "Average Prescription Volume",
     ) +
     labs(
-        x     = "Change in prescription rate",
+        x     = "Change in Prescription Rate \n(before vs. after event, 3 year window)",
         y     = NULL
     ) +
     theme_minimal(base_size = 9) +
@@ -455,7 +456,7 @@ forest_plot <- ggplot(plot_data, aes(x = absolute_change, y = y_pos, colour = gr
     guides(colour = guide_legend(override.aes = list(size = 4)))
 
 ggsave(
-    filename = paste0(outdir, "ForestPlot_StratifiedAnalysis_PrescriptionTiers_", DATE, ".png"),
+    filename = paste0(outdir, "ForestPlot_StratifiedAnalysis_PrescriptionTiers_", TODAY, ".png"),
     plot     = forest_plot,
     width    = 10,
     height   = 10,
