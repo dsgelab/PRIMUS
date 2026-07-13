@@ -337,12 +337,14 @@ code_labels <- tibble(
     )
 )
 
-# Apply multiple-testing correction within stratified results
+# Apply multiple-testing correction within each medication (code) separately
 combined_results <- combined_results %>%
+    group_by(code) %>%
     mutate(
         p_value_adj = p.adjust(p_value, method = "fdr"),
         significant = !is.na(p_value_adj) & p_value_adj < 0.05
-    )
+    ) %>%
+    ungroup()
 
 # Join labels
 combined_results <- combined_results %>%
@@ -395,6 +397,18 @@ make_scatter_plot <- function(med_code, med_label, df_all) {
     # Use the same scale for both axes
     ax_lim <- max(x_lim, y_lim)
 
+    # Clip the Y-direction CI95% to the axis limits, and flag when a bound
+    # was truncated so an arrowhead can be drawn to signify the segment
+    # continues beyond the visible range
+    STUB <- 0.06 * ax_lim   # length of the arrowhead stub segment
+    df <- df %>%
+        mutate(
+            ci_y_lo_clip = pmax(ci_y_lo, -ax_lim),
+            ci_y_hi_clip = pmin(ci_y_hi,  ax_lim),
+            ci_lo_trunc  = ci_y_lo < -ax_lim,
+            ci_hi_trunc  = ci_y_hi >  ax_lim
+        )
+
     # Per-medication correlation between baseline and absolute change
     df_lab <- df %>% filter(significant)
     # Exclude points already labelled as significant, so a point that is both
@@ -416,9 +430,26 @@ make_scatter_plot <- function(med_code, med_label, df_all) {
         geom_hline(yintercept = 0, linetype = "dashed", colour = "grey50", linewidth = 0.35) +
         geom_vline(xintercept = 0, linetype = "dashed", colour = "grey50", linewidth = 0.35) +
 
-        # Y-direction CI95%
+        # Y-direction CI95% (clipped to the axis limits so it never
+        # silently disappears when a bound exceeds the plotted range)
         geom_segment(
-            aes(xend = baseline, y = ci_y_lo, yend = ci_y_hi),
+            aes(xend = baseline, y = ci_y_lo_clip, yend = ci_y_hi_clip),
+            linewidth = 0.35, show.legend = FALSE
+        ) +
+
+        # Arrowhead stub: upper bound truncated by the axis
+        geom_segment(
+            data = df %>% filter(ci_hi_trunc),
+            aes(xend = baseline, y = ci_y_hi_clip - STUB, yend = ci_y_hi_clip),
+            arrow = grid::arrow(length = grid::unit(0.07, "inches"), type = "closed"),
+            linewidth = 0.35, show.legend = FALSE
+        ) +
+
+        # Arrowhead stub: lower bound truncated by the axis
+        geom_segment(
+            data = df %>% filter(ci_lo_trunc),
+            aes(xend = baseline, y = ci_y_lo_clip + STUB, yend = ci_y_lo_clip),
+            arrow = grid::arrow(length = grid::unit(0.07, "inches"), type = "closed"),
             linewidth = 0.35, show.legend = FALSE
         ) +
 
@@ -482,8 +513,8 @@ make_scatter_plot <- function(med_code, med_label, df_all) {
         scale_x_continuous(limits = c(-ax_lim, ax_lim)) +
         scale_y_continuous(limits = c(-ax_lim, ax_lim)) +
         labs(
-            x     = "Baseline prescription rate \n(controls)",
-            y     = "Change in Prescription rate \n(before vs after event, 3 year window)",
+            x     = "Baseline Prescription Rate \n(controls)",
+            y     = "Change in Prescription Rate \n(before vs after event, 3 year window)",
             title = med_label
         ) +
         base_theme +
