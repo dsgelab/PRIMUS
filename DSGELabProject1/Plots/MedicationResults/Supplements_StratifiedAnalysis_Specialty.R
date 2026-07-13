@@ -9,6 +9,7 @@ suppressPackageStartupMessages({
     library(lubridate)
     library(did)
     library(ggplot2)
+    library(ggrepel)
     library(patchwork)
     library(readr)
     library(metafor)
@@ -17,6 +18,7 @@ suppressPackageStartupMessages({
 
 ##### Arguments
 DATE = "20260316"
+TODAY = format(Sys.Date(), "%Y%m%d")
 dataset_file <- paste0('/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_', DATE, '/Results_', DATE, '/Results_ATC_', DATE, '.csv')
 events_file = paste0("/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_", DATE, "/ProcessedEvents_", DATE, "/processed_events.parquet")
 outcomes_file = paste0("/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_", DATE, "/ProcessedOutcomes_", DATE, "/processed_outcomes.parquet")
@@ -188,6 +190,7 @@ for (code in code_list) {
                 df_spec$G  <- ifelse(is.na(df_spec$EVENT_YEAR), 0, df_spec$EVENT_YEAR)
                 df_spec$T  <- df_spec$YEAR
 
+                set.seed(09152024)
                 att_gt_res_spec <- att_gt(
                     yname = "Y",
                     tname = "T",
@@ -288,29 +291,25 @@ rownames(combined_results) <- NULL
 
 # Save final results
 write.csv(combined_results,
-          paste0(outdir, "Supplements_StratifiedAnalysis_Specialty_V4_", DATE, ".csv"),
+          paste0(outdir, "Supplements_StratifiedAnalysis_Specialty_", TODAY, ".csv"),
           row.names = FALSE)
 
 
 # -----------------------------------------------
-# -----------------------------------------------
 # SCATTER PLOT: Baseline vs. Absolute Change by Specialty
-# 2x5 grid, one scatter panel per medication + summary bar chart
+# 2x5 grid, one scatter panel per medication 
 #
 # Each panel:
 #   X-axis : baseline prescription rate (controls), symmetric around 0, same limits across all meds
-#   Y-axis : absolute change (DiD ATT), symmetric around 0, same limits across all meds
-#   Points : one per specialty; size = n_cases; colour = significant
+#   Y-axis : absolute change estimates (DiD), symmetric around 0, same limits across all meds
+#   Points : one per specialty; colour = significant
 #   Labels : specialty name on significant points
 #   Ref lines: x = 0, y = 0
 #
-# Summary panel (10th slot):
-#   Horizontal bar chart: N significant medications per specialty
-#   Sorted highest to lowest; x-axis fixed 0–9
 # -----------------------------------------------
 
 # reload data if running separately from the above code block
-combined_results <- read_csv(paste0(outdir, "Supplements_StratifiedAnalysis_Specialty_V4_", DATE, ".csv"), show_col_types = FALSE)
+combined_results <- read_csv(paste0(outdir, "Supplements_StratifiedAnalysis_Specialty_", TODAY, ".csv"), show_col_types = FALSE)
 
 # Medications of interest: ATC code -> readable label
 code_labels <- tibble(
@@ -363,6 +362,7 @@ combined_results <- combined_results %>%
 # -----------------------------------------------
 # Shared aesthetics
 # -----------------------------------------------
+
 COL_SIG    <- "#1B5E20";   # dark green  – significant
 COL_NONSIG <- "grey70";    # grey        – not significant
 
@@ -376,12 +376,8 @@ base_theme <- theme_minimal(base_size = 8) +
 
 # -----------------------------------------------
 # Per-medication scatter plot function
-# Axes: per-medication symmetric limits around 0
-# CIs: horizontal (baseline ± 1.96*se_baseline not available, so x-CI omitted;
-#      vertical = absolute_change ± 1.96*absolute_change_se)
-# Note: baseline SE is not stored; only Y (absolute change) CIs are drawn.
-#       If a baseline SE column is added in future, wire it into ci_x_lo/hi below.
 # -----------------------------------------------
+
 make_scatter_plot <- function(med_code, med_label, df_all) {
 
     df <- df_all %>%
@@ -390,30 +386,20 @@ make_scatter_plot <- function(med_code, med_label, df_all) {
             # 95% CI for absolute change (Y direction)
             ci_y_lo = absolute_change - 1.96 * absolute_change_se,
             ci_y_hi = absolute_change + 1.96 * absolute_change_se,
-            # 95% CI for baseline (X direction): baseline is a mean of Y among controls,
-            # approximated here as mean ± 1.96 * absolute_change_se as a visual proxy.
-            # Replace with a true baseline SE column if available.
-            ci_x_lo = baseline - 1.96 * absolute_change_se,
-            ci_x_hi = baseline + 1.96 * absolute_change_se
         )
-
-    if (nrow(df) == 0) {
-        return(
-            ggplot() +
-                annotate("text", x = 0, y = 0, label = paste0(med_label, "\n(no data)"),size = 3, colour = "grey50") +
-                theme_void()
-        )
-    }
 
     # Per-medication symmetric axis limits (centred on 0)
     pad <- 1.10
     x_lim <- ceiling(max(abs(df$baseline),        na.rm = TRUE) * pad * 100) / 100
     y_lim <- ceiling(max(abs(df$absolute_change), na.rm = TRUE) * pad * 100) / 100
-    # Use the same scale for both axes so the diagonal is truly 45°
+    # Use the same scale for both axes
     ax_lim <- max(x_lim, y_lim)
 
+    # Per-medication correlation between baseline and absolute change
     df_lab <- df %>% filter(significant)
-    df_max_baseline <- df %>% filter(baseline == max(baseline, na.rm = TRUE))
+    # Exclude points already labelled as significant, so a point that is both
+    # the largest-baseline value AND significant only gets the "significant" label
+    df_max_baseline <- df %>% filter(baseline == max(baseline, na.rm = TRUE), !significant)
     assoc_test <- suppressWarnings(cor.test(df$baseline, df$absolute_change, method = "pearson"))
     assoc_lab  <- sprintf(
         "r = %.2f\np = %.3g",
@@ -430,7 +416,7 @@ make_scatter_plot <- function(med_code, med_label, df_all) {
         geom_hline(yintercept = 0, linetype = "dashed", colour = "grey50", linewidth = 0.35) +
         geom_vline(xintercept = 0, linetype = "dashed", colour = "grey50", linewidth = 0.35) +
 
-        # Y-direction CI whiskers
+        # Y-direction CI95%
         geom_segment(
             aes(xend = baseline, y = ci_y_lo, yend = ci_y_hi),
             linewidth = 0.35, show.legend = FALSE
@@ -468,7 +454,7 @@ make_scatter_plot <- function(med_code, med_label, df_all) {
             aes(x = baseline, y = absolute_change, label = specialty),
             colour         = "black",
             size           = 3,
-            segment.size   = 0.25,
+            segment.size   = 0.5,
             segment.colour = "black",
             box.padding    = 0.3,
             max.overlaps   = 20,
@@ -482,7 +468,7 @@ make_scatter_plot <- function(med_code, med_label, df_all) {
             aes(x = baseline, y = absolute_change, label = specialty),
             colour         = COL_SIG,
             size           = 3,
-            segment.size   = 0.25,
+            segment.size   = 0.5,
             segment.colour = COL_SIG,
             box.padding    = 0.3,
             max.overlaps   = 20,
@@ -496,8 +482,8 @@ make_scatter_plot <- function(med_code, med_label, df_all) {
         scale_x_continuous(limits = c(-ax_lim, ax_lim)) +
         scale_y_continuous(limits = c(-ax_lim, ax_lim)) +
         labs(
-            x     = "Baseline prescription rate (controls)",
-            y     = "Absolute change (95% CI)",
+            x     = "Baseline prescription rate \n(controls)",
+            y     = "Change in Prescription rate \n(before vs after event, 3 year window)",
             title = med_label
         ) +
         base_theme +
@@ -509,54 +495,8 @@ make_scatter_plot <- function(med_code, med_label, df_all) {
 }
 
 # -----------------------------------------------
-# Summary panel: horizontal bar chart
-# N significant medications per specialty, sorted highest to lowest
-# X-axis fixed 0–9
+# Build plot list: 9 medications 
 # -----------------------------------------------
-make_summary_bar <- function(df_all) {
-
-    sig_counts <- df_all %>%
-        filter(significant) %>%
-        group_by(specialty) %>%
-        summarise(n_sig = n_distinct(code), .groups = "drop")
-
-    # All specialties that appear anywhere, fill 0 for those with no significant hits
-    all_sp <- sort(unique(df_all$specialty))
-    summary_df <- tibble(specialty = all_sp) %>%
-        left_join(sig_counts, by = "specialty") %>%
-        mutate(n_sig = replace_na(n_sig, 0L)) %>%
-        # Sort highest to lowest; factor levels drive ggplot y-axis
-        arrange(n_sig, specialty) %>%
-        mutate(specialty_f = factor(specialty, levels = specialty))
-
-    ggplot(summary_df, aes(x = n_sig, y = specialty_f)) +
-        geom_col(fill = COL_SIG, colour = NA, width = 0.65) +
-        scale_x_continuous(
-            limits = c(0, 9),
-            breaks = 0:9,
-            expand = expansion(mult = c(0, 0.05))
-        ) +
-        labs(
-            x     = "Number of medications\nwith significant change",
-            y     = NULL,
-            title = "Summary"
-        ) +
-        base_theme +
-        theme(
-            plot.title  = element_text(size = 12, face = "bold", hjust = 0, margin = margin(b = 3)),
-            axis.title  = element_text(size = 8, colour = "grey30"),
-            axis.text.y = element_text(size = 8),
-            axis.text.x = element_text(size = 8, colour = "grey30")
-        )
-}
-
-# -----------------------------------------------
-# Build plot list: 9 medications + 1 summary = 10 panels
-# -----------------------------------------------
-
-# ggrepel is required for non-overlapping labels
-if (!requireNamespace("ggrepel", quietly = TRUE)) install.packages("ggrepel")
-library(ggrepel)
 
 med_codes  <- code_labels$OUTCOME_CODE[code_labels$OUTCOME_CODE %in% unique(combined_results$code)]
 med_labels <- code_labels$LABEL[code_labels$OUTCOME_CODE %in% med_codes]
@@ -569,25 +509,27 @@ scatter_list <- mapply(
     SIMPLIFY  = FALSE
 )
 
-# Append summary bar chart as the 10th slot
-scatter_list[[length(scatter_list) + 1]] <- make_summary_bar(combined_results)
+# Arrange in 2 rows x 5 columns grid (pad with empty spacers if fewer plots than grid cells)
+GRID_NCOL <- 5
+GRID_NROW <- 2
+n_slots <- GRID_NCOL * GRID_NROW
 
-# Pad with spacers only if fewer than 10 panels (safety net)
-while (length(scatter_list) < 10) {
+if (length(scatter_list) > n_slots) {
+    warning(sprintf(
+        "scatter_list has %d plots but the grid only has %d slots (%d x %d); some plots will not be shown.",
+        length(scatter_list), n_slots, GRID_NROW, GRID_NCOL
+    ))
+}
+
+while (length(scatter_list) < n_slots) {
     scatter_list[[length(scatter_list) + 1]] <- patchwork::plot_spacer()
 }
 
-# -----------------------------------------------
-# Arrange in 2 rows x 5 columns grid
-# -----------------------------------------------
-scatter_grid <- wrap_plots(scatter_list, ncol = 5, nrow = 2) +
+scatter_grid <- wrap_plots(scatter_list, ncol = GRID_NCOL, nrow = GRID_NROW) +
     plot_layout(guides = "keep")
 
-# -----------------------------------------------
-# Save
-# -----------------------------------------------
 ggsave(
-    filename = paste0(outdir, "ScatterPlot_BaselineVsChange_Specialty_V5_", DATE, ".png"),
+    filename = paste0(outdir, "ScatterPlot_BaselineVsChange_Specialty_", TODAY, ".png"),
     plot     = scatter_grid,
     width    = 22,
     height   = 10,
