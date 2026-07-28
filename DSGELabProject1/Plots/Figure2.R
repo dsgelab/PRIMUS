@@ -27,9 +27,17 @@ medi_docs_file    <- file.path(InDir, "medi_docs_results_20251127_102704.csv")
 medi_nondocs_file <- file.path(InDir, "medi_nondocs_results_20251127_115429.csv")
 
 # Date-stamped output directory
-DATE   <- format(Sys.time(), "%Y%m%d")
-OutDir <- paste0("/media/volume/Projects/DSGELabProject1/Plots/Figure2/Figure2_", DATE)
-dir.create(OutDir, showWarnings = FALSE, recursive = TRUE)
+TODAY   <- format(Sys.time(), "%Y%m%d")
+OutDir <- "/media/volume/Projects/DSGELabProject1/Plots/ManuscriptFinal/"
+
+# -- Outputs --
+outfile_fig2_png      <- paste0(OutDir, "Figure2_", TODAY, ".png")
+outfile_fig2_pdf      <- paste0(OutDir, "Figure2_", TODAY, ".pdf")
+outfile_results_csv   <- paste0(OutDir, "Figure2_all_results_", TODAY, ".csv")
+
+# -- Checkpoint data files (saved after Section 6, reloaded in Sections 7-8 for plotting) --: 
+outfile_diag_data_csv <- paste0(OutDir, "Figure2_diag_data_", TODAY, ".csv")
+outfile_medi_data_csv <- paste0(OutDir, "Figure2_medi_data_", TODAY, ".csv")
 
 
 # =============================================================================
@@ -91,36 +99,56 @@ cb_palette <- c(
 )
 
 # --- Plotting parameters ----------------------------------------------------
-JITTER_RANGE       <- 0.3
-TOP_CHAPTER_COUNT  <- 3
-POINT_SIZE         <- 3
-BAR_SIZE           <- 0.8
-BAR_WIDTH          <- 0.2
 
-# Text sizes (pts)
+ALPHA               <- 0.05
+
+POINT_SIZE_SIG      <- 2.5    # significant points (given ALPHA)
+POINT_SIZE_NONSIG   <- 1.5    # non-significant points 
+
+ALPHA_CI            <- 0.10   # IC95% error bars (high transparency)
+ALPHA_SIG           <- 0.50   # significant points
+ALPHA_NONSIG        <- 0.10   # non-significant points (same as CI bars)
+
+CI_ERRORBAR_LINEWIDTH <- 0.35
+
 TEXT_SIZE_TITLE      <- 16
 TEXT_SIZE_SUBTITLE   <- 12
 TEXT_SIZE_AXIS_TITLE <- 14
 TEXT_SIZE_AXIS_TEXT  <- 10
 TEXT_SIZE_LEGEND     <- 8
 
-LEGEND_POS_X         <- 0.01          # fraction from left edge of panel
-LEGEND_POS_Y         <- 1.2          # fraction from bottom edge of panel
-LEGEND_JUST          <- c(0, 1)       # anchor: left-top corner of the legend box
+LEGEND_POS_X         <- 0.01              # fraction from left edge of panel
+LEGEND_POS_Y         <- 1.2               # fraction from bottom edge of panel
+LEGEND_JUST          <- c(0, 1)           # anchor: left-top corner of the legend box
 LEGEND_KEY_SIZE      <- unit(0.5, "lines")
-LEGEND_DOT_SIZE      <- 1.5           # dot size inside legend keys
+LEGEND_DOT_SIZE      <- 1.5               # dot size inside legend keys
 LEGEND_BG_FILL       <- alpha("white", 0.75)   # semi-transparent white background
-LEGEND_NROW_MEDI     <- 5             # rows in Panel A (ATC)
-LEGEND_NROW_DIAG     <- 7             # rows in Panel B (ICD-10)
+LEGEND_NROW_MEDI     <- 5                 # rows in Panel A (ATC)
+LEGEND_NROW_DIAG     <- 7                 # rows in Panel B (ICD-10)
 
-# Significance threshold for incidence-rate comparisons
-ALPHA <- 0.05
+# --- Reference line styling (identity line + zero lines), shared by both panels
+REFLINE_DIAG_COLOR     <- "gray50"   # dashed y = x identity line
+REFLINE_DIAG_LINEWIDTH <- 1
+REFLINE_ZERO_COLOR     <- "gray70"   # dotted lines at x = 0 and y = 0
+REFLINE_ZERO_LINEWIDTH <- 0.8
 
-# Transparency for CI ribbons and non-significant points
-ALPHA_CI        <- 0.10  # IC95% error bars (high transparency)
-ALPHA_NONSIG    <- 0.10  # non-significant points (same as CI bars)
-ALPHA_SIG       <- 0.50  # significant points
+# --- ggrepel label styling, shared by both panels' geom_text_repel() -------
+REPEL_TEXT_SIZE     <- 3.5
+REPEL_MAX_ITER      <- 50000
+REPEL_MAX_TIME      <- 10
+REPEL_BOX_PADDING   <- 0.35
+REPEL_POINT_PADDING <- 0.25
+REPEL_FORCE         <- 5
+REPEL_FORCE_PULL    <- 0.5
+REPEL_SEGMENT_SIZE  <- 0.5
+REPEL_SEED          <- 42
 
+# --- Panel layout & combined-figure export ----------------------------------
+PLOT_MARGIN       <- margin(10, 30, 10, 30)   # top, right, bottom, left
+PANEL_LABEL_SIZE  <- 22   # font size of "A."/"B." tags
+WIDTH             <- 22   # inches
+HEIGHT            <- 13   # inches
+RES               <- 300  # PNG resolution (dpi)
 
 # =============================================================================
 # 4. DATA LOADING & PREPARATION
@@ -174,6 +202,10 @@ dataset_medi <- dataset_medi %>%
 # =============================================================================
 # 5. STATISTICAL COMPARISON FUNCTION
 # =============================================================================
+# Computes, for each code (ICD-10 or ATC):
+# the crude incidence rate (IR) in group A (doctors) and group B (general population), 
+# their ratio (IRR), a 95% CI on the IRR (via the log-IRR standard error), 
+# and a two-sided p-value for the null hypothesis IRR = 1 (reported on log10 scale)
 
 compare_IRs_crude <- function(
     data,
@@ -221,7 +253,31 @@ medi_plot <- compare_IRs_crude(
 
 
 # =============================================================================
-# 6. FIGURE 2 PANEL A – Medication IR scatter: doctors vs general population
+# 6. SAVE & RELOAD FINALIZED DATA (checkpoint before plotting)
+# =============================================================================
+
+write_csv(diag_plot, outfile_diag_data_csv)
+write_csv(medi_plot, outfile_medi_data_csv)
+
+diag_plot <- read_csv(outfile_diag_data_csv)
+medi_plot <- read_csv(outfile_medi_data_csv)
+
+# restore the CHAPTER and CHAPTER_NAME factors to ensure consistent ordering in the plots
+diag_plot <- diag_plot %>%
+  mutate(
+    CHAPTER      = factor(CHAPTER, levels = unique(CHAPTER)),
+    CHAPTER_NAME = factor(CHAPTER_NAME, levels = unique(CHAPTER_NAME))
+  )
+
+medi_plot <- medi_plot %>%
+  mutate(
+    CHAPTER      = factor(CHAPTER, levels = unique(CHAPTER)),
+    CHAPTER_NAME = factor(CHAPTER_NAME, levels = unique(CHAPTER_NAME))
+  )
+
+
+# =============================================================================
+# 7. FIGURE 2 PANEL A – Medication IR scatter: doctors vs general population
 # =============================================================================
 set.seed(1)
 
@@ -236,14 +292,11 @@ medi_plot <- medi_plot %>%
   )
 
 n_sig_medi <- sum(medi_plot$sig_bonf, na.rm = TRUE)
-
-# --- Point alpha: significant = ALPHA_SIG, non-significant = ALPHA_NONSIG
-# CI bars always use ALPHA_CI (high transparency, same as non-sig points)
 medi_plot <- medi_plot %>%
   mutate(
     distance_from_diag = log(adj_IR_1k_docs) - log(adj_IR_1k_nondocs),
     point_alpha        = ifelse(sig_bonf, ALPHA_SIG, ALPHA_NONSIG),
-    point_size         = ifelse(sig_bonf, 2.5, 1.5)
+    point_size         = ifelse(sig_bonf, POINT_SIZE_SIG, POINT_SIZE_NONSIG)
   )
 
 # --- Label lists ---------------------------------------------------------
@@ -333,85 +386,79 @@ labeled_points_medi <- medi_plot %>%
   )
 
 # --- Axis limits ---------------------------------------------------------
-axis_min_medi <- min(
-  medi_plot$ci_lower_docs, medi_plot$ci_lower_nondocs, na.rm = TRUE
-)
-axis_max_medi <- max(
-  medi_plot$ci_upper_docs, medi_plot$ci_upper_nondocs, na.rm = TRUE
-)
+axis_min_medi <- min(medi_plot$ci_lower_docs, medi_plot$ci_lower_nondocs, na.rm = TRUE)
+axis_max_medi <- max(medi_plot$ci_upper_docs, medi_plot$ci_upper_nondocs, na.rm = TRUE)
 
 # --- Build plot ----------------------------------------------------------
 fig_2A_new <- ggplot(
+
     medi_plot,
     aes(x = adj_IR_1k_nondocs, y = adj_IR_1k_docs,color = CHAPTER_NAME)) +
 
-    # Reference lines
-    geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "gray50", linewidth = 1) +
-    geom_vline(xintercept = 0, linetype = "dotted", color = "gray70", linewidth = 0.8) +
-    geom_hline(yintercept = 0, linetype = "dotted", color = "gray70", linewidth = 0.8) +
+    # Reference lines: dashed y = x identity line, dotted lines at x = 0 / y = 0
+    geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = REFLINE_DIAG_COLOR, linewidth = REFLINE_DIAG_LINEWIDTH) +
+    geom_vline(xintercept = 0, linetype = "dotted", color = REFLINE_ZERO_COLOR, linewidth = REFLINE_ZERO_LINEWIDTH) +
+    geom_hline(yintercept = 0, linetype = "dotted", color = REFLINE_ZERO_COLOR, linewidth = REFLINE_ZERO_LINEWIDTH) +
 
-    # IC95% error bars for X axis (General Population)
+    # IC95% error bars 
     geom_errorbarh(
         aes(xmin = ci_lower_nondocs, xmax = ci_upper_nondocs),
-        alpha = ALPHA_CI, linewidth = 0.35, height = 0
+        alpha = ALPHA_CI, linewidth = CI_ERRORBAR_LINEWIDTH, height = 0
     ) +
-
-    # IC95% error bars for Y axis (Doctors)
     geom_errorbar(
         aes(ymin = ci_lower_docs, ymax = ci_upper_docs),
-        alpha = ALPHA_CI, linewidth = 0.35, width = 0
+        alpha = ALPHA_CI, linewidth = CI_ERRORBAR_LINEWIDTH, width = 0
     ) +
 
     # Points
     geom_point(aes(size = point_size, alpha = point_alpha)) +
 
-    # Labels – black text, closer to points, no overlap
+    # Labels
     geom_text_repel(
         data               = labeled_points_medi,
         aes(label          = LABEL),
         color              = "black",       
-        size               = 3.5,
+        size               = REPEL_TEXT_SIZE,
         fontface           = "italic",
         show.legend        = FALSE,
         max.overlaps       = Inf,
-        max.iter           = 50000,
-        max.time           = 10,
+        max.iter           = REPEL_MAX_ITER,
+        max.time           = REPEL_MAX_TIME,
         min.segment.length = 0,
-        box.padding        = 0.35,
-        point.padding      = 0.25,
-        force              = 5,
-        force_pull         = 0.5,
+        box.padding        = REPEL_BOX_PADDING,
+        point.padding      = REPEL_POINT_PADDING,
+        force              = REPEL_FORCE,
+        force_pull         = REPEL_FORCE_PULL,
         direction          = "both",
-        segment.size       = 0.5,
+        segment.size       = REPEL_SEGMENT_SIZE,
         segment.alpha      = 1,
         segment.color      = "black",
-        seed               = 42
+        seed               = REPEL_SEED
     ) +
 
+    # Axis scales, log10 transformation
     scale_y_log10(limits = c(axis_min_medi, axis_max_medi)) +
     scale_x_log10(limits = c(axis_min_medi, axis_max_medi)) +
     scale_size_identity() +
     scale_alpha_identity() +
     scale_color_manual(values = cb_palette, name = "ATC Chapter") +
 
+    # Labels and titles
     labs(
         title    = "Age & Sex Adjusted IR across Medications, Doctors vs General Population",
-        subtitle = sprintf(
-        "ATC codes: %d total | Bonferroni-significant differences: %d",
-        nrow(medi_plot), n_sig_medi
-        ),
+        subtitle = sprintf("ATC codes: %d total | Bonferroni-significant differences: %d",nrow(medi_plot), n_sig_medi),
         x = "Adjusted IR (per 1,000 person-years, log scale), General Population",
         y = "Adjusted IR (per 1,000 person-years, log scale), Doctors"
     ) +
 
     theme_minimal() +
     theme(
-        axis.text.x      = element_text(size = TEXT_SIZE_AXIS_TEXT),
-        axis.text.y      = element_text(size = TEXT_SIZE_AXIS_TEXT),
-        axis.title.x     = element_text(size = TEXT_SIZE_AXIS_TITLE),
-        axis.title.y     = element_text(size = TEXT_SIZE_AXIS_TITLE),
-        plot.title       = element_text(size = TEXT_SIZE_TITLE),
-        plot.subtitle    = element_text(size = TEXT_SIZE_SUBTITLE),
+        axis.text.x       = element_text(size = TEXT_SIZE_AXIS_TEXT),
+        axis.text.y       = element_text(size = TEXT_SIZE_AXIS_TEXT),
+        axis.title.x      = element_text(size = TEXT_SIZE_AXIS_TITLE),
+        axis.title.y      = element_text(size = TEXT_SIZE_AXIS_TITLE),
+        plot.title        = element_text(size = TEXT_SIZE_TITLE),
+        plot.subtitle     = element_text(size = TEXT_SIZE_SUBTITLE),
         legend.text       = element_text(size = TEXT_SIZE_LEGEND),
         legend.title      = element_text(size = TEXT_SIZE_LEGEND, face = "bold"),
         legend.position   = c(LEGEND_POS_X, LEGEND_POS_Y),
@@ -419,7 +466,7 @@ fig_2A_new <- ggplot(
         legend.direction  = "vertical",
         legend.key.size   = LEGEND_KEY_SIZE,
         legend.background = element_rect(fill = LEGEND_BG_FILL, color = NA),
-        plot.margin       = margin(10, 30, 10, 30)
+        plot.margin       = PLOT_MARGIN
     ) +
     guides(
         color = guide_legend(
@@ -431,7 +478,7 @@ fig_2A_new <- ggplot(
 
 
 # =============================================================================
-# 7. FIGURE 2 PANEL B – Diagnosis IR scatter: doctors vs general population
+# 8. FIGURE 2 PANEL B – Diagnosis IR scatter: doctors vs general population
 # =============================================================================
 set.seed(1)
 
@@ -446,13 +493,11 @@ diag_plot <- diag_plot %>%
   )
 
 n_sig_diag <- sum(diag_plot$sig_bonf, na.rm = TRUE)
-
-# --- Point alpha and size ------------------------------------------------
 diag_plot <- diag_plot %>%
   mutate(
     distance_from_diag = log(adj_IR_1k_docs) - log(adj_IR_1k_nondocs),
     point_alpha        = ifelse(sig_bonf, ALPHA_SIG, ALPHA_NONSIG),
-    point_size         = ifelse(sig_bonf, 2.5, 1.5)
+    point_size         = ifelse(sig_bonf, POINT_SIZE_SIG, POINT_SIZE_NONSIG)
   )
 
 # --- Label lists ---------------------------------------------------------
@@ -539,85 +584,79 @@ labeled_points_diag <- diag_plot %>%
   )
 
 # --- Axis limits ---------------------------------------------------------
-axis_min_diag <- min(
-  diag_plot$ci_lower_docs, diag_plot$ci_lower_nondocs, na.rm = TRUE
-)
-axis_max_diag <- max(
-  diag_plot$ci_upper_docs, diag_plot$ci_upper_nondocs, na.rm = TRUE
-)
+axis_min_diag <- min(diag_plot$ci_lower_docs, diag_plot$ci_lower_nondocs, na.rm = TRUE)
+axis_max_diag <- max(diag_plot$ci_upper_docs, diag_plot$ci_upper_nondocs, na.rm = TRUE)
 
 # --- Build plot ----------------------------------------------------------
 fig_2B_new <- ggplot(
+
     diag_plot,
     aes(x = adj_IR_1k_nondocs, y = adj_IR_1k_docs, color = CHAPTER_NAME)) +
 
-    # Reference lines
-    geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "gray50", linewidth = 1) +
-    geom_vline(xintercept = 0, linetype = "dotted", color = "gray70", linewidth = 0.8) +
-    geom_hline(yintercept = 0, linetype = "dotted", color = "gray70", linewidth = 0.8) +
+    # Reference lines: dashed y = x identity line, dotted lines at x = 0 / y = 0
+    geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = REFLINE_DIAG_COLOR, linewidth = REFLINE_DIAG_LINEWIDTH) +
+    geom_vline(xintercept = 0, linetype = "dotted", color = REFLINE_ZERO_COLOR, linewidth = REFLINE_ZERO_LINEWIDTH) +
+    geom_hline(yintercept = 0, linetype = "dotted", color = REFLINE_ZERO_COLOR, linewidth = REFLINE_ZERO_LINEWIDTH) +
 
-    # IC95% error bars for X axis (General Population) 
+    # IC95% error bars  
     geom_errorbarh(
         aes(xmin = ci_lower_nondocs, xmax = ci_upper_nondocs),
-        alpha = ALPHA_CI, linewidth = 0.35, height = 0
+        alpha = ALPHA_CI, linewidth = CI_ERRORBAR_LINEWIDTH, height = 0
     ) +
-
-    # IC95% error bars for Y axis (Doctors) 
     geom_errorbar(
         aes(ymin = ci_lower_docs, ymax = ci_upper_docs),
-        alpha = ALPHA_CI, linewidth = 0.35, width = 0
+        alpha = ALPHA_CI, linewidth = CI_ERRORBAR_LINEWIDTH, width = 0
     ) +
 
     # Points
     geom_point(aes(size = point_size, alpha = point_alpha)) +
 
-    # Labels – black text, closer to points, no overlap
+    # Labels 
     geom_text_repel(
       data               = labeled_points_diag,
       aes(label          = LABEL),
       color              = "black",
-      size               = 3.5,
+      size               = REPEL_TEXT_SIZE,
       fontface           = "italic",
       show.legend        = FALSE,
       max.overlaps       = Inf,
-      max.iter           = 50000,
-      max.time           = 10,
+      max.iter           = REPEL_MAX_ITER,
+      max.time           = REPEL_MAX_TIME,
       min.segment.length = 0,
-      box.padding        = 0.35,
-      point.padding      = 0.25,
-      force              = 5,
-      force_pull         = 0.5,
+      box.padding        = REPEL_BOX_PADDING,
+      point.padding      = REPEL_POINT_PADDING,
+      force              = REPEL_FORCE,
+      force_pull         = REPEL_FORCE_PULL,
       direction          = "both",
-      segment.size       = 0.5,
+      segment.size       = REPEL_SEGMENT_SIZE,
       segment.alpha      = 1,
       segment.color      = "black",
-      seed               = 42
+      seed               = REPEL_SEED
     ) +
 
+    # Axis scales, log10 transformation
     scale_y_log10(limits = c(axis_min_diag, axis_max_diag)) +
     scale_x_log10(limits = c(axis_min_diag, axis_max_diag)) +
     scale_size_identity() +
     scale_alpha_identity() +
     scale_color_manual(values = cb_palette, name = "ICD-10 Chapter") +
 
+    # Labels and titles
     labs(
         title    = "Age & Sex Adjusted IR across Diagnoses, Doctors vs General Population",
-        subtitle = sprintf(
-        "ICD-10 codes: %d total | Bonferroni-significant differences: %d",
-        nrow(diag_plot), n_sig_diag
-        ),
+        subtitle = sprintf("ICD-10 codes: %d total | Bonferroni-significant differences: %d",nrow(diag_plot), n_sig_diag),
         x = "Adjusted IR (per 1,000 person-years, log scale), General Population",
         y = "Adjusted IR (per 1,000 person-years, log scale), Doctors"
     ) +
 
     theme_minimal() +
     theme(
-        axis.text.x      = element_text(size = TEXT_SIZE_AXIS_TEXT),
-        axis.text.y      = element_text(size = TEXT_SIZE_AXIS_TEXT),
-        axis.title.x     = element_text(size = TEXT_SIZE_AXIS_TITLE),
-        axis.title.y     = element_text(size = TEXT_SIZE_AXIS_TITLE),
-        plot.title       = element_text(size = TEXT_SIZE_TITLE),
-        plot.subtitle    = element_text(size = TEXT_SIZE_SUBTITLE),
+        axis.text.x       = element_text(size = TEXT_SIZE_AXIS_TEXT),
+        axis.text.y       = element_text(size = TEXT_SIZE_AXIS_TEXT),
+        axis.title.x      = element_text(size = TEXT_SIZE_AXIS_TITLE),
+        axis.title.y      = element_text(size = TEXT_SIZE_AXIS_TITLE),
+        plot.title        = element_text(size = TEXT_SIZE_TITLE),
+        plot.subtitle     = element_text(size = TEXT_SIZE_SUBTITLE),
         legend.text       = element_text(size = TEXT_SIZE_LEGEND),
         legend.title      = element_text(size = TEXT_SIZE_LEGEND, face = "bold"),
         legend.position   = c(LEGEND_POS_X, LEGEND_POS_Y),
@@ -625,7 +664,7 @@ fig_2B_new <- ggplot(
         legend.direction  = "vertical",
         legend.key.size   = LEGEND_KEY_SIZE,
         legend.background = element_rect(fill = LEGEND_BG_FILL, color = NA),
-        plot.margin       = margin(10, 30, 10, 30)
+        plot.margin       = PLOT_MARGIN
     ) +
     guides(
         color = guide_legend(
@@ -649,7 +688,7 @@ add_panel_label <- function(plot, label) {
       label,
       x    = unit(0, "npc"),
       just = "left",
-      gp   = gpar(fontsize = 22, fontface = "bold")
+      gp   = gpar(fontsize = PANEL_LABEL_SIZE, fontface = "bold")
     )
   )
 }
@@ -660,25 +699,23 @@ grob_B <- add_panel_label(fig_2B_new, "B.")
 
 # --- PNG export --------------------------------------------------------------
 png(
-  filename = file.path(OutDir, "Figure2_AB.png"),
-  width    = 22,   # inches
-  height   = 13,
+  filename = outfile_fig2_png,
+  width    = WIDTH,
+  height   = HEIGHT,
   units    = "in",
-  res      = 300
+  res      = RES
 )
 grid.arrange(grob_A, grob_B, ncol = 2)
 dev.off()
 
 # --- PDF export --------------------------------------------------------------
 pdf(
-  file   = file.path(OutDir, "Figure2_AB.pdf"),
-  width  = 22,
-  height = 13
+  file   = outfile_fig2_pdf,
+  width  = WIDTH,
+  height = HEIGHT
 )
 grid.arrange(grob_A, grob_B, ncol = 2)
 dev.off()
-
-
 
 # =============================================================================
 # CSV EXPORT – All diagnosis and medication results (for Supplements)
@@ -765,6 +802,5 @@ all_results_csv <- bind_rows(
 
 write_csv(
   all_results_csv,
-  file.path(OutDir, "Figure2_all_results.csv")
+  outfile_results_csv
 )
-
