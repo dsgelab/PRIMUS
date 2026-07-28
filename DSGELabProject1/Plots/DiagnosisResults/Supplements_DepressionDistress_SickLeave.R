@@ -1,8 +1,19 @@
+# ============================================================
+# Prescription patterns around depression/distress phenotypes,
+# with sick-leave-adjusted (LOCF) DiD analysis
+#
+# Pipeline (per phenotype):
+#   1. Extract events
+#   2. Load sick leave periods (shared, loaded once)
+#   3. Merge MONTH-resolution outcomes
+#   4. LOCF: for months within a sick leave period, carry forward the N value from the month immediately before the leave
+#   5. Aggregate to YEAR level
+#   6. Run DiD model
+#   7. Save + Plot
+#
+# After : build one combined comparison figure across a chosen subset of phenotypes
+# ============================================================
 
-##
-# This script is divided in two equal parts:
-# 1. Recurrent depressive disorder phenotype
-# 2. Distress (wide) phenotype
 
 # ============================================================
 # 1. Libraries
@@ -14,50 +25,132 @@ suppressPackageStartupMessages({
     library(dplyr)
     library(tidyr)
     library(lubridate)
-    library(did)
-    library(metafor)
     library(ggplot2)
+    library(patchwork)
+    library(did)
 })
 
+# ============================================================
+# 2. Paths 
+# ============================================================
+
+# --- Date stamps used to build input file paths ---
+DATE_DATA_1 <- "20260709"   # events / sick leave extraction date
+DATE_DATA_2 <- "20250926"   # MONTH-resolution outcomes extraction date
+TODAY       <- format(Sys.time(), "%Y%m%d")  
+
+# --- Input ---
+PATH_DOCTOR_LIST     <- "/media/volume/Projects/DSGELabProject1/doctors_20250424.csv"
+PATH_EVENTS_FILE     <- paste0("/media/volume/Projects/DSGELabProject1/ProcessedData/AllDistressEvents_", DATE_DATA_1, ".parquet")
+PATH_SICK_LEAVE_FILE <- paste0("/media/volume/Projects/DSGELabProject1/ProcessedData/all_sickleaves_doctors_", DATE_DATA_1, ".parquet")
+PATH_OUTCOMES_FILE   <- paste0("/media/volume/Projects/DSGELabProject1/DiD_Experiments/Archive/Version1_Highthroughput_drop/ProcessedOutcomes_", DATE_DATA_2, "/processed_outcomes.parquet")
+PATH_COVARIATES_FILE <- "/media/volume/Projects/DSGELabProject1/doctor_characteristics_20250520.csv"
+
+# --- Output ---
+DIR_OUT             <- "/media/volume/Projects/DSGELabProject1/Plots/ManuscriptFinal/"
+if (!dir.exists(DIR_OUT)) dir.create(DIR_OUT, recursive = TRUE)
+phenotype_subdir    <- function(i) file.path(DIR_OUT, paste0("DepressionDistress_Phenotype_", i))
+
+FILE_LONG_RESULTS   <- paste0("Supplements_DepressionDistress_SickLeave_Long_", TODAY, ".csv")
+FILE_PLOT_BASENAME  <- paste0("Plot_Supplements_DepressionDistress_SickLeave_", TODAY)
+FILE_COMPARISON_CSV <- paste0("Supplements_DepressionDistress_SickLeave_PhenotypeComparison_", TODAY, ".csv")
+FILE_COMPARISON_PLOT_BASENAME <- paste0("Plot_Supplements_DepressionDistress_SickLeave_PhenotypeComparison_", TODAY)
 
 # ============================================================
-# 2. File paths and global settings
+# 3. Plotting parameters 
 # ============================================================
 
-DATE_DATA_1  <- "20260709"
-DATE_DATA_2  <- "20260219"
+WIN <- 3   # event-study window (years) shown in plots
 
-doctor_list         <- "/media/volume/Projects/DSGELabProject1/doctors_20250424.csv"
-events_file         <- paste0("/media/volume/Projects/DSGELabProject1/ProcessedData/AllDistressEvents_", DATE_DATA_1, ".parquet")
-sick_leave_file     <- paste0("/media/volume/Projects/DSGELabProject1/ProcessedData/all_sickleaves_doctors_", DATE_DATA_1, ".parquet")
-outcomes_file       <- paste0("/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Diagnosis_",DATE_DATA_2, "/ProcessedOutcomes_", DATE_DATA_2, "/processed_outcomes.parquet")
-covariates_file     <- "/media/volume/Projects/DSGELabProject1/doctor_characteristics_20250520.csv"
+# -- Export settings --
+PLOT_DPI               <- 300
+PLOT_WIDTH_SINGLE       <- 8
+PLOT_HEIGHT_SINGLE      <- 6
+PLOT_WIDTH_COMPARISON   <- 9
+PLOT_HEIGHT_COMPARISON  <- 7
 
-# Window size for plot
-WIN <- 3
+# -- Colors --
+COLOR_SINGLE_LINE  <- "#1f77b4"     # line/point/errorbar color for per-phenotype plots
+COLOR_ZERO_LINE    <- "red"         # horizontal zero-effect reference line (single plots)
+COLOR_REF_LINE_CMP <- "grey"        # horizontal/vertical reference lines (comparison plot)
+PALETTE_COMPARISON <- c("#1f77b4", "#d62728", "#2ca02c", "#ff7f0e", "#9467bd", "#8c564b")  # recycled if >6 phenotypes compared
 
-PHENOTYPE <- list(
-    name = "Recurrent depressive disorder",
-    case_incl = c("F33"),
-    case_excl = c("F33.4"),    # recurrent depressive disorder, currently in remission
-    control_excl = c("F33", "F32", "F43", "Z73.0", "F41", "F51")
+# -- Shared theme / dodge settings --
+THEME_BASE          <- theme_minimal()
+DODGE_WIDTH_CMP     <- 0.3   
+SUBTITLE_SIZE_CMP   <- 7
+SUBTITLE_LINEHEIGHT_CMP <- 1.1
+
+# -- Helper: save a ggplot as both PNG and PDF using the same base filename --
+save_plot_png_pdf <- function(plot, dir, basename, width, height, dpi = PLOT_DPI) {
+    ggsave(filename = file.path(dir, paste0(basename, ".png")), 
+        plot = plot,
+        width = width, 
+        height = height, 
+        dpi = dpi
+    )
+    ggsave(filename = file.path(dir, paste0(basename, ".pdf")), 
+        plot = plot,
+        width = width, 
+        height = height
+    )
+}
+
+
+# ============================================================
+# 4. Phenotype definitions
+# ============================================================
+
+PHENOTYPES <- list(
+
+    phenotype1 = list(
+        i = 1,
+        name = "Recurrent depressive disorder",
+        case_incl    = c("F33"),
+        case_excl    = c("F33.4"),   # recurrent depressive disorder, currently in remission
+        control_excl = c("F32", "F33", "F41", "F43", "F51", "Z73")
+    ),
+
+    phenotype2 = list(
+        i = 2,
+        name = "Single depressive episode",
+        case_incl    = c("F32"),
+        case_excl    = c("F33"),
+        control_excl = c("F32", "F33", "F41", "F43", "F51", "Z73")
+    ),
+
+    phenotype3 = list(
+        i = 3,
+        name = "Distress",
+        case_incl    = c("F41", "F43", "F51", "Z73"),
+        case_excl    = c("F32", "F33"),
+        control_excl = c("F32", "F33", "F41", "F43", "F51", "Z73")
+    ),
+
+    phenotype4 = list(
+        i = 4,
+        name = "Distress (Wide)",   # union of phenotypes 2 & 3
+        case_incl    = c("F32", "F41", "F43", "F51", "Z73"),
+        case_excl    = c("F33"),
+        control_excl = c("F32", "F33", "F41", "F43", "F51", "Z73")
+    )
 )
 
-TODAY <- format(Sys.time(), "%Y%m%d")
-outdir   <- paste0("/media/volume/Projects/DSGELabProject1/Plots/Supplements/Supplements_DepressionBurnout_SickLeaveScenarios_F33_", TODAY, "/")
-if (!dir.exists(outdir)) dir.create(outdir, recursive = TRUE)
+# Subset of phenotypes shown together in the combined comparison figure
+compare_phenotypes <- c("phenotype1", "phenotype2", "phenotype3")
 
-N_THREADS  <- 10
+# Number of threads for parallel processing
+N_THREADS <- 10
 setDTthreads(N_THREADS)
 
 # ============================================================
-# 3. Load shared data
+# 5. Load shared data (loaded ONCE, reused across all phenotypes)
 # ============================================================
 
-doctor_ids <- fread(doctor_list, header = FALSE)$V1
+doctor_ids <- fread(PATH_DOCTOR_LIST, header = FALSE)$V1
 
-# Covariates: keep specialty and birth year
-covariates <- fread(covariates_file)
+# Covariates: keep specialty, sex and birth year
+covariates <- fread(PATH_COVARIATES_FILE)
 covariates[, `:=`(
     SPECIALTY  = as.character(INTERPRETATION),
     BIRTH_YEAR = as.numeric(substr(BIRTH_DATE, 1, 4)),
@@ -66,719 +159,319 @@ covariates[, `:=`(
 )]
 covariates[SPECIALTY == "", SPECIALTY := "No specialty"]
 
-# Outcomes: total number of prescriptions per doctor per year
-outcomes <- as.data.table(read_parquet(outcomes_file, col_select = c("DOCTOR_ID", "YEAR", "N")))
+# Outcomes at MONTH resolution (needed for LOCF) -- same for every phenotype
+outcomes_raw <- as.data.table(read_parquet(PATH_OUTCOMES_FILE))
+outcomes_raw <- outcomes_raw[DOCTOR_ID %in% doctor_ids]
 
-# ============================================================
-# 4. Extract events and define the three comparison scenarios
-#
-#   A. Diagnosis in care register, but NEVER took a sick leave
-#   B. Diagnosis in care register AND took a sick leave
-#      -> split by time distance between diagnosis and sick leave:
-#         "before diagnosis" (distance < 0)
-#         "immediate"         (0 <= distance <= 7)
-#         "within a year"     (7 < distance <= 365)
-#         "over a year later" (distance > 365)
-#   C. NO diagnosis in care register, but a sick leave is recorded
-#
-#   For scenarios A and C, the FIRST available record is used.
-#   For scenario B, the FIRST diagnosis and FIRST sick leave are used.
-# ============================================================
-
-# Load events and keep only Depression/Burnout codes
-events_raw <- as.data.table(read_parquet(events_file))
-events_raw[, DATE := as.Date(DATE)]
-events_raw[, CODE := (CODE_ICD10)]
-
-# Extract ids of doctors that will be included / excluded in the cohort
-events_raw[, CODE := ifelse(
-    nchar(CODE) >= 4 & substr(CODE, 4, 4) != ".", # QC: add dot after 3 char if not there
+# All events (any phenotype-relevant ICD-10 code), QC'd once
+events_all <- as.data.table(read_parquet(PATH_EVENTS_FILE))
+events_all[, DATE := as.Date(DATE)]
+events_all[, CODE := (CODE_ICD10)]
+# QC: add dot after 3rd character if missing (e.g. "F334" -> "F33.4")
+events_all[, CODE := ifelse(
+    nchar(CODE) >= 4 & substr(CODE, 4, 4) != ".",
     paste0(substr(CODE, 1, 3), ".", substr(CODE, 4, nchar(CODE))),
     CODE
 )]
-case_incl_ids       <- events_raw[grepl(paste0("^(", paste(PHENOTYPE$case_incl, collapse = "|"), ")"), CODE), unique(DOCTOR_ID)]
-case_excl_ids       <- events_raw[grepl(paste0("^(", paste(PHENOTYPE$case_excl, collapse = "|"), ")"), CODE), unique(DOCTOR_ID)]
-control_excl_ids    <- events_raw[grepl(paste0("^(", paste(PHENOTYPE$control_excl, collapse = "|"), ")"), CODE), unique(DOCTOR_ID)]
 
-# Extract cases for the phenotype
-events_raw <- events_raw[DOCTOR_ID %in% case_incl_ids]
-events_raw <- events_raw[!(DOCTOR_ID %in% case_excl_ids)]
-events_raw <- events_raw[CODE_ICD10_3CHAR == "F33"]
+# Sick leave periods (for LOCF imputation) -- same for every phenotype
+# Remove partial (not full) sick leaves, i.e. benefit type = 73
+sl <- as.data.table(read_parquet(PATH_SICK_LEAVE_FILE))
+sl <- sl[BENEFIT_TYPE != "73"]
+sl[, DATE_START := as.Date(DISABILITY_START_DATE)]
+sl[, DATE_END   := as.Date(SICK_LEAVE_END)]
+sl[, MONTH_START := (as.numeric(format(DATE_START, "%Y")) - 1998) * 12 +
+                     as.numeric(format(DATE_START, "%m"))]
+sl[, MONTH_END   := (as.numeric(format(DATE_END,   "%Y")) - 1998) * 12 +
+                     as.numeric(format(DATE_END,   "%m"))]
+sl_periods <- sl[!is.na(MONTH_START) & !is.na(MONTH_END), .(DOCTOR_ID, MONTH_START, MONTH_END)]
+sl_periods <- sl_periods[order(DOCTOR_ID, MONTH_START)]
 
-# Take the FIRST record available per doctor, separately for each source
-# (i.e. first diagnosis date in Care register, first sick leave date in Sick leave register)
-events_raw <- events_raw[order(DOCTOR_ID, SOURCE, DATE)][, .SD[1], by = c("DOCTOR_ID", "SOURCE")]
 
-# Go from long format to wide format: one row per doctor, with the first
-# diagnosis date and the first sick leave date (NA if the doctor has none)
-events_raw <- pivot_wider(
-    as.data.frame(events_raw),
-    id_cols = "DOCTOR_ID",
-    names_from = "SOURCE",
-    values_from = "DATE",
-    values_fill = NA
-) %>% as.data.table()
 
-setnames(events_raw, c("CareRegister", "SickLeaveRegister"), c("DATE_CareRegister", "DATE_SickLeaveRegister"))
-
-# Drop doctors with neither a diagnosis nor a sick leave record
-events_raw <- events_raw[!(is.na(DATE_CareRegister) & is.na(DATE_SickLeaveRegister))]
-
-# Merge in sick leave benefit-type information, for descriptive purposes only
-sl <- as.data.table(read_parquet(sick_leave_file))
-events_merged <- merge(
-    events_raw,
-    sl,
-    by.x = c("DOCTOR_ID", "DATE_SickLeaveRegister"),
-    by.y = c("DOCTOR_ID", "SVA_DATE"),
-    all.x = TRUE
-)
-events_merged[, TYPE := fcase(
-    BENEFIT_TYPE == 73, "partial",
-    BENEFIT_TYPE == 74, "full",
-    default = NA_character_
-)]
-
-# ------------------------------------------------------------
-# Define scenario (A / B / C)
-# ------------------------------------------------------------
-events_merged[, SCENARIO := fcase(
-    !is.na(DATE_CareRegister) &  is.na(DATE_SickLeaveRegister), "A",
-    !is.na(DATE_CareRegister) & !is.na(DATE_SickLeaveRegister), "B",
-     is.na(DATE_CareRegister) & !is.na(DATE_SickLeaveRegister), "C"
-)]
-
-# Distance (days) between sick leave and diagnosis - only meaningful for scenario B
-events_merged[, distance_days := as.numeric(difftime(DATE_SickLeaveRegister, DATE_CareRegister, units = "days"))]
-
-# Sub-group scenario B by time distance between diagnosis and sick leave
-events_merged[, GROUP := fcase(
-    SCENARIO == "A", "no sick leave",
-    # SCENARIO == "B" & distance_days <  0,                          "before diagnosis",
-    SCENARIO == "B" & distance_days >= 0   & distance_days <= 7,    "immediate",
-    SCENARIO == "B" & distance_days >  7   & distance_days <= 365,  "within a year",
-    # SCENARIO == "B" & distance_days >  365,                         "over a year later",
-    SCENARIO == "C", "no diagnosis",
-    default = NA_character_
-)]
-
-# Combined label used for stratification (keeps scenario A/B/C explicit)
-events_merged[, STRATA_LABEL := fcase(
-    SCENARIO == "A", "A: no sick leave",
-    SCENARIO == "B", paste0("B: ", GROUP),
-    SCENARIO == "C", "C: no diagnosis",
-    default = NA_character_
-)]
-
-# Event date used for the DiD design:
-#  - scenarios A & B: first diagnosis date (Care register)
-#  - scenario C: first sick leave date (no diagnosis date is available)
-events_merged[, EVENT_DATE := fifelse(SCENARIO == "C", DATE_SickLeaveRegister, DATE_CareRegister)]
-
-# Count number of doctors in each scenario / group
-group_counts <- events_merged[, .N, by = .(SCENARIO, GROUP)]
-cat("Number of doctors in each scenario/group:\n")
-print(group_counts)
-
-# filter doctors in our cohort, then finalize data
-events_doctors <- events_merged[DOCTOR_ID %in% doctor_ids]
-events_doctors <- events_doctors[, .(DOCTOR_ID, EVENT_DATE, STRATA_LABEL)]
-
-cat(sprintf("doctors with %s event: %d\n", PHENOTYPE$name, nrow(events_doctors)))
+cat("Sick leave periods loaded:", nrow(sl_periods), "periods across", uniqueN(sl_periods$DOCTOR_ID), "doctors\n")
 
 # ============================================================
-# 5. Merge events, outcomes and covariates & QC steps
+# 6. Helper: run the full LOCF-adjusted DiD pipeline for ONE phenotype. 
 # ============================================================
 
-# Left join: all outcome rows kept; controls get NA event date / strata
-df <- left_join(outcomes, events_doctors, by = "DOCTOR_ID") %>%
-    mutate(
-        EVENT      = if_else(!is.na(EVENT_DATE), 1L, 0L),
-        EVENT_YEAR = if_else(!is.na(EVENT_DATE), as.numeric(format(EVENT_DATE, "%Y")), NA_real_)
-    ) %>%
-    select(-EVENT_DATE) %>%
-    as.data.table()
+run_phenotype_locf_did <- function(PHENOTYPE, outcomes_raw, events_all, covariates, sl_periods, N_THREADS) {
 
-# Merge covariates
-df <- covariates[df, on = "DOCTOR_ID"]
-df[, `:=`(
-    AGE          = YEAR - BIRTH_YEAR,
-    AGE_AT_EVENT = fifelse(is.na(EVENT_YEAR), NA_real_, EVENT_YEAR - BIRTH_YEAR)
-)]
+    subdir <- phenotype_subdir(PHENOTYPE$i)
+    if (!dir.exists(subdir)) dir.create(subdir, recursive = TRUE)
 
-# Remove doctors whose event occurred after pension age (60)
-ids_post60 <- df[AGE_AT_EVENT > 60 & !is.na(AGE_AT_EVENT), unique(DOCTOR_ID)]
-df <- df[!(DOCTOR_ID %in% ids_post60) & AGE <= 60]
+    cat(sprintf("\n==== Phenotype %d: %s ====\n", PHENOTYPE$i, PHENOTYPE$name))
 
-# Replace missing prescription counts with 0
-df[is.na(N), N := 0]
+    # ----------------------------------------------------------
+    # 6a. Case / control doctor ids, from generic code patterns
+    # ----------------------------------------------------------
 
-# Remove doctors from controls based on phenotype exclusion criteria
-df <- df[!(EVENT == 0 & DOCTOR_ID %in% control_excl_ids),]
+    case_incl_ids    <- events_all[grepl(paste0("^(", paste(PHENOTYPE$case_incl, collapse = "|"), ")"), CODE), unique(DOCTOR_ID)]
+    case_excl_ids    <- events_all[grepl(paste0("^(", paste(PHENOTYPE$case_excl, collapse = "|"), ")"), CODE), unique(DOCTOR_ID)]
+    control_excl_ids <- events_all[grepl(paste0("^(", paste(PHENOTYPE$control_excl, collapse = "|"), ")"), CODE), unique(DOCTOR_ID)]
 
-# --- DiD variables: numeric ID, group (first treatment year), calendar year ---
-df[, ID := as.integer(factor(DOCTOR_ID))]
-df[, G  := fifelse(is.na(EVENT_YEAR), 0, EVENT_YEAR)]
-df[, T  := YEAR]
+    events_pheno <- events_all[DOCTOR_ID %in% case_incl_ids]
+    events_pheno <- events_pheno[!(DOCTOR_ID %in% case_excl_ids)]
 
-# STRATA is simply the scenario/group label already computed above (NA for controls)
-df[, STRATA := STRATA_LABEL]
+    # First occurrence of a CASE-DEFINING code per doctor.
+    events_pheno <- events_pheno[grepl(paste0("^(", paste(PHENOTYPE$case_incl, collapse = "|"), ")"), CODE)]
+    events_pheno <- events_pheno[order(DOCTOR_ID, DATE)][, .SD[1], by = DOCTOR_ID]
 
+    event_info <- events_pheno[, .(DOCTOR_ID, EVENT_DATE = DATE)]
+    event_info[, `:=`(
+        EVENT       = 1L,
+        EVENT_YEAR  = as.numeric(format(EVENT_DATE, "%Y")),
+        EVENT_MONTH = (as.numeric(format(EVENT_DATE, "%Y")) - 1998) * 12 + as.numeric(format(EVENT_DATE, "%m"))
+    )]
 
-# ============================================================
-# 6. Stratified DiD across scenarios A / B (sub-groups) / C
-# ============================================================
+    cat("Number of case doctors:", nrow(event_info), "\n")
 
-group_results <- list()
-group_results_long <- list()
+    # ----------------------------------------------------------
+    # 6b. Merge outcomes with event info + covariates, then QC
+    # ----------------------------------------------------------
 
-# Every case doctor falls into exactly one of these six mutually-exclusive strata;
-# controls (STRATA == NA) are shared as the comparison group for every stratum.
-strata_values <- c(
-    "A: no sick leave",
-    #"B: before diagnosis",
-    "B: immediate",
-    "B: within a year",
-    #"B: over a year later",
-    "C: no diagnosis"
-)
+    df_merged <- merge(outcomes_raw, event_info[, .(DOCTOR_ID, EVENT_DATE, EVENT, EVENT_YEAR, EVENT_MONTH)],
+                        by = "DOCTOR_ID", all.x = TRUE)
+    df_merged[is.na(EVENT), EVENT := 0L]
 
-for (val in strata_values) {
-    cat(sprintf("  Fitting: STRATA = '%s'\n", val))
+    # Drop from the control pool any doctor carrying a control_excl code
+    df_merged <- df_merged[!(EVENT == 0 & DOCTOR_ID %in% control_excl_ids)]
 
-    tryCatch({
+    df_complete <- covariates[df_merged, on = "DOCTOR_ID"]
+    df_complete[, `:=`(
+        AGE          = YEAR - BIRTH_YEAR,
+        AGE_AT_EVENT = fifelse(is.na(EVENT_YEAR), NA_real_, EVENT_YEAR - BIRTH_YEAR)
+    )]
 
-        # Subset: this stratum's cases + all controls
-        df_sub      <- df[STRATA == val | is.na(STRATA),]
-        n_cases     <- df_sub[EVENT == 1, uniqueN(DOCTOR_ID)]
-        n_controls  <- df_sub[EVENT == 0, uniqueN(DOCTOR_ID)]
-        df_sub[, ID := as.integer(factor(DOCTOR_ID))]
-        xformla <- ~ BIRTH_YEAR + SPECIALTY + SEX
+    # Remove doctors whose event occurred after pension age (60)
+    ids_post60  <- df_complete[AGE_AT_EVENT > 60 & !is.na(AGE_AT_EVENT), unique(DOCTOR_ID)]
+    df_complete <- df_complete[!(DOCTOR_ID %in% ids_post60) & AGE <= 60]
 
-        # att_gt
-        set.seed(09152024)
-        att_strata <- att_gt(
-            yname         = "N",
-            tname         = "T",
-            idname        = "ID",
-            gname         = "G",
-            xformla       = xformla,
-            data          = df_sub,
-            est_method    = "dr",
-            control_group = "notyettreated",
-            clustervars   = "ID",
-            pl            = TRUE,
-            cores         = N_THREADS
+    # Replace missing monthly prescription counts with 0
+    df_complete[is.na(N), N := 0]
+
+    df_complete[, `:=`(
+        SPECIALTY = factor(SPECIALTY),
+        SEX       = factor(SEX, levels = c(1, 2), labels = c("Male", "Female"))
+    )]
+
+    n_cases_qc    <- df_complete[EVENT == 1, uniqueN(DOCTOR_ID)]
+    n_controls_qc <- df_complete[EVENT == 0, uniqueN(DOCTOR_ID)]
+    cat(sprintf("After QC — Cases: %d, Controls: %d\n", n_cases_qc, n_controls_qc))
+
+    # ----------------------------------------------------------
+    # 6c. LOCF: sick-leave months carry forward the N value from
+    #     the month immediately before the leave started
+    # ----------------------------------------------------------
+
+    setkey(df_complete, DOCTOR_ID, MONTH)
+
+    # Only need sick leave periods for doctors present in this phenotype's cohort 
+    sl_relevant <- sl_periods[DOCTOR_ID %in% unique(df_complete$DOCTOR_ID)]
+    sl_expanded <- sl_relevant[, .(
+        MONTH       = seq(MONTH_START, MONTH_END),
+        MONTH_START = MONTH_START
+    ), by = .(DOCTOR_ID, MONTH_START, MONTH_END)]
+    sl_expanded <- unique(sl_expanded[, .(DOCTOR_ID, MONTH, MONTH_START)])
+
+    lookup <- unique(sl_expanded[, .(DOCTOR_ID, MONTH_START)])
+    lookup[, PROBE_MONTH := MONTH_START - 1L]
+
+    n_lookup <- df_complete[, .(DOCTOR_ID, MONTH, N)]
+    setkey(n_lookup, DOCTOR_ID, MONTH)
+
+    lookup_result <- n_lookup[lookup, .(DOCTOR_ID, MONTH_START, LOCF_N = x.N),
+                               on = .(DOCTOR_ID, MONTH = PROBE_MONTH), roll = TRUE]
+
+    sl_expanded <- merge(sl_expanded, lookup_result, by = c("DOCTOR_ID", "MONTH_START"), all.x = TRUE)
+
+    sl_impute <- sl_expanded[!is.na(LOCF_N), .(DOCTOR_ID, MONTH, LOCF_N)]
+    sl_impute <- unique(sl_impute, by = c("DOCTOR_ID", "MONTH"))
+
+    df_complete[sl_impute, N := i.LOCF_N, on = .(DOCTOR_ID, MONTH)]
+
+    cat(sprintf("LOCF imputation: %d month-rows across %d doctors\n",
+                nrow(sl_impute), uniqueN(sl_impute$DOCTOR_ID)))
+
+    # ----------------------------------------------------------
+    # 6d. Aggregate to YEAR level and build DiD variables
+    # ----------------------------------------------------------
+
+    df_did <- df_complete[, .(DOCTOR_ID, YEAR, MONTH, N, EVENT, EVENT_YEAR, SEX, BIRTH_YEAR, SPECIALTY)]
+    df_did <- df_did[, .(
+        N          = sum(N, na.rm = TRUE),
+        EVENT      = first(EVENT),
+        EVENT_YEAR = first(EVENT_YEAR),
+        SEX        = first(SEX),
+        BIRTH_YEAR = first(BIRTH_YEAR),
+        SPECIALTY  = first(SPECIALTY)
+    ), by = .(DOCTOR_ID, YEAR)]
+
+    df_did$ID <- as.integer(factor(df_did$DOCTOR_ID))
+    df_did$G  <- ifelse(is.na(df_did$EVENT_YEAR), 0, df_did$EVENT_YEAR)  
+    df_did$T  <- df_did$YEAR
+
+    # Baseline prescription rate in controls (used to express effects as % change)
+    baseline <- mean(df_did$N[df_did$EVENT == 0], na.rm = TRUE)
+
+    n_cases    <- df_did[EVENT == 1, uniqueN(DOCTOR_ID)]
+    n_controls <- df_did[EVENT == 0, uniqueN(DOCTOR_ID)]
+    cat(sprintf("DiD — Cases: %d, Controls: %d\n", n_cases, n_controls))
+
+    # ----------------------------------------------------------
+    # 6e. DiD model
+    # ----------------------------------------------------------
+    set.seed(09152024)
+    att_gt_res <- att_gt(
+        yname         = "N",
+        tname         = "T",
+        idname        = "ID",
+        gname         = "G",
+        xformla       = ~ BIRTH_YEAR + SEX + SPECIALTY,
+        data          = df_did,
+        est_method    = "dr",
+        control_group = "notyettreated",
+        clustervars   = "ID",
+        pl            = TRUE,
+        cores         = N_THREADS
+    )
+
+    agg_dynamic <- aggte(att_gt_res, type = "dynamic", na.rm = TRUE)
+    results <- data.frame(
+        phenotype  = PHENOTYPE$name,
+        n_cases    = n_cases,
+        n_controls = n_controls,
+        time       = agg_dynamic$egt,
+        att        = agg_dynamic$att.egt,
+        se         = agg_dynamic$se.egt,
+        baseline   = baseline
+    )
+
+    # Baseline & relative change estimates (effect size as % of control baseline)
+    results <- results %>%
+        mutate(
+            rel_att    = round(100 * att / baseline, 5),
+            rel_att_se = round(100 * se / baseline, 5)
         )
 
-        # dynamic ATT(t)
-        agg     <- aggte(att_strata, type = "dynamic", na.rm = TRUE)
-        results <- data.frame(
-            time = agg$egt,
-            att = agg$att.egt,
-            se = agg$se.egt
-        )
+    # ----------------------------------------------------------
+    # 6f. Save this phenotype's results + plot (PNG + PDF)
+    # ----------------------------------------------------------
 
-        t0_row  <- results[results$time == 0, ]
-        t0_att <- if (nrow(t0_row) > 0) t0_row$att[1] else NA_real_
-        t0_se  <- if (nrow(t0_row) > 0) t0_row$se[1] else NA_real_
+    out_csv <- file.path(subdir, FILE_LONG_RESULTS)
+    write.csv(results, out_csv, row.names = FALSE)
 
-        stratum_result <- data.frame(
-            stratum_dimension   = "Scenario",
-            stratum_value       = as.character(val),
-            n_cases             = n_cases,
-            n_controls          = n_controls,
-            drop                = round(t0_att, 5),
-            se_drop             = round(t0_se, 5),
-            stringsAsFactors    = FALSE
-        )
+    data_plot <- results %>% filter(time >= -WIN & time <= WIN)
+    p <- ggplot(data_plot, aes(x = time, y = att)) +
+        geom_line(color = COLOR_SINGLE_LINE) +
+        geom_point() +
+        geom_errorbar(aes(ymin = att - 1.96 * se, ymax = att + 1.96 * se),
+                      width = 0.2, color = COLOR_SINGLE_LINE) +
+        geom_hline(yintercept = 0, linetype = "dashed", color = COLOR_ZERO_LINE) +
+        labs(
+            title    = paste0("Sick leave-adjusted (LOCF) DiD, for ", PHENOTYPE$name),
+            subtitle = paste0("Cases: ", n_cases, ", Controls: ", n_controls),
+            x        = "Years from Event",
+            y        = "Change in total number of prescriptions"
+        ) +
+        scale_x_continuous(breaks = -WIN:WIN) +
+        THEME_BASE
 
-        group_results[[length(group_results) + 1]] <- stratum_result
-
-        # Save long results
-        results_long <- data.frame(
-            stratum_dimension = "Scenario",
-            stratum_value     = as.character(val),
-            time              = results$time,
-            att               = results$att,
-            se                = results$se,
-            stringsAsFactors  = FALSE
-        )
-        group_results_long[[length(group_results_long) + 1]] <- results_long
-
-    }, error = function(e) {
-        cat(sprintf("    ERROR for STRATA = '%s': %s\n", val, conditionMessage(e)))
-
-        df_sub <- df[STRATA == val]
-        n_cases    <- df_sub[EVENT == 1, uniqueN(DOCTOR_ID)]
-        n_controls <- df_sub[EVENT == 0, uniqueN(DOCTOR_ID)]
-
-        stratum_result <- data.frame(
-            stratum_dimension   = "Scenario",
-            stratum_value       = as.character(val),
-            n_cases             = n_cases,
-            n_controls          = n_controls,
-            drop                = NA_real_,
-            se_drop             = NA_real_,
-            stringsAsFactors    = FALSE
-        )
-        group_results[[length(group_results) + 1]] <- stratum_result
-    })
+    save_plot_png_pdf(p, subdir, FILE_PLOT_BASENAME, PLOT_WIDTH_SINGLE, PLOT_HEIGHT_SINGLE)
+    list(results = results, csv_path = out_csv, subdir = subdir)
 }
 
-# Save Scenario stratification results
-if (length(group_results) > 0) {
-    group_results_df <- do.call(rbind, group_results)
-    rownames(group_results_df) <- NULL
-    group_file <- file.path(outdir, paste0("Supplements_DepressionBurnout_Scenario_", TODAY, ".csv"))
-    write.csv(group_results_df, group_file, row.names = FALSE)
+
+# ============================================================
+# 7. Run the LOCF DiD pipeline for every phenotype
+# ============================================================
+
+phenotype_outputs <- list()
+
+for (key in names(PHENOTYPES)) {
+
+    PHENOTYPE <- PHENOTYPES[[key]]
+
+    out <- tryCatch(
+        run_phenotype_locf_did(
+            PHENOTYPE    = PHENOTYPE,
+            outcomes_raw = outcomes_raw,
+            events_all   = events_all,
+            covariates   = covariates,
+            sl_periods   = sl_periods,
+            N_THREADS    = N_THREADS
+        ),
+        error = function(e) {
+            cat(sprintf("ERROR for phenotype '%s': %s\n", PHENOTYPE$name, conditionMessage(e)))
+            NULL
+        }
+    )
+
+    phenotype_outputs[[key]] <- out
 }
 
-# Save Scenario stratification long results
-if (length(group_results_long) > 0) {
-    group_results_long_df <- do.call(rbind, group_results_long)
-    rownames(group_results_long_df) <- NULL
-    group_long_file <- file.path(outdir, paste0("Supplements_DepressionBurnout_Scenario_Long_", TODAY, ".csv"))
-    write.csv(group_results_long_df, group_long_file, row.names = FALSE)
+
+# ============================================================
+# 8. Combined comparison figure
+# ============================================================
+
+describe_phenotype <- function(ph, n_cases, n_controls) {sprintf("- %s (%d cases, %d controls)", ph$name, n_cases, n_controls)}
+comparison_list  <- list()
+description_list <- character()
+
+for (key in compare_phenotypes) {
+
+    out <- phenotype_outputs[[key]]
+    if (is.null(out)) {
+        cat(sprintf("Skipping '%s' in comparison plot (no results — likely failed above).\n", key))
+        next
+    }
+
+    res <- out$results
+    comparison_list[[key]] <- res
+    description_list[key]  <- describe_phenotype(PHENOTYPES[[key]], res$n_cases[1], res$n_controls[1])
 }
 
-# -- Plot --
-# Reload the results to plot, if running this script in a separate session
-results_plot <- read.csv(group_long_file)
-data_plot <- results_plot %>% filter(time >= -WIN & time <= WIN)
+if (length(comparison_list) > 0) {
 
-# Build subtitle dynamically from however many strata were successfully fit
-subtitle_text <- paste(
-    sprintf(
-        "%s | Cases: %d, Controls: %d",
-        group_results_df$stratum_value,
-        group_results_df$n_cases,
-        group_results_df$n_controls
-    ),
-    collapse = "\n"
-)
+    # Prepare the exact data used for the final plot
+    comparison_df <- do.call(rbind, comparison_list)
+    rownames(comparison_df) <- NULL
+    data_plot <- comparison_df %>% filter(time >= -WIN & time <= WIN)
 
-p <- ggplot(data_plot, aes(x = time, y = att, color = stratum_value, group = stratum_value)) +
-    geom_line(linewidth = 0.8, position = position_dodge(width = 0.3)) +
-    geom_point(size = 2, position = position_dodge(width = 0.3)) +
-    geom_errorbar(
-        aes(ymin = att - 1.96 * se, ymax = att + 1.96 * se),
-        width = 0.2, position = position_dodge(width = 0.3)
-    ) +
-    geom_hline(yintercept = 0, linetype = "dashed", color = "grey") +
-    geom_vline(xintercept = 0, linetype = "dashed", color = "grey") +
-    labs(
-        title = paste0("Results for: ", PHENOTYPE$name),
-        subtitle = subtitle_text,
-        x = "Years from Event",
-        y = "change in total number of prescriptions",
-        color = "Scenario"
-    ) +
-    scale_x_continuous(breaks = -WIN:WIN) +
-    theme_minimal()
+    # CHECKPOINT : Save the combined comparison data 
+    out_csv_file <- file.path(DIR_OUT, FILE_COMPARISON_CSV)
+    write.csv(data_plot, out_csv_file, row.names = FALSE)
 
-out_plot_file <- file.path(outdir, paste0("Plot_Supplements_DepressionBurnout_Scenario_", TODAY, ".png"))
-ggsave(filename = out_plot_file, plot = p, width = 12, height = 10, dpi = 300)
+    # Plot
+    subtitle_text       <- paste(description_list, collapse = "\n")
+    ph_names            <- sapply(compare_phenotypes, function(k) PHENOTYPES[[k]]$name)
+    phenotype_colors    <- setNames(rep_len(PALETTE_COMPARISON, length(ph_names)), ph_names)
 
+    p <- ggplot(data_plot, aes(x = time, y = att, color = phenotype, group = phenotype)) +
+        geom_line(linewidth = 0.8, position = position_dodge(width = DODGE_WIDTH_CMP)) +
+        geom_point(size = 2, position = position_dodge(width = DODGE_WIDTH_CMP)) +
+        geom_errorbar(
+            aes(ymin = att - 1.96 * se, ymax = att + 1.96 * se),
+            width = 0.2, position = position_dodge(width = DODGE_WIDTH_CMP)
+        ) +
+        geom_hline(yintercept = 0, linetype = "dashed", color = COLOR_REF_LINE_CMP) +
+        geom_vline(xintercept = 0, linetype = "dashed", color = COLOR_REF_LINE_CMP) +
+        scale_color_manual(values = phenotype_colors) +
+        labs(
+            title    = "Phenotype comparison, Sick leave-adjusted (LOCF)",
+            subtitle = subtitle_text,
+            x        = "Years from Event",
+            y        = "Change in Total Number of Prescriptions \n(compared to controls)",
+            color    = "Phenotype"
+        ) +
+        scale_x_continuous(breaks = -WIN:WIN) +
+        THEME_BASE +
+        theme(legend.position = "bottom") +
+        theme(plot.subtitle = element_text(size = SUBTITLE_SIZE_CMP, lineheight = SUBTITLE_LINEHEIGHT_CMP))
 
-# --------------------------------------------------------------------------------------------
-# Before was recurrent depression, after is distress analysis
-# --------------------------------------------------------------------------------------------
+    save_plot_png_pdf(p, DIR_OUT, FILE_COMPARISON_PLOT_BASENAME, PLOT_WIDTH_COMPARISON, PLOT_HEIGHT_COMPARISON)
 
-# ============================================================
-# 1. Libraries
-# ============================================================
-.libPaths("/shared-directory/sd-tools/apps/R/lib/")
-suppressPackageStartupMessages({
-    library(data.table)
-    library(arrow)
-    library(dplyr)
-    library(tidyr)
-    library(lubridate)
-    library(did)
-    library(metafor)
-    library(ggplot2)
-})
-
-
-# ============================================================
-# 2. File paths and global settings
-# ============================================================
-
-DATE_DATA_1  <- "20260709"
-DATE_DATA_2  <- "20260219"
-
-doctor_list         <- "/media/volume/Projects/DSGELabProject1/doctors_20250424.csv"
-events_file         <- paste0("/media/volume/Projects/DSGELabProject1/ProcessedData/AllDistressEvents_", DATE_DATA_1, ".parquet")
-sick_leave_file     <- paste0("/media/volume/Projects/DSGELabProject1/ProcessedData/all_sickleaves_doctors_", DATE_DATA_1, ".parquet")
-outcomes_file       <- paste0("/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Diagnosis_",DATE_DATA_2, "/ProcessedOutcomes_", DATE_DATA_2, "/processed_outcomes.parquet")
-covariates_file     <- "/media/volume/Projects/DSGELabProject1/doctor_characteristics_20250520.csv"
-
-# Window size for plot
-WIN <- 3
-
-PHENOTYPE <- list(
-    name = "Distress (Wide)",
-    case_incl = c("F32 ", "F41", "F43", "F51", "Z73"),
-    case_excl = c("F33"),
-    control_excl = c("F32", "F33", "F41", "F43", "F51", "Z73")
-)
-
-TODAY <- format(Sys.time(), "%Y%m%d")
-outdir   <- paste0("/media/volume/Projects/DSGELabProject1/Plots/Supplements/Supplements_DepressionBurnout_SickLeaveScenarios_Distress_", TODAY, "/")
-if (!dir.exists(outdir)) dir.create(outdir, recursive = TRUE)
-
-N_THREADS  <- 10
-setDTthreads(N_THREADS)
-
-# ============================================================
-# 3. Load shared data
-# ============================================================
-
-doctor_ids <- fread(doctor_list, header = FALSE)$V1
-
-# Covariates: keep specialty and birth year
-covariates <- fread(covariates_file)
-covariates[, `:=`(
-    SPECIALTY  = as.character(INTERPRETATION),
-    BIRTH_YEAR = as.numeric(substr(BIRTH_DATE, 1, 4)),
-    BIRTH_DATE = NULL,
-    INTERPRETATION = NULL
-)]
-covariates[SPECIALTY == "", SPECIALTY := "No specialty"]
-
-# Outcomes: total number of prescriptions per doctor per year
-outcomes <- as.data.table(read_parquet(outcomes_file, col_select = c("DOCTOR_ID", "YEAR", "N")))
-
-# ============================================================
-# 4. Extract events, pick the code of interest, and define the
-#    three comparison scenarios
-#
-#   Because this phenotype spans several ICD-10 3-char codes
-#   (F32, F41, F43, F51, Z73), a doctor may qualify through more
-#   than one code. We first collapse to a single "code of interest"
-#   per doctor (priority: both dates available > diagnosis only >
-#   sick leave only, then earliest date), exactly as before.
-#
-#   On top of that single selected record we then define:
-#   A. Diagnosis in care register, but NEVER took a sick leave
-#   B. Diagnosis in care register AND took a sick leave
-#      -> split by time distance between diagnosis and sick leave:
-#         "before diagnosis" (distance < 0)
-#         "immediate"         (0 <= distance <= 7)
-#         "within a year"     (7 < distance <= 365)
-#         "over a year later" (distance > 365)
-#   C. NO diagnosis in care register, but a sick leave is recorded
-# ============================================================
-
-# Load events and keep only Depression/Burnout codes
-events_raw <- as.data.table(read_parquet(events_file))
-events_raw[, DATE := as.Date(DATE)]
-events_raw[, CODE := (CODE_ICD10)]
-
-# Extract ids of doctors that will be included / excluded in the cohort
-events_raw[, CODE := ifelse(
-    nchar(CODE) >= 4 & substr(CODE, 4, 4) != ".", # QC: add dot after 3 char if not there
-    paste0(substr(CODE, 1, 3), ".", substr(CODE, 4, nchar(CODE))),
-    CODE
-)]
-case_incl_ids       <- events_raw[grepl(paste0("^(", paste(PHENOTYPE$case_incl, collapse = "|"), ")"), CODE), unique(DOCTOR_ID)]
-case_excl_ids       <- events_raw[grepl(paste0("^(", paste(PHENOTYPE$case_excl, collapse = "|"), ")"), CODE), unique(DOCTOR_ID)]
-control_excl_ids    <- events_raw[grepl(paste0("^(", paste(PHENOTYPE$control_excl, collapse = "|"), ")"), CODE), unique(DOCTOR_ID)]
-
-# Extract cases for the phenotype
-events_raw <- events_raw[DOCTOR_ID %in% case_incl_ids]
-events_raw <- events_raw[!(DOCTOR_ID %in% case_excl_ids)]
-
-# Pick the first record for each code used to select cases for each doctor
-events_raw <- events_raw[order(DOCTOR_ID, CODE_ICD10_3CHAR, SOURCE, DATE)][, .SD[1], by = c("DOCTOR_ID", "CODE_ICD10_3CHAR", "SOURCE")]
-
-# Go from long format to wide format
-# Include the CODE column in the values so we keep which code was matched for each source
-events_raw <- pivot_wider(
-    as.data.frame(events_raw),
-    id_cols = c("DOCTOR_ID", "CODE_ICD10_3CHAR"),
-    names_from = "SOURCE",
-    values_from = "DATE",
-    values_fill = NA
-) %>% as.data.table()
-
-setnames(events_raw, c("CareRegister", "SickLeaveRegister"), c("DATE_CareRegister", "DATE_SickLeaveRegister"))
-
-# Drop rows where neither a diagnosis nor a sick leave date is available for that code
-events_raw <- events_raw[!(is.na(DATE_CareRegister) & is.na(DATE_SickLeaveRegister))]
-
-# ------------------------------------------------------------
-# Extra step (specific to this wide phenotype): 
-# pick a single "code of interest" per doctor across all candidate ICD codes.
-# Priority: both dates available > diagnosis only > sick leave only;
-# ties broken by earliest date.
-
-# NOTE: 
-# The priority order picked means that:
-# if a doctor has an earlier F41 diagnosis with no sick leave and a later F43 diagnosis that does have a sick leave, the priority step will pick the F43 record,
-# so that doctor lands in scenario B, not A, even though a diagnosis-only event happened first chronologically. 
-# ------------------------------------------------------------
-events_raw[, priority := fcase(
-    !is.na(DATE_CareRegister) & !is.na(DATE_SickLeaveRegister), 1L,
-    !is.na(DATE_CareRegister), 2L,
-    default = 3L
-)]
-events_raw <- events_raw[order(DOCTOR_ID, priority, DATE_CareRegister, DATE_SickLeaveRegister)][, .SD[1], by = "DOCTOR_ID"]
-events_raw[, priority := NULL]
-
-# Merge in sick leave benefit-type information, for descriptive purposes only
-sl <- as.data.table(read_parquet(sick_leave_file))
-events_merged <- merge(
-    events_raw,
-    sl,
-    by.x = c("DOCTOR_ID", "DATE_SickLeaveRegister"),
-    by.y = c("DOCTOR_ID", "SVA_DATE"),
-    all.x = TRUE
-)
-events_merged[, TYPE := fcase(
-    BENEFIT_TYPE == 73, "partial",
-    BENEFIT_TYPE == 74, "full",
-    default = NA_character_
-)]
-
-# ------------------------------------------------------------
-# Define scenario (A / B / C) based on the selected record
-# ------------------------------------------------------------
-events_merged[, SCENARIO := fcase(
-    !is.na(DATE_CareRegister) &  is.na(DATE_SickLeaveRegister), "A",
-    !is.na(DATE_CareRegister) & !is.na(DATE_SickLeaveRegister), "B",
-     is.na(DATE_CareRegister) & !is.na(DATE_SickLeaveRegister), "C"
-)]
-
-# Distance (days) between sick leave and diagnosis - only meaningful for scenario B
-events_merged[, distance_days := as.numeric(difftime(DATE_SickLeaveRegister, DATE_CareRegister, units = "days"))]
-
-# Sub-group scenario B by time distance between diagnosis and sick leave
-events_merged[, GROUP := fcase(
-    SCENARIO == "A", "no sick leave",
-    # SCENARIO == "B" & distance_days <  0,                          "before diagnosis",
-    SCENARIO == "B" & distance_days >= 0   & distance_days <= 7,    "immediate",
-    SCENARIO == "B" & distance_days >  7   & distance_days <= 365,  "within a year",
-    # SCENARIO == "B" & distance_days >  365,                         "over a year later",
-    SCENARIO == "C", "no diagnosis",
-    default = NA_character_
-)]
-
-# Combined label used for stratification (keeps scenario A/B/C explicit)
-events_merged[, STRATA_LABEL := fcase(
-    SCENARIO == "A", "A: no sick leave",
-    SCENARIO == "B", paste0("B: ", GROUP),
-    SCENARIO == "C", "C: no diagnosis",
-    default = NA_character_
-)]
-
-# Event date used for the DiD design:
-#  - scenarios A & B: first diagnosis date (Care register)
-#  - scenario C: first sick leave date (no diagnosis date is available)
-events_merged[, EVENT_DATE := fifelse(SCENARIO == "C", DATE_SickLeaveRegister, DATE_CareRegister)]
-
-# Count number of doctors in each scenario / group (and which code was selected)
-group_counts <- events_merged[, .N, by = .(SCENARIO, GROUP, CODE_ICD10_3CHAR)]
-cat("Number of doctors in each scenario/group (by selected code):\n")
-print(group_counts)
-
-# filter doctors in our cohort, then finalize data
-events_doctors <- events_merged[DOCTOR_ID %in% doctor_ids]
-events_doctors <- events_doctors[, .(DOCTOR_ID, EVENT_DATE, STRATA_LABEL)]
-
-cat(sprintf("doctors with %s event: %d\n", PHENOTYPE$name, nrow(events_doctors)))
-
-# ============================================================
-# 5. Merge events, outcomes and covariates & QC steps
-# ============================================================
-
-# Left join: all outcome rows kept; controls get NA event date / strata
-df <- left_join(outcomes, events_doctors, by = "DOCTOR_ID") %>%
-    mutate(
-        EVENT      = if_else(!is.na(EVENT_DATE), 1L, 0L),
-        EVENT_YEAR = if_else(!is.na(EVENT_DATE), as.numeric(format(EVENT_DATE, "%Y")), NA_real_)
-    ) %>%
-    select(-EVENT_DATE) %>%
-    as.data.table()
-
-# Merge covariates
-df <- covariates[df, on = "DOCTOR_ID"]
-df[, `:=`(
-    AGE          = YEAR - BIRTH_YEAR,
-    AGE_AT_EVENT = fifelse(is.na(EVENT_YEAR), NA_real_, EVENT_YEAR - BIRTH_YEAR)
-)]
-
-# Remove doctors whose event occurred after pension age (60)
-ids_post60 <- df[AGE_AT_EVENT > 60 & !is.na(AGE_AT_EVENT), unique(DOCTOR_ID)]
-df <- df[!(DOCTOR_ID %in% ids_post60) & AGE <= 60]
-
-# Replace missing prescription counts with 0
-df[is.na(N), N := 0]
-
-# Remove doctors from controls based on phenotype exclusion criteria
-df <- df[!(EVENT == 0 & DOCTOR_ID %in% control_excl_ids),]
-
-# --- DiD variables: numeric ID, group (first treatment year), calendar year ---
-df[, ID := as.integer(factor(DOCTOR_ID))]
-df[, G  := fifelse(is.na(EVENT_YEAR), 0, EVENT_YEAR)]
-df[, T  := YEAR]
-
-# STRATA is simply the scenario/group label already computed above (NA for controls)
-df[, STRATA := STRATA_LABEL]
-
-
-# ============================================================
-# 6. Stratified DiD across scenarios A / B (sub-groups) / C
-# ============================================================
-
-group_results <- list()
-group_results_long <- list()
-
-# Every case doctor falls into exactly one of these six mutually-exclusive strata;
-# controls (STRATA == NA) are shared as the comparison group for every stratum.
-strata_values <- c(
-    "A: no sick leave",
-    #"B: before diagnosis",
-    "B: immediate",
-    "B: within a year",
-    #"B: over a year later",
-    "C: no diagnosis"
-)
-
-for (val in strata_values) {
-    cat(sprintf("  Fitting: STRATA = '%s'\n", val))
-
-    tryCatch({
-
-        # Subset: this stratum's cases + all controls
-        df_sub      <- df[STRATA == val | is.na(STRATA),]
-        n_cases     <- df_sub[EVENT == 1, uniqueN(DOCTOR_ID)]
-        n_controls  <- df_sub[EVENT == 0, uniqueN(DOCTOR_ID)]
-        df_sub[, ID := as.integer(factor(DOCTOR_ID))]
-        xformla <- ~ BIRTH_YEAR + SPECIALTY + SEX
-
-        # att_gt
-        set.seed(09152024)
-        att_strata <- att_gt(
-            yname         = "N",
-            tname         = "T",
-            idname        = "ID",
-            gname         = "G",
-            xformla       = xformla,
-            data          = df_sub,
-            est_method    = "dr",
-            control_group = "notyettreated",
-            clustervars   = "ID",
-            pl            = TRUE,
-            cores         = N_THREADS
-        )
-
-        # dynamic ATT(t)
-        agg     <- aggte(att_strata, type = "dynamic", na.rm = TRUE)
-        results <- data.frame(
-            time = agg$egt,
-            att = agg$att.egt,
-            se = agg$se.egt
-        )
-
-        t0_row  <- results[results$time == 0, ]
-        t0_att <- if (nrow(t0_row) > 0) t0_row$att[1] else NA_real_
-        t0_se  <- if (nrow(t0_row) > 0) t0_row$se[1] else NA_real_
-
-        stratum_result <- data.frame(
-            stratum_dimension   = "Scenario",
-            stratum_value       = as.character(val),
-            n_cases             = n_cases,
-            n_controls          = n_controls,
-            drop                = round(t0_att, 5),
-            se_drop             = round(t0_se, 5),
-            stringsAsFactors    = FALSE
-        )
-
-        group_results[[length(group_results) + 1]] <- stratum_result
-
-        # Save long results
-        results_long <- data.frame(
-            stratum_dimension = "Scenario",
-            stratum_value     = as.character(val),
-            time              = results$time,
-            att               = results$att,
-            se                = results$se,
-            stringsAsFactors  = FALSE
-        )
-        group_results_long[[length(group_results_long) + 1]] <- results_long
-
-    }, error = function(e) {
-        cat(sprintf("    ERROR for STRATA = '%s': %s\n", val, conditionMessage(e)))
-
-        df_sub <- df[STRATA == val]
-        n_cases    <- df_sub[EVENT == 1, uniqueN(DOCTOR_ID)]
-        n_controls <- df_sub[EVENT == 0, uniqueN(DOCTOR_ID)]
-
-        stratum_result <- data.frame(
-            stratum_dimension   = "Scenario",
-            stratum_value       = as.character(val),
-            n_cases             = n_cases,
-            n_controls          = n_controls,
-            drop                = NA_real_,
-            se_drop             = NA_real_,
-            stringsAsFactors    = FALSE
-        )
-        group_results[[length(group_results) + 1]] <- stratum_result
-    })
+} else {
+    cat("\nNo phenotype results available — combined comparison plot was not generated.\n")
 }
-
-# Save Scenario stratification results
-if (length(group_results) > 0) {
-    group_results_df <- do.call(rbind, group_results)
-    rownames(group_results_df) <- NULL
-    group_file <- file.path(outdir, paste0("Supplements_DepressionBurnout_Scenario_Distress_", TODAY, ".csv"))
-    write.csv(group_results_df, group_file, row.names = FALSE)
-}
-
-# Save Scenario stratification long results
-if (length(group_results_long) > 0) {
-    group_results_long_df <- do.call(rbind, group_results_long)
-    rownames(group_results_long_df) <- NULL
-    group_long_file <- file.path(outdir, paste0("Supplements_DepressionBurnout_Scenario_Distress_Long_", TODAY, ".csv"))
-    write.csv(group_results_long_df, group_long_file, row.names = FALSE)
-}
-
-# -- Plot --
-# Reload the results to plot, if running this script in a separate session
-results_plot <- read.csv(group_long_file)
-data_plot <- results_plot %>% filter(time >= -WIN & time <= WIN)
-
-# Build subtitle dynamically from however many strata were successfully fit
-subtitle_text <- paste(
-    sprintf(
-        "%s | Cases: %d, Controls: %d",
-        group_results_df$stratum_value,
-        group_results_df$n_cases,
-        group_results_df$n_controls
-    ),
-    collapse = "\n"
-)
-
-p <- ggplot(data_plot, aes(x = time, y = att, color = stratum_value, group = stratum_value)) +
-    geom_line(linewidth = 0.8, position = position_dodge(width = 0.3)) +
-    geom_point(size = 2, position = position_dodge(width = 0.3)) +
-    geom_errorbar(
-        aes(ymin = att - 1.96 * se, ymax = att + 1.96 * se),
-        width = 0.2, position = position_dodge(width = 0.3)
-    ) +
-    geom_hline(yintercept = 0, linetype = "dashed", color = "grey") +
-    geom_vline(xintercept = 0, linetype = "dashed", color = "grey") +
-    labs(
-        title = paste0("Results for: ", PHENOTYPE$name),
-        subtitle = subtitle_text,
-        x = "Years from Event",
-        y = "change in total number of prescriptions",
-        color = "Scenario"
-    ) +
-    scale_x_continuous(breaks = -WIN:WIN) +
-    theme_minimal()
-
-out_plot_file <- file.path(outdir, paste0("Plot_Supplements_DepressionBurnout_Scenario_Distress_", TODAY, ".png"))
-ggsave(filename = out_plot_file, plot = p, width = 12, height = 10, dpi = 300)

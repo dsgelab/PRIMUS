@@ -1,59 +1,76 @@
-.libPaths("/shared-directory/sd-tools/apps/R/lib/")
+# ============================================================
+# Compare medication-level DiD results across three experiment specifications:
+# - Base                        (3-year window, no shrinkage)                  
+# - 5-year window               (5-year window, no shrinkage)
+# - Empirical Bayes shrinkage   (3-year window, with shrinkage)
+# ============================================================
 
-#### Libraries:
+
+# ============================================================
+# 1. Libraries
+# ============================================================
+
+.libPaths("/shared-directory/sd-tools/apps/R/lib/")
 suppressPackageStartupMessages({
     library(data.table)
     library(arrow)
     library(readr)
 })
 
-files <- list(
-  "Original"                                = "/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_20260129_FE_MetaAnalysis/Results_20260129/Results_ATC_20260129.csv",
-  "5 Year Window"                           = "/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_20260219_5years_window/Results_20260219/Results_ATC_20260219.csv",
-  "Empirical Bayes Shrinkage (Reported)"    = "/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_20260316/Results_20260316/Results_ATC_20260316.csv"
+# ============================================================
+# 2. Paths and settings 
+# ============================================================
+
+TODAY <- format(Sys.Date(), "%Y%m%d")
+
+# --- Input result files, one per experiment specification ---
+PATH_FILES <- list(
+    "Base"                       = "/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_20260129_FE_MetaAnalysis/Results_20260129/Results_ATC_20260129.csv",
+    "5 Year Window"              = "/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_20260219_5years_window/Results_20260219/Results_ATC_20260219.csv",
+    "Empirical Bayes Shrinkage"  = "/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_20260316/Results_20260316/Results_ATC_20260316.csv"
 )
 
-output_file_1 <- "/media/volume/Projects/DSGELabProject1/Plots/ExperimentComparisonTable_ALL_20260316.csv"
-output_file_2 <- "/media/volume/Projects/DSGELabProject1/Plots/ExperimentComparisonTable_ONLY_20260316.csv"
+REPORTED_EXPERIMENT <- "Empirical Bayes Shrinkage"
+OUTPUT_FILE         <- paste0("/media/volume/Projects/DSGELabProject1/Plots/ManuscriptFinal/Supplements_ExperimentComparison_", TODAY, ".csv")
 
- 
-# ── Pass 1: collect significant medication codes ──────────────────────────────
- 
-sig_meds <- c()
+# --- Filtering / significance settings ---
+MIN_N_CASES  <- 300      
+PVAL_METHOD  <- "bonferroni"
+ALPHA        <- 0.05
 
-for (exp in names(files)) {
-    d <- fread(files[[exp]])[N_CASES >= 300]
-    d[, PVAL_ADJ := p.adjust(PVAL_ABS_CHANGE, method = "bonferroni")]
-    sig_meds <- union(sig_meds, d[PVAL_ADJ < 0.05, OUTCOME_CODE])
+
+# ============================================================
+# 3. Load & Process each experiment's results  
+# ============================================================
+
+load_experiment_results <- function(path, min_n_cases, pval_method) {
+    d <- fread(path)[N_CASES >= min_n_cases]
+    d[, PVAL_ADJ := p.adjust(PVAL_ABS_CHANGE, method = pval_method)]
+    d
 }
 
-cat(sprintf("Significant medications across all experiments: %d\n", length(sig_meds)))
+experiment_results <- lapply(PATH_FILES, load_experiment_results, min_n_cases = MIN_N_CASES, pval_method = PVAL_METHOD)
 
-# ── Pass 2: extract full results for significant medications ──────────────────
+# Check significant medications
+sig_meds <- experiment_results[[REPORTED_EXPERIMENT]][PVAL_ADJ < ALPHA, OUTCOME_CODE]
+cat(sprintf("Significant medications in the reported experiment ('%s'): %d\n", REPORTED_EXPERIMENT, length(sig_meds)))
 
-results <- list()
+# ============================================================
+# 4. Build the comparison table
+# ============================================================
 
-for (exp in names(files)) {
-    d <- fread(files[[exp]])[N_CASES >= 300]
-    d[, PVAL_ADJ := p.adjust(PVAL_ABS_CHANGE, method = "bonferroni")]
-    d <- d[OUTCOME_CODE %in% sig_meds]
-    results[[exp]] <- d[, .(
-        MED_CODE      = OUTCOME_CODE,
+comparison_list <- list()
+
+for (exp in names(PATH_FILES)) {
+    d <- experiment_results[[exp]][OUTCOME_CODE %in% sig_meds]
+    comparison_list[[exp]] <- d[, .(
+        ATC_CODE      = OUTCOME_CODE,
         EXPERIMENT    = exp,
-        ABS_CHANGE_CI = sprintf("%.4f (%.4f, %.4f)", ABS_CHANGE, ABS_CHANGE - 1.96*ABS_CHANGE_SE, ABS_CHANGE + 1.96*ABS_CHANGE_SE),
+        ABS_CHANGE_CI = sprintf("%.4f (%.4f, %.4f)", ABS_CHANGE, ABS_CHANGE - 1.96 * ABS_CHANGE_SE, ABS_CHANGE + 1.96 * ABS_CHANGE_SE),
         PVAL_ADJ      = PVAL_ADJ,
-        SIGNIFICANT   = PVAL_ADJ < 0.05
+        SIGNIFICANT   = PVAL_ADJ < ALPHA
     )]
 }
-out <- rbindlist(results)[order(MED_CODE, factor(EXPERIMENT, levels = names(files)))]
- 
-fwrite(out, output_file_1)
-cat(sprintf("Saved: %s\n", output_file_1))
 
-# ── Pass 3: extract results for medications significant in all experiments ───────────────────
-
-out_all <- out[, all(SIGNIFICANT), by = MED_CODE][V1 == TRUE, MED_CODE]
-out_filtered <- out[MED_CODE %in% out_all]
-
-fwrite(out_filtered, output_file_2)
-cat(sprintf("Saved: %s\n", output_file_2))
+comparison_table <- rbindlist(comparison_list)[order(ATC_CODE, factor(EXPERIMENT, levels = names(PATH_FILES)))]
+fwrite(comparison_table, OUTPUT_FILE)
