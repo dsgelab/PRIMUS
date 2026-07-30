@@ -1,6 +1,9 @@
+# ==============================================================================
+# 0. LIBRARIES
+# ==============================================================================
+
 .libPaths("/shared-directory/sd-tools/apps/R/lib/")
 
-#### Libraries:
 suppressPackageStartupMessages({
     library(data.table)
     library(arrow)
@@ -10,306 +13,74 @@ suppressPackageStartupMessages({
     library(did)
     library(ggplot2)
     library(ggrepel)
+    library(ggnewscale)  
     library(patchwork)
     library(readr)
     library(metafor)
     library(scales)
 })
 
-##### Arguments
-DATE = "20260316"
-TODAY = format(Sys.Date(), "%Y%m%d")
-dataset_file <- paste0('/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_', DATE, '/Results_', DATE, '/Results_ATC_', DATE, '.csv')
-events_file = paste0("/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_", DATE, "/ProcessedEvents_", DATE, "/processed_events.parquet")
-outcomes_file = paste0("/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_", DATE, "/ProcessedOutcomes_", DATE, "/processed_outcomes.parquet")
-doctor_list = "/media/volume/Projects/DSGELabProject1/doctors_20250424.csv"
-covariate_file = "/media/volume/Projects/DSGELabProject1/doctor_characteristics_20250520.csv"
-renamed_ATC_file = "/media/volume/Projects/ATC_renamed_codes.csv"
-outdir = "/media/volume/Projects/DSGELabProject1/Plots/Results_20260316/"
-if (!dir.exists(outdir)) {dir.create(outdir, recursive = TRUE)}
+# ==============================================================================
+# 1. PATHS
+# ==============================================================================
 
-##### Main
-dataset <- read_csv(dataset_file, show_col_types = FALSE)
+# --- Run identifiers ---
+DATE_DATA   <- "20260316"
+TODAY       <- format(Sys.Date(), "%Y%m%d")
 
-# Filter only codes with at least 300 cases available
-dataset <- dataset[dataset$N_CASES >= 300, ]
+# --- Inputs ---
+dataset_file     <- paste0('/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_', DATE_DATA, '/Results_', DATE_DATA, '/Results_ATC_', DATE_DATA, '.csv')
+events_file      <- paste0("/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_", DATE_DATA, "/ProcessedEvents_", DATE_DATA, "/processed_events.parquet")
+outcomes_file    <- paste0("/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_", DATE_DATA, "/ProcessedOutcomes_", DATE_DATA, "/processed_outcomes.parquet")
+doctor_list      <- "/media/volume/Projects/DSGELabProject1/doctors_20250424.csv"
+covariate_file   <- "/media/volume/Projects/DSGELabProject1/doctor_characteristics_20250520.csv"
 
-# Apply multiple test correction
-dataset$PVAL_ADJ <- p.adjust(dataset$PVAL_ABS_CHANGE, method = "bonferroni")
-dataset$SIGNIFICANT_CHANGE <- dataset$PVAL_ADJ < 0.05
+# --- Output ---
+outdir <- "/media/volume/Projects/DSGELabProject1/Plots/ManuscriptFinal/"
+if (!dir.exists(outdir)) { dir.create(outdir, recursive = TRUE) }
 
-# Apply correction also to the pre and post event p-values
-dataset$PVAL_PRE_ADJ <- p.adjust(dataset$PVAL_PRE, method = "bonferroni")
-dataset$PVAL_POST_ADJ <- p.adjust(dataset$PVAL_POST, method = "bonferroni")    
+BASENAME_PLOT  <- paste0("Supplements_StratifiedAnalysis_Specialty_Plot_", TODAY)
+BASENAME_TABLE <- paste0("Supplements_StratifiedAnalysis_Specialty_Results_", TODAY)
 
-# Create a significance variable with two levels
-dataset$SIG_TYPE <- case_when(
-  dataset$SIGNIFICANT_CHANGE ~ "Significant",
-  TRUE ~ "Not Significant"
-)
+# ==============================================================================
+# 2. PARAMETERS / ARGUMENTS
+# ==============================================================================
 
-# Extract list of significant medications for plots
-code_list = dataset %>%
-    filter(SIG_TYPE == "Significant") %>%
-    pull(OUTCOME_CODE) %>%
-    unique()
+N_THREADS      <- 10    
+setDTthreads(N_THREADS)
 
-# -----------------------------------------------
-# Minimum number of cases and controls required per specialty
-N_MIN = 10
+# --- Filtering / significance thresholds ---
+MIN_CASES        <- 300           
+PADJ_METHOD_MED  <- "bonferroni"  # correction used to flag significant medications
+PADJ_METHOD_SPEC <- "fdr"         # correction used within each medication, across specialties
+SIG_ALPHA        <- 0.05
 
-result_list_1 = list()
+# --- Cohort construction ---
+BUFFER_YEARS   <- 1     # market entrance/exit buffer years
+PENSION_AGE    <- 60    
+N_THRESHOLD    <- 5     # empirical Bayes shrinkage threshold
 
-for (code in code_list) {
-    tryCatch({
-        event_code = paste0('Purch_', code)
-        outcome_code = code
+# --- Per-specialty sample size requirement ---
+N_MIN <- 15   
 
-        #### Main
-        N_THREADS = 10
-        setDTthreads(N_THREADS) 
-        options(datatable.verbose = FALSE)
-        # not using all threads to easily run in background
+# --- Event-time windows used for the pre/post fixed-effects meta-analysis ---
+PRE_WINDOW  <- c(-3, -2, -1)
+POST_WINDOW <- c(1, 2, 3)
+META_METHOD <- "FE"
 
-        # STEP 1: Data Loading 
-        covariates = fread(covariate_file)
-        # Prepare covariates 
-        covariates[, `:=`(
-            SPECIALTY = as.character(INTERPRETATION),
-            BIRTH_YEAR = as.numeric(substr(BIRTH_DATE, 1, 4))
-        )]
-        covariates[, `:=`(
-            BIRTH_DATE = NULL, 
-            INTERPRETATION = NULL)
-        ]
-        doctor_ids = fread(doctor_list, header = FALSE)$V1
+# --- Plot styling ---
+COL_SIG       <- "#1B5E20"      
+COL_NONSIG    <- "grey70"           
+CI_MULTIPLIER <- 1.96        
 
-        events = as.data.table(read_parquet(events_file))
-        event_code_parts = strsplit(event_code, "_")[[1]]
-        event_source = event_code_parts[1]
-        event_actual_code = event_code_parts[2]
+# --- Scatter-plot grid layout ---
+GRID_NCOL <- 5
+GRID_NROW <- 2
 
-        # Filter events based on the event code
-        events = events[SOURCE == event_source & startsWith(as.character(CODE), event_actual_code), ]
-        event_ids = unique(events$PATIENT_ID)
-
-        # Load outcomes (N, Ni, and Y for desired medication)
-        outcomes_cols = c("DOCTOR_ID", "YEAR", "N_general", paste0("N_", outcome_code), paste0("Y_", outcome_code), paste0("first_year_", outcome_code), paste0("last_year_", outcome_code))
-        outcomes = as.data.table(read_parquet(outcomes_file, col_select = outcomes_cols))
-
-        # STEP 2: Data Preparation
-        # Process and merge events and outcomes
-
-        events_new = events[, .(PATIENT_ID, CODE, DATE)]
-        events_new = events_new[CODE == outcome_code]
-        setnames(events_new, "PATIENT_ID", "DOCTOR_ID")
-        # QC: Keep only the first event per DOCTOR_ID, in case multiple codes exist
-        events_new = events_new[order(DOCTOR_ID, DATE)]
-        events_new = events_new[, .SD[1], by = DOCTOR_ID]
-        # QC: Ensure events are only for doctors in the doctor list
-        outcomes_filtered = outcomes[DOCTOR_ID %in% doctor_ids]
-
-        df_merged = events_new[outcomes_filtered, on = "DOCTOR_ID", allow.cartesian = TRUE]
-        df_merged[, DATE := as.Date(DATE)]
-        df_merged[, EVENT := ifelse(!is.na(DATE), 1, 0)]
-        df_merged[, EVENT_YEAR := ifelse(!is.na(DATE), as.numeric(format(DATE, "%Y")), NA_real_)]
-        df_merged[, DATE := NULL]
-
-        # Select only events that happened after 2010
-        df_merged = df_merged[is.na(EVENT_YEAR) | EVENT_YEAR >= 2011]
-
-        # Merge covariates
-        df_complete = covariates[df_merged, on = "DOCTOR_ID"]
-        df_complete[, `:=`(
-            AGE = YEAR - BIRTH_YEAR,
-            AGE_IN_2023 = 2023 - BIRTH_YEAR,
-            AGE_AT_EVENT = fifelse(is.na(EVENT_YEAR), NA_real_, EVENT_YEAR - BIRTH_YEAR)
-        )]
-
-        # 1. Calculate original min and max year across all doctors in the cohort
-        original_min_year <- min(df_complete[[paste0("first_year_", outcome_code)]], na.rm = TRUE)
-        original_max_year <- max(df_complete[[paste0("last_year_", outcome_code)]], na.rm = TRUE)
-        # 2. Add buffer to min and max year to avoid bias
-        BUFFER_YEARS = 1
-        buffered_min_year <- original_min_year + BUFFER_YEARS
-        buffered_max_year <- original_max_year - BUFFER_YEARS
-        cat(sprintf("Original range of outcomes: %d-%d | Buffered range of outcomes: %d-%d\n", original_min_year, original_max_year, buffered_min_year, buffered_max_year))
-        # Remove all information outside of buffered range
-        df_complete <- df_complete[YEAR >= buffered_min_year & YEAR <= buffered_max_year]
-        # Exclude events which happened before the first prescription of the outcome / or after the last one (using buffered range)
-        df_complete <- df_complete[is.na(EVENT_YEAR) | (EVENT_YEAR >= buffered_min_year & EVENT_YEAR <= buffered_max_year)]
-
-        # Filter out events after pension, and prescriptions after pension
-        PENSION_AGE = 60
-        events_after_pension = df_complete[AGE_AT_EVENT > PENSION_AGE & !is.na(AGE_AT_EVENT), unique(DOCTOR_ID)]
-        df_complete = df_complete[!(DOCTOR_ID %in% events_after_pension) & AGE <= PENSION_AGE]
-
-        # final model data
-        df_model <- as.data.table(df_complete)[
-            , `:=`(
-                SPECIALTY = factor(SPECIALTY, levels = c("", setdiff(unique(df_complete$SPECIALTY), ""))),
-                SEX = factor(SEX, levels = c(1, 2), labels = c("Male", "Female")),
-                Y = get(paste0("Y_", outcome_code)),
-                Ni = get(paste0("N_", outcome_code)),
-                N = N_general
-            )
-        ]
-        # Replace missing Y values with 0s 
-        df_model[is.na(Y), Y := 0]
-
-        # To ensure results are robust will apply "empirical bayes shrinkage" to doctors with low total prescriptions in a given year
-        # Will shrink the ratio toward the mean within the doctor trajectory
-        N_THRESHOLD = 5
-        # Calculate mean Y for each doctor (using only observations where N >= N_THRESHOLD)
-        df_model[, Y_mean := mean(Y[N >= N_THRESHOLD], na.rm = TRUE), by = DOCTOR_ID]
-        # Apply empirical Bayes shrinkage: adjust Y values where N < N_THRESHOLD
-        df_model[, Y := fifelse(
-            N < N_THRESHOLD, 
-            ((N * Y + N_THRESHOLD * Y_mean) / (N + N_THRESHOLD)), 
-            Y
-        )]
-        df_model[, Y_mean := NULL]
-
-        # Replace empty string with "No Specialty"
-        df_model[SPECIALTY == "", SPECIALTY := "No Specialty"]
-
-        result_list_2 <- list()
-        all_specialties <- unique(as.character(df_model$SPECIALTY))
-
-        for (specialty in all_specialties) {
-            tryCatch({
-                df_spec <- df_model[SPECIALTY == specialty, ]
-                n_cases_spec    <- length(unique(df_spec[EVENT == 1, DOCTOR_ID]))
-                n_controls_spec <- length(unique(df_spec[EVENT == 0, DOCTOR_ID]))
-
-                # extract baseline prescription rate among controls (EVENT == 0) for relative change calculation
-                baseline <- df_spec[df_spec$EVENT == 0, ] %>% summarise(baseline = mean(Y, na.rm = TRUE)) %>% pull(baseline)
-
-                # prepare variables as requested by did package
-                df_spec$ID <- as.integer(factor(df_spec$DOCTOR_ID))
-                df_spec$G  <- ifelse(is.na(df_spec$EVENT_YEAR), 0, df_spec$EVENT_YEAR)
-                df_spec$T  <- df_spec$YEAR
-
-                set.seed(09152024)
-                att_gt_res_spec <- att_gt(
-                    yname = "Y",
-                    tname = "T",
-                    idname = "ID",
-                    gname = "G",
-                    xformla = ~ BIRTH_YEAR + SEX,
-                    data = df_spec,
-                    est_method = "dr",
-                    control_group = "notyettreated",
-                    clustervars = "ID",
-                    pl = TRUE,
-                    cores = N_THREADS
-                )
-
-                agg_dynamic <- aggte(att_gt_res_spec, type = "dynamic", na.rm = TRUE)
-                results <- data.frame(
-                    time = agg_dynamic$egt,
-                    att  = agg_dynamic$att.egt,
-                    se   = agg_dynamic$se.egt
-                )
-
-                # For medications results will consider ATT and SE in a 3 year window before and after event (t=0)
-                before_idx <- results$time %in% c(-3, -2, -1)
-                after_idx  <- results$time %in% c(1, 2, 3)
-
-                # Meta-analysis of pre-period estimates
-                pre_data <- data.frame(
-                    estimate = results$att[before_idx],
-                    se       = results$se[before_idx]
-                )
-                pre_meta        <- metafor::rma(yi = estimate, sei = se, data = pre_data, method = "FE")
-                avg_effect_before <- pre_meta$b[, 1]
-                se_pre          <- pre_meta$se
-                p_value_pre     <- pre_meta$pval
-
-                # Meta-analysis of post-period estimates
-                post_data <- data.frame(
-                    estimate = results$att[after_idx],
-                    se       = results$se[after_idx]
-                )
-                post_meta        <- metafor::rma(yi = estimate, sei = se, data = post_data, method = "FE")
-                avg_effect_after <- post_meta$b[, 1]
-                se_post          <- post_meta$se
-                p_value_post     <- post_meta$pval
-
-                # Absolute change and relative change estimates
-                absolute_change    <- avg_effect_after - avg_effect_before
-                absolute_change_se <- sqrt(se_post^2 + se_pre^2)
-                score_abs          <- absolute_change / absolute_change_se
-                p_value_change     <- 2 * (1 - pnorm(abs(score_abs)))
-                relative_change    <- ifelse(baseline != 0, (absolute_change + baseline) / baseline, NA_real_)
-
-                result_list_2[[specialty]] <- data.frame(
-                    code               = code,
-                    specialty          = specialty,
-                    baseline           = round(baseline, 5),
-                    absolute_change    = round(absolute_change, 5),
-                    absolute_change_se = round(absolute_change_se, 5),
-                    relative_change    = round(relative_change, 5),
-                    p_value            = round(p_value_change, 5),
-                    n_cases            = n_cases_spec,
-                    n_controls         = n_controls_spec
-                )
-
-            }, error = function(e) {
-                df_spec         <- df_model[SPECIALTY == specialty, ]
-                n_cases_spec    <- length(unique(df_spec[EVENT == 1, DOCTOR_ID]))
-                n_controls_spec <- length(unique(df_spec[EVENT == 0, DOCTOR_ID]))
-                cat(sprintf("  Error for specialty '%s', code %s: %s\n", specialty, code, e$message))
-                result_list_2[[specialty]] <<- data.frame(
-                    code               = code,
-                    specialty          = specialty,
-                    baseline           = baseline, 
-                    absolute_change    = NA_real_,
-                    absolute_change_se = NA_real_,
-                    relative_change    = NA_real_,
-                    p_value            = NA_real_,
-                    n_cases            = n_cases_spec,
-                    n_controls         = n_controls_spec
-                )
-            })
-        }
-
-        # Combine specialty results for this code and append to main list
-        if (length(result_list_2) > 0) {
-            result_df <- do.call(rbind, result_list_2)
-            result_list_1[[code]] <- result_df
-        }
-
-    }, error = function(e) {
-        cat(sprintf("Error processing code %s: %s\n", code, e$message))
-    })
-}
-
-# Combine all results into one long file with the required header
-combined_results <- do.call(rbind, result_list_1)
-rownames(combined_results) <- NULL
-
-# Save final results
-write.csv(combined_results,
-          paste0(outdir, "Supplements_StratifiedAnalysis_Specialty_", TODAY, ".csv"),
-          row.names = FALSE)
-
-
-# -----------------------------------------------
-# SCATTER PLOT: Baseline vs. Absolute Change by Specialty
-# 2x5 grid, one scatter panel per medication 
-#
-# Each panel:
-#   X-axis : baseline prescription rate (controls), symmetric around 0, same limits across all meds
-#   Y-axis : absolute change estimates (DiD), symmetric around 0, same limits across all meds
-#   Points : one per specialty; colour = significant
-#   Labels : specialty name on significant points
-#   Ref lines: x = 0, y = 0
-#
-# -----------------------------------------------
-
-# reload data if running separately from the above code block
-combined_results <- read_csv(paste0(outdir, "Supplements_StratifiedAnalysis_Specialty_", TODAY, ".csv"), show_col_types = FALSE)
+# --- Plot export settings ---
+PLOT_WIDTH  <- 22
+PLOT_HEIGHT <- 10
+PLOT_DPI    <- 300
 
 # Medications of interest: ATC code -> readable label
 code_labels <- tibble(
@@ -337,36 +108,24 @@ code_labels <- tibble(
     )
 )
 
-# Apply multiple-testing correction within each medication (code) separately
-combined_results <- combined_results %>%
-    group_by(code) %>%
-    mutate(
-        p_value_adj = p.adjust(p_value, method = "fdr"),
-        significant = !is.na(p_value_adj) & p_value_adj < 0.05
-    ) %>%
-    ungroup()
+# ==============================================================================
+# 3. HELPER FUNCTIONS
+# ==============================================================================
 
-# Join labels
-combined_results <- combined_results %>%
-    left_join(code_labels, by = c("code" = "OUTCOME_CODE")) %>%
-    mutate(med_label = ifelse(!is.na(LABEL), LABEL, code), LABEL = NULL)
-
-# Mask estimates below sample threshold
-combined_results <- combined_results %>%
-    mutate(
-        across(
-            c(absolute_change, absolute_change_se, relative_change, baseline),
-            ~ ifelse(is.na(n_cases) | is.na(n_controls) | n_cases < N_MIN | n_controls < N_MIN, NA_real_, .)
-        ),
-        significant = ifelse(is.na(absolute_change), FALSE, significant)
+# Save a ggplot as both PNG and PDF using the same base filename
+save_plot_png_pdf <- function(plot, dir, basename, width, height, dpi = PLOT_DPI) {
+    ggsave(filename = file.path(dir, paste0(basename, ".png")),
+        plot = plot,
+        width = width,
+        height = height,
+        dpi = dpi
     )
-
-# -----------------------------------------------
-# Shared aesthetics
-# -----------------------------------------------
-
-COL_SIG    <- "#1B5E20";   # dark green  – significant
-COL_NONSIG <- "grey70";    # grey        – not significant
+    ggsave(filename = file.path(dir, paste0(basename, ".pdf")),
+        plot = plot,
+        width = width,
+        height = height
+    )
+}
 
 base_theme <- theme_minimal(base_size = 8) +
     theme(
@@ -376,18 +135,15 @@ base_theme <- theme_minimal(base_size = 8) +
         plot.margin       = margin(4, 6, 4, 6)
     )
 
-# -----------------------------------------------
-# Per-medication scatter plot function
-# -----------------------------------------------
-
+# Per-medication scatter plot: 
 make_scatter_plot <- function(med_code, med_label, df_all) {
 
     df <- df_all %>%
         filter(code == med_code, !is.na(baseline), !is.na(absolute_change)) %>%
         mutate(
-            # 95% CI for absolute change (Y direction)
-            ci_y_lo = absolute_change - 1.96 * absolute_change_se,
-            ci_y_hi = absolute_change + 1.96 * absolute_change_se,
+            # 95% CI for absolute change (Y direction only)
+            ci_y_lo = absolute_change - CI_MULTIPLIER * absolute_change_se,
+            ci_y_hi = absolute_change + CI_MULTIPLIER * absolute_change_se,
         )
 
     # Per-medication symmetric axis limits (centred on 0)
@@ -397,10 +153,8 @@ make_scatter_plot <- function(med_code, med_label, df_all) {
     # Use the same scale for both axes
     ax_lim <- max(x_lim, y_lim)
 
-    # Clip the Y-direction CI95% to the axis limits, and flag when a bound
-    # was truncated so an arrowhead can be drawn to signify the segment
-    # continues beyond the visible range
-    STUB <- 0.06 * ax_lim   # length of the arrowhead stub segment
+    # Clip the Y-direction CI95% to the axis limits
+    STUB <- 0.06 * ax_lim 
     df <- df %>%
         mutate(
             ci_y_lo_clip = pmax(ci_y_lo, -ax_lim),
@@ -409,11 +163,17 @@ make_scatter_plot <- function(med_code, med_label, df_all) {
             ci_hi_trunc  = ci_y_hi >  ax_lim
         )
 
-    # Per-medication correlation between baseline and absolute change
-    df_lab <- df %>% filter(significant)
-    # Exclude points already labelled as significant, so a point that is both
-    # the largest-baseline value AND significant only gets the "significant" label
-    df_max_baseline <- df %>% filter(baseline == max(baseline, na.rm = TRUE), !significant)
+    # --- Build ONE combined label dataset ---
+    # (1) significant specialties, coloured COL_SIG
+    # (2) the specialty with the largest baseline (if not already significant), coloured black
+    is_max_baseline <- df$baseline == max(df$baseline, na.rm = TRUE) & !df$significant
+
+    label_df <- df %>%
+        mutate(
+            label_text   = ifelse(significant | is_max_baseline, specialty, ""),
+            label_colour = ifelse(significant, COL_SIG, "black")
+        )
+
     assoc_test <- suppressWarnings(cor.test(df$baseline, df$absolute_change, method = "pearson"))
     assoc_lab  <- sprintf(
         "r = %.2f\np = %.3g",
@@ -423,15 +183,11 @@ make_scatter_plot <- function(med_code, med_label, df_all) {
 
     ggplot(df, aes(x = baseline, y = absolute_change,colour = significant, alpha = significant)) +
 
-        # Diagonal reference line y = x (slope 1 through origin)
-        geom_abline(slope = 1, intercept = 0, linetype = "solid", colour = "grey80", linewidth = 0.4) +
-
         # Zero-reference cross
         geom_hline(yintercept = 0, linetype = "dashed", colour = "grey50", linewidth = 0.35) +
         geom_vline(xintercept = 0, linetype = "dashed", colour = "grey50", linewidth = 0.35) +
 
-        # Y-direction CI95% (clipped to the axis limits so it never
-        # silently disappears when a bound exceeds the plotted range)
+        # Y-direction CI95%
         geom_segment(
             aes(xend = baseline, y = ci_y_lo_clip, yend = ci_y_hi_clip),
             linewidth = 0.35, show.legend = FALSE
@@ -479,37 +235,31 @@ make_scatter_plot <- function(med_code, med_label, df_all) {
             colour = "grey20"
         ) +
 
-        # Label the point(s) with the largest baseline value
-        ggrepel::geom_text_repel(
-            data           = df_max_baseline,
-            aes(x = baseline, y = absolute_change, label = specialty),
-            colour         = "black",
-            size           = 3,
-            segment.size   = 0.5,
-            segment.colour = "black",
-            box.padding    = 0.3,
-            max.overlaps   = 20,
-            min.segment.length = 0.1,
-            inherit.aes    = FALSE
-        ) +
+        # Colour/alpha scale for the points above (significant vs. not).
+        scale_colour_manual(values = c("FALSE" = COL_NONSIG, "TRUE" = COL_SIG), guide = "none") +
+        scale_alpha_manual( values = c("FALSE" = 0.55,       "TRUE" = 0.90),    guide = "none") +
+        # Start a brand-new colour scale for the specialty labels below
+        ggnewscale::new_scale_colour() +
 
-        # Specialty labels for significant points
+        # Specialty labels
         ggrepel::geom_text_repel(
-            data           = df_lab,
-            aes(x = baseline, y = absolute_change, label = specialty),
-            colour         = COL_SIG,
-            size           = 3,
-            segment.size   = 0.5,
-            segment.colour = COL_SIG,
-            box.padding    = 0.3,
-            max.overlaps   = 20,
-            min.segment.length = 0.1,
-            inherit.aes    = FALSE
+            data                = label_df,
+            aes(x = baseline, y = absolute_change, label = label_text, colour = label_colour),
+            size                = 3,
+            segment.size        = 0.5,
+            box.padding         = 0.4,
+            point.padding       = 0.25,
+            force               = 3,
+            force_pull          = 0.6,
+            max.overlaps        = Inf,
+            max.time            = 2,
+            max.iter            = 20000,
+            min.segment.length  = 0.1,
+            seed                = 42,
+            inherit.aes         = FALSE,
+            show.legend         = FALSE
         ) +
-
-        scale_colour_manual(values = c("FALSE" = COL_NONSIG, "TRUE" = COL_SIG)) +
-        scale_alpha_manual( values = c("FALSE" = 0.55,       "TRUE" = 0.90)) +
-        # Symmetric axes centred on 0, same extent on both sides
+        scale_colour_identity() +
         scale_x_continuous(limits = c(-ax_lim, ax_lim)) +
         scale_y_continuous(limits = c(-ax_lim, ax_lim)) +
         labs(
@@ -525,10 +275,311 @@ make_scatter_plot <- function(med_code, med_label, df_all) {
         )
 }
 
-# -----------------------------------------------
-# Build plot list: 9 medications 
-# -----------------------------------------------
 
+# ==============================================================================
+# 4. MAIN
+# ==============================================================================
+
+dataset <- read_csv(dataset_file, show_col_types = FALSE)
+dataset <- dataset[dataset$N_CASES >= MIN_CASES, ]
+
+# Apply multiple test correction
+dataset$PVAL_ADJ <- p.adjust(dataset$PVAL_ABS_CHANGE, method = PADJ_METHOD_MED)
+dataset$SIGNIFICANT_CHANGE <- dataset$PVAL_ADJ < SIG_ALPHA
+dataset$SIG_TYPE <- case_when(
+    dataset$SIGNIFICANT_CHANGE ~ "Significant",
+    TRUE ~ "Not Significant"
+)
+
+# Extract list of significant medications for plots
+code_list <- dataset %>%
+    filter(SIG_TYPE == "Significant") %>%
+    pull(OUTCOME_CODE) %>%
+    unique()
+
+# ==============================================================================
+# 5. PER-MEDICATION, PER-SPECIALTY DiD PIPELINE
+# ==============================================================================
+
+result_list_1 <- list()
+
+for (code in code_list) {
+    tryCatch({
+
+        event_code   <- paste0('Purch_', code)
+        outcome_code <- code
+
+        # --- STEP 1: Data loading ---
+        covariates <- fread(covariate_file)
+        # Prepare covariates
+        covariates[, `:=`(
+            SPECIALTY = as.character(INTERPRETATION),
+            BIRTH_YEAR = as.numeric(substr(BIRTH_DATE, 1, 4))
+        )]
+        covariates[, `:=`(
+            BIRTH_DATE = NULL,
+            INTERPRETATION = NULL)
+        ]
+        doctor_ids <- fread(doctor_list, header = FALSE)$V1
+
+        events <- as.data.table(read_parquet(events_file))
+        event_code_parts  <- strsplit(event_code, "_")[[1]]
+        event_source      <- event_code_parts[1]
+        event_actual_code <- event_code_parts[2]
+
+        # Filter events based on the event code
+        events <- events[SOURCE == event_source & startsWith(as.character(CODE), event_actual_code), ]
+        event_ids <- unique(events$PATIENT_ID)
+
+        # Load outcomes (N, Ni, and Y for desired medication)
+        outcomes_cols <- c("DOCTOR_ID", "YEAR", "N_general", paste0("N_", outcome_code), paste0("Y_", outcome_code), paste0("first_year_", outcome_code), paste0("last_year_", outcome_code))
+        outcomes <- as.data.table(read_parquet(outcomes_file, col_select = outcomes_cols))
+
+        # --- STEP 2: Data preparation (merge events, outcomes & covariates) ---
+        events_new <- events[, .(PATIENT_ID, CODE, DATE)]
+        events_new <- events_new[CODE == outcome_code]
+        setnames(events_new, "PATIENT_ID", "DOCTOR_ID")
+        # QC: Keep only the first event per DOCTOR_ID, in case multiple codes exist
+        events_new <- events_new[order(DOCTOR_ID, DATE)]
+        events_new <- events_new[, .SD[1], by = DOCTOR_ID]
+        # QC: Ensure events are only for doctors in the doctor list
+        outcomes_filtered <- outcomes[DOCTOR_ID %in% doctor_ids]
+
+        df_merged <- events_new[outcomes_filtered, on = "DOCTOR_ID", allow.cartesian = TRUE]
+        df_merged[, DATE := as.Date(DATE)]
+        df_merged[, EVENT := ifelse(!is.na(DATE), 1, 0)]
+        df_merged[, EVENT_YEAR := ifelse(!is.na(DATE), as.numeric(format(DATE, "%Y")), NA_real_)]
+        df_merged[, DATE := NULL]
+
+        # Merge covariates
+        df_complete <- covariates[df_merged, on = "DOCTOR_ID"]
+        df_complete[, `:=`(
+            AGE = YEAR - BIRTH_YEAR,
+            AGE_IN_2023 = 2023 - BIRTH_YEAR,
+            AGE_AT_EVENT = fifelse(is.na(EVENT_YEAR), NA_real_, EVENT_YEAR - BIRTH_YEAR)
+        )]
+
+        # --- STEP 3: Trim the medication's on-market window ---
+        # (avoid bias from the drug entering/exiting the market during the study period)
+        original_min_year <- min(df_complete[[paste0("first_year_", outcome_code)]], na.rm = TRUE)
+        original_max_year <- max(df_complete[[paste0("last_year_", outcome_code)]], na.rm = TRUE)
+        buffered_min_year <- original_min_year + BUFFER_YEARS
+        buffered_max_year <- original_max_year - BUFFER_YEARS
+        cat(sprintf("Original range of outcomes: %d-%d | Buffered range of outcomes: %d-%d\n", original_min_year, original_max_year, buffered_min_year, buffered_max_year))
+        # Remove all information outside of buffered range
+        df_complete <- df_complete[YEAR >= buffered_min_year & YEAR <= buffered_max_year]
+        # Exclude events which happened before the first prescription of the outcome / or after the last one (using buffered range)
+        df_complete <- df_complete[is.na(EVENT_YEAR) | (EVENT_YEAR >= buffered_min_year & EVENT_YEAR <= buffered_max_year)]
+
+        # --- STEP 4: Model data preparation ---
+        # Filter out events after pension, and prescriptions after pension
+        events_after_pension <- df_complete[AGE_AT_EVENT > PENSION_AGE & !is.na(AGE_AT_EVENT), unique(DOCTOR_ID)]
+        df_complete <- df_complete[!(DOCTOR_ID %in% events_after_pension) & AGE <= PENSION_AGE]
+
+        # Final model data
+        df_model <- as.data.table(df_complete)[
+            , `:=`(
+                SPECIALTY = factor(SPECIALTY, levels = c("", setdiff(unique(df_complete$SPECIALTY), ""))),
+                SEX = factor(SEX, levels = c(1, 2), labels = c("Male", "Female")),
+                Y = get(paste0("Y_", outcome_code)),
+                Ni = get(paste0("N_", outcome_code)),
+                N = N_general
+            )
+        ]
+        # Replace missing Y values with 0s
+        df_model[is.na(Y), Y := 0]
+
+        # Apply empirical Bayes shrinkage: 
+        df_model[, Y_mean := mean(Y[N >= N_THRESHOLD], na.rm = TRUE), by = DOCTOR_ID]
+        df_model[, Y := fifelse(
+            N < N_THRESHOLD,
+            ((N * Y + N_THRESHOLD * Y_mean) / (N + N_THRESHOLD)),
+            Y
+        )]
+        df_model[, Y_mean := NULL]
+
+        # Replace empty string with "No Specialty"
+        df_model[SPECIALTY == "", SPECIALTY := "No Specialty"]
+
+        # --- STEP 5: Stratified DiD - one model per specialty ---
+        result_list_2 <- list()
+        all_specialties <- unique(as.character(df_model$SPECIALTY))
+
+        for (specialty in all_specialties) {
+            tryCatch({
+
+                df_spec <- df_model[SPECIALTY == specialty, ]
+                n_cases_spec    <- length(unique(df_spec[EVENT == 1, DOCTOR_ID]))
+                n_controls_spec <- length(unique(df_spec[EVENT == 0, DOCTOR_ID]))
+
+                # If there are too few cases or controls, skip this specialty
+                if (n_cases_spec < N_MIN | n_controls_spec < N_MIN) {
+                    cat(sprintf("  Skipping specialty '%s' due to low sample size: %d cases, %d controls\n", 
+                                    specialty, n_cases_spec, n_controls_spec))
+                    result_list_2[[specialty]] <- data.frame(
+                        code               = code,
+                        specialty          = specialty,
+                        baseline           = NA_real_,
+                        absolute_change    = NA_real_,
+                        absolute_change_se = NA_real_,
+                        relative_change    = NA_real_,
+                        p_value            = NA_real_,
+                        n_cases            = n_cases_spec,
+                        n_controls         = n_controls_spec
+                    )
+                    next
+                }
+                
+                # extract baseline prescription rate among controls (EVENT == 0) for relative change calculation
+                baseline <- df_spec[df_spec$EVENT == 0, ] %>% summarise(baseline = mean(Y, na.rm = TRUE)) %>% pull(baseline)
+
+                # prepare variables as requested by did package
+                df_spec$ID <- as.integer(factor(df_spec$DOCTOR_ID))
+                df_spec$G  <- ifelse(is.na(df_spec$EVENT_YEAR), 0, df_spec$EVENT_YEAR)
+                df_spec$T  <- df_spec$YEAR
+
+                set.seed(09152024)
+                att_gt_res_spec <- att_gt(
+                    yname = "Y",
+                    tname = "T",
+                    idname = "ID",
+                    gname = "G",
+                    xformla = ~ BIRTH_YEAR + SEX,
+                    data = df_spec,
+                    est_method = "dr",                 # doubly robust (for covariate adjustment)
+                    control_group = "notyettreated",   # use not-yet-treated as control group
+                    clustervars = "ID",
+                    pl = TRUE,
+                    cores = N_THREADS
+                )
+
+                agg_dynamic <- aggte(att_gt_res_spec, type = "dynamic", na.rm = TRUE)
+                results <- data.frame(
+                    time = agg_dynamic$egt,
+                    att  = agg_dynamic$att.egt,
+                    se   = agg_dynamic$se.egt
+                )
+
+                # For medications results will consider ATT and SE in a 3 year window before and after event (t=0)
+                before_idx <- results$time %in% PRE_WINDOW
+                after_idx  <- results$time %in% POST_WINDOW
+
+                # Meta-analysis of pre-period estimates
+                pre_data <- data.frame(
+                    estimate = results$att[before_idx],
+                    se       = results$se[before_idx]
+                )
+                pre_meta        <- metafor::rma(yi = estimate, sei = se, data = pre_data, method = META_METHOD)
+                avg_effect_before <- pre_meta$b[, 1]
+                se_pre          <- pre_meta$se
+                p_value_pre     <- pre_meta$pval
+
+                # Meta-analysis of post-period estimates
+                post_data <- data.frame(
+                    estimate = results$att[after_idx],
+                    se       = results$se[after_idx]
+                )
+                post_meta        <- metafor::rma(yi = estimate, sei = se, data = post_data, method = META_METHOD)
+                avg_effect_after <- post_meta$b[, 1]
+                se_post          <- post_meta$se
+                p_value_post     <- post_meta$pval
+
+                # Absolute change and relative change estimates
+                absolute_change    <- avg_effect_after - avg_effect_before
+                absolute_change_se <- sqrt(se_post^2 + se_pre^2)
+                score_abs          <- absolute_change / absolute_change_se
+                p_value_change     <- 2 * (1 - pnorm(abs(score_abs)))
+                relative_change    <- ifelse(baseline != 0, (absolute_change + baseline) / baseline, NA_real_)
+
+                result_list_2[[specialty]] <- data.frame(
+                    code               = code,
+                    specialty          = specialty,
+                    baseline           = round(baseline, 5),
+                    absolute_change    = round(absolute_change, 5),
+                    absolute_change_se = round(absolute_change_se, 5),
+                    relative_change    = round(relative_change, 5),
+                    p_value            = round(p_value_change, 5),
+                    n_cases            = n_cases_spec,
+                    n_controls         = n_controls_spec
+                )
+
+            }, error = function(e) {
+                df_spec         <- df_model[SPECIALTY == specialty, ]
+                n_cases_spec    <- length(unique(df_spec[EVENT == 1, DOCTOR_ID]))
+                n_controls_spec <- length(unique(df_spec[EVENT == 0, DOCTOR_ID]))
+                cat(sprintf("  Error for specialty '%s', code %s: %s\n", specialty, code, e$message))
+                result_list_2[[specialty]] <- data.frame(
+                    code               = code,
+                    specialty          = specialty,
+                    baseline           = NA_real_,
+                    absolute_change    = NA_real_,
+                    absolute_change_se = NA_real_,
+                    relative_change    = NA_real_,
+                    p_value            = NA_real_,
+                    n_cases            = n_cases_spec,
+                    n_controls         = n_controls_spec
+                )
+            })
+        }
+
+        # Combine specialty results for this code and append to main list
+        if (length(result_list_2) > 0) {
+            result_df <- do.call(rbind, result_list_2)
+            result_list_1[[code]] <- result_df
+        }
+
+    }, error = function(e) {
+        cat(sprintf("Error processing code %s: %s\n", code, e$message))
+    })
+}
+
+
+# ==============================================================================
+# 6. COMBINE & SAVE STRATIFIED RESULTS
+# ==============================================================================
+
+# Combine all results into one long file with the required header
+combined_results <- do.call(rbind, result_list_1)
+rownames(combined_results) <- NULL
+
+# Save final results
+write.csv(combined_results,
+          paste0(outdir, BASENAME_TABLE, ".csv"),
+          row.names = FALSE)
+
+
+# ==============================================================================
+# 7. SCATTER PLOT: BASELINE VS. ABSOLUTE CHANGE BY SPECIALTY
+#
+# Each panel:
+#   X-axis    : baseline prescription rate (controls), symmetric around 0, same limits across all meds
+#   Y-axis    : absolute change estimates (DiD), symmetric around 0, same limits across all meds
+#   Points    : one per specialty; colour = significant
+#   Labels    : specialty name on significant points
+#   Ref lines : x = 0, y = 0
+# ==============================================================================
+
+# reload data if running separately from the pipeline above
+combined_results <- read_csv(paste0(outdir, BASENAME_TABLE, ".csv"), show_col_types = FALSE)
+
+# Remove specialties below sample threshold
+combined_results <- combined_results %>% filter(n_cases >= N_MIN & n_controls >= N_MIN) 
+
+# Apply multiple-testing correction within each medication (code) separately
+combined_results <- combined_results %>%
+    group_by(code) %>%
+    mutate(
+        p_value_adj = p.adjust(p_value, method = PADJ_METHOD_SPEC),
+        significant = !is.na(p_value_adj) & p_value_adj < SIG_ALPHA
+    ) %>%
+    ungroup()
+
+# Join labels
+combined_results <- combined_results %>%
+    left_join(code_labels, by = c("code" = "OUTCOME_CODE")) %>%
+    mutate(med_label = ifelse(!is.na(LABEL), LABEL, code), LABEL = NULL)
+
+# Build plot list: one scatter panel per medication
 med_codes  <- code_labels$OUTCOME_CODE[code_labels$OUTCOME_CODE %in% unique(combined_results$code)]
 med_labels <- code_labels$LABEL[code_labels$OUTCOME_CODE %in% med_codes]
 
@@ -540,9 +591,7 @@ scatter_list <- mapply(
     SIMPLIFY  = FALSE
 )
 
-# Arrange in 2 rows x 5 columns grid (pad with empty spacers if fewer plots than grid cells)
-GRID_NCOL <- 5
-GRID_NROW <- 2
+# Arrange in GRID_NROW x GRID_NCOL grid (pad with empty spacers if fewer plots than grid cells)
 n_slots <- GRID_NCOL * GRID_NROW
 
 if (length(scatter_list) > n_slots) {
@@ -559,11 +608,12 @@ while (length(scatter_list) < n_slots) {
 scatter_grid <- wrap_plots(scatter_list, ncol = GRID_NCOL, nrow = GRID_NROW) +
     plot_layout(guides = "keep")
 
-ggsave(
-    filename = paste0(outdir, "ScatterPlot_BaselineVsChange_Specialty_", TODAY, ".png"),
+# Save as both PNG and PDF
+save_plot_png_pdf(
     plot     = scatter_grid,
-    width    = 22,
-    height   = 10,
-    units    = "in",
-    dpi      = 300
+    dir      = outdir,
+    basename = BASENAME_PLOT,
+    width    = PLOT_WIDTH,
+    height   = PLOT_HEIGHT,
+    dpi      = PLOT_DPI
 )

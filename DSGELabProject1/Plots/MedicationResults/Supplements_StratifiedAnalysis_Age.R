@@ -1,6 +1,10 @@
+
+# ==============================================================================
+# 0. LIBRARIES
+# ==============================================================================
+
 .libPaths("/shared-directory/sd-tools/apps/R/lib/")
 
-#### Libraries:
 suppressPackageStartupMessages({
     library(data.table)
     library(arrow)
@@ -14,117 +18,143 @@ suppressPackageStartupMessages({
     library(metafor)
 })
 
-##### Arguments
-DATE = "20260316"
-dataset_file <- paste0('/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_', DATE, '/Results_', DATE, '/Results_ATC_', DATE, '.csv')
-events_file = paste0("/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_", DATE, "/ProcessedEvents_", DATE, "/processed_events.parquet")
-outcomes_file = paste0("/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_", DATE, "/ProcessedOutcomes_", DATE, "/processed_outcomes.parquet")
-doctor_list = "/media/volume/Projects/DSGELabProject1/doctors_20250424.csv"
-covariate_file = "/media/volume/Projects/DSGELabProject1/doctor_characteristics_20250520.csv"
-renamed_ATC_file = "/media/volume/Projects/ATC_renamed_codes.csv"
-outdir = "/media/volume/Projects/DSGELabProject1/Plots/Results_20260316/"
-if (!dir.exists(outdir)) {dir.create(outdir, recursive = TRUE)}
 
-##### Main
+# ==============================================================================
+# 1. PATHS
+# ==============================================================================
+
+DATE_DATA <- "20260316"
+TODAY     <- format(Sys.Date(), "%Y%m%d")
+
+# --- Inputs ---
+dataset_file     <- paste0('/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_', DATE_DATA, '/Results_', DATE_DATA, '/Results_ATC_', DATE_DATA, '.csv')
+events_file      <- paste0("/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_", DATE_DATA, "/ProcessedEvents_", DATE_DATA, "/processed_events.parquet")
+outcomes_file    <- paste0("/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_", DATE_DATA, "/ProcessedOutcomes_", DATE_DATA, "/processed_outcomes.parquet")
+doctor_list      <- "/media/volume/Projects/DSGELabProject1/doctors_20250424.csv"
+covariate_file   <- "/media/volume/Projects/DSGELabProject1/doctor_characteristics_20250520.csv"
+renamed_ATC_file <- "/media/volume/Projects/ATC_renamed_codes.csv"  # NOTE: currently unused elsewhere in this script
+
+# --- Output ---
+outdir  <- "/media/volume/Projects/DSGELabProject1/Plots/ManuscriptFinal/"
+if (!dir.exists(outdir)) { dir.create(outdir, recursive = TRUE) }
+
+outfile <- paste0(outdir, "Supplements_StratifiedAnalysis_Age_", TODAY, ".csv")
+# no plots are generated for this analysis
+
+# ==============================================================================
+# 2. PARAMETERS / ARGUMENTS
+# ==============================================================================
+
+N_THREADS      <- 10    
+setDTthreads(N_THREADS)
+
+# --- Filtering / significance thresholds ---
+MIN_CASES   <- 300
+PADJ_METHOD <- "bonferroni"
+SIG_ALPHA   <- 0.05
+
+# --- Cohort construction ---
+BUFFER_YEARS   <- 1     # market entrance/exit buffer years
+PENSION_AGE    <- 60    
+N_THRESHOLD    <- 5     # empirical Bayes shrinkage threshold
+
+# --- Age-tier definition (percentiles of birth year, computed on cases) ---
+P_LOW  <- 0.10   # bottom percentile cutoff
+P_HIGH <- 0.90   # top percentile cutoff
+
+# --- Event-time windows used for the pre/post fixed-effects meta-analysis ---
+PRE_WINDOW  <- c(-3, -2, -1)
+POST_WINDOW <- c(1, 2, 3)
+META_METHOD <- "FE"
+
+
+# ==============================================================================
+# 3. MAIN
+# ==============================================================================
+
 dataset <- read_csv(dataset_file, show_col_types = FALSE)
-
-# Filter only codes with at least 300 cases available
-dataset <- dataset[dataset$N_CASES >= 300, ]
+dataset <- dataset[dataset$N_CASES >= MIN_CASES, ]
 
 # Apply multiple test correction
-dataset$PVAL_ADJ <- p.adjust(dataset$PVAL_ABS_CHANGE, method = "bonferroni")
-dataset$SIGNIFICANT_CHANGE <- dataset$PVAL_ADJ < 0.05
-
-# Apply correction also to the pre and post event p-values
-dataset$PVAL_PRE_ADJ <- p.adjust(dataset$PVAL_PRE, method = "bonferroni")
-dataset$PVAL_POST_ADJ <- p.adjust(dataset$PVAL_POST, method = "bonferroni")    
-
-# Create a significance variable with two levels
+dataset$PVAL_ADJ <- p.adjust(dataset$PVAL_ABS_CHANGE, method = PADJ_METHOD)
+dataset$SIGNIFICANT_CHANGE <- dataset$PVAL_ADJ < SIG_ALPHA
 dataset$SIG_TYPE <- case_when(
   dataset$SIGNIFICANT_CHANGE ~ "Significant",
   TRUE ~ "Not Significant"
 )
 
 # Extract list of significant medications for plots
-code_list = dataset %>%
+code_list <- dataset %>%
     filter(SIG_TYPE == "Significant") %>%
     pull(OUTCOME_CODE) %>%
     unique()
 
-# -----------------------------------------------
-result_list_1 = list()
+
+# ==============================================================================
+# 4. PER-MEDICATION, PER-AGE-TIER DiD PIPELINE
+# ==============================================================================
+
+result_list_1 <- list()
 
 for (code in code_list) {
     tryCatch({
-        event_code = paste0('Purch_', code)
-        outcome_code = code
+        event_code   <- paste0('Purch_', code)
+        outcome_code <- code
 
-        #### Main
-        N_THREADS = 10
-        setDTthreads(N_THREADS) 
-        options(datatable.verbose = FALSE)
-        # not using all threads to easily run in background
-
-        # STEP 1: Data Loading 
-        covariates = fread(covariate_file)
-        # Prepare covariates 
+        # --- STEP 1: Data loading ---
+        covariates <- fread(covariate_file)
+        # Prepare covariates
         covariates[, `:=`(
             SPECIALTY = as.character(INTERPRETATION),
             BIRTH_YEAR = as.numeric(substr(BIRTH_DATE, 1, 4))
         )]
         covariates[, `:=`(
-            BIRTH_DATE = NULL, 
+            BIRTH_DATE = NULL,
             INTERPRETATION = NULL)
         ]
-        doctor_ids = fread(doctor_list, header = FALSE)$V1
+        doctor_ids <- fread(doctor_list, header = FALSE)$V1
 
-        events = as.data.table(read_parquet(events_file))
-        event_code_parts = strsplit(event_code, "_")[[1]]
-        event_source = event_code_parts[1]
-        event_actual_code = event_code_parts[2]
+        events <- as.data.table(read_parquet(events_file))
+        event_code_parts  <- strsplit(event_code, "_")[[1]]
+        event_source      <- event_code_parts[1]
+        event_actual_code <- event_code_parts[2]
 
         # Filter events based on the event code
-        events = events[SOURCE == event_source & startsWith(as.character(CODE), event_actual_code), ]
-        event_ids = unique(events$PATIENT_ID)
+        events <- events[SOURCE == event_source & startsWith(as.character(CODE), event_actual_code), ]
+        event_ids <- unique(events$PATIENT_ID)
 
         # Load outcomes (N, Ni, and Y for desired medication)
-        outcomes_cols = c("DOCTOR_ID", "YEAR", "N_general", paste0("N_", outcome_code), paste0("Y_", outcome_code), paste0("first_year_", outcome_code), paste0("last_year_", outcome_code))
-        outcomes = as.data.table(read_parquet(outcomes_file, col_select = outcomes_cols))
+        outcomes_cols <- c("DOCTOR_ID", "YEAR", "N_general", paste0("N_", outcome_code), paste0("Y_", outcome_code), paste0("first_year_", outcome_code), paste0("last_year_", outcome_code))
+        outcomes <- as.data.table(read_parquet(outcomes_file, col_select = outcomes_cols))
 
-        # STEP 2: Data Preparation
-        # Process and merge events and outcomes
-
-        events_new = events[, .(PATIENT_ID, CODE, DATE)]
-        events_new = events_new[CODE == outcome_code]
+        # --- STEP 2: Data preparation (merge events, outcomes & covariates) ---
+        events_new <- events[, .(PATIENT_ID, CODE, DATE)]
+        events_new <- events_new[CODE == outcome_code]
         setnames(events_new, "PATIENT_ID", "DOCTOR_ID")
         # QC: Keep only the first event per DOCTOR_ID, in case multiple codes exist
-        events_new = events_new[order(DOCTOR_ID, DATE)]
-        events_new = events_new[, .SD[1], by = DOCTOR_ID]
+        events_new <- events_new[order(DOCTOR_ID, DATE)]
+        events_new <- events_new[, .SD[1], by = DOCTOR_ID]
         # QC: Ensure events are only for doctors in the doctor list
-        outcomes_filtered = outcomes[DOCTOR_ID %in% doctor_ids]
+        outcomes_filtered <- outcomes[DOCTOR_ID %in% doctor_ids]
 
-        df_merged = events_new[outcomes_filtered, on = "DOCTOR_ID", allow.cartesian = TRUE]
+        df_merged <- events_new[outcomes_filtered, on = "DOCTOR_ID", allow.cartesian = TRUE]
         df_merged[, DATE := as.Date(DATE)]
         df_merged[, EVENT := ifelse(!is.na(DATE), 1, 0)]
         df_merged[, EVENT_YEAR := ifelse(!is.na(DATE), as.numeric(format(DATE, "%Y")), NA_real_)]
         df_merged[, DATE := NULL]
 
-        # Select only events that happened after 2010
-        df_merged = df_merged[is.na(EVENT_YEAR) | EVENT_YEAR >= 2011]
-
         # Merge covariates
-        df_complete = covariates[df_merged, on = "DOCTOR_ID"]
+        df_complete <- covariates[df_merged, on = "DOCTOR_ID"]
         df_complete[, `:=`(
             AGE = YEAR - BIRTH_YEAR,
             AGE_IN_2023 = 2023 - BIRTH_YEAR,
             AGE_AT_EVENT = fifelse(is.na(EVENT_YEAR), NA_real_, EVENT_YEAR - BIRTH_YEAR)
         )]
 
-        # 1. Calculate original min and max year across all doctors in the cohort
+        # --- STEP 3: Trim the medication's on-market window ---
+        # (avoid bias from the drug entering/exiting the market during the study period)
         original_min_year <- min(df_complete[[paste0("first_year_", outcome_code)]], na.rm = TRUE)
         original_max_year <- max(df_complete[[paste0("last_year_", outcome_code)]], na.rm = TRUE)
-        # 2. Add buffer to min and max year to avoid bias
-        BUFFER_YEARS = 1
         buffered_min_year <- original_min_year + BUFFER_YEARS
         buffered_max_year <- original_max_year - BUFFER_YEARS
         cat(sprintf("Original range of outcomes: %d-%d | Buffered range of outcomes: %d-%d\n", original_min_year, original_max_year, buffered_min_year, buffered_max_year))
@@ -133,11 +163,11 @@ for (code in code_list) {
         # Exclude events which happened before the first prescription of the outcome / or after the last one (using buffered range)
         df_complete <- df_complete[is.na(EVENT_YEAR) | (EVENT_YEAR >= buffered_min_year & EVENT_YEAR <= buffered_max_year)]
 
+        # --- STEP 4: Model data preparation ---
         # Filter out events after pension, and prescriptions after pension
-        PENSION_AGE = 60
-        events_after_pension = df_complete[AGE_AT_EVENT > PENSION_AGE & !is.na(AGE_AT_EVENT), unique(DOCTOR_ID)]
-        df_complete = df_complete[!(DOCTOR_ID %in% events_after_pension) & AGE <= PENSION_AGE]
-        # final model data
+        events_after_pension <- df_complete[AGE_AT_EVENT > PENSION_AGE & !is.na(AGE_AT_EVENT), unique(DOCTOR_ID)]
+        df_complete <- df_complete[!(DOCTOR_ID %in% events_after_pension) & AGE <= PENSION_AGE]
+        # Final model data
         df_model <- as.data.table(df_complete)[
             , `:=`(
                 SPECIALTY = factor(SPECIALTY, levels = c("", setdiff(unique(df_complete$SPECIALTY), ""))),
@@ -147,27 +177,24 @@ for (code in code_list) {
                 N = N_general
             )
         ]
-        # Replace missing Y values with 0s 
+        # Replace missing Y values with 0s
         df_model[is.na(Y), Y := 0]
 
-        # To ensure results are robust will apply "empirical bayes shrinkage" to doctors with low total prescriptions in a given year
-        # Will shrink the ratio toward the mean within the doctor trajectory
-        N_THRESHOLD = 5
-        # Calculate mean Y for each doctor (using only observations where N >= N_THRESHOLD)
+        # Apply empirical Bayes shrinkage
         df_model[, Y_mean := mean(Y[N >= N_THRESHOLD], na.rm = TRUE), by = DOCTOR_ID]
-        # Apply empirical Bayes shrinkage: adjust Y values where N < N_THRESHOLD
         df_model[, Y := fifelse(
-            N < N_THRESHOLD, 
-            ((N * Y + N_THRESHOLD * Y_mean) / (N + N_THRESHOLD)), 
+            N < N_THRESHOLD,
+            ((N * Y + N_THRESHOLD * Y_mean) / (N + N_THRESHOLD)),
             Y
         )]
         df_model[, Y_mean := NULL]
 
-        # Calculate percentiles based on sorted unique values (bottom 10% and top 10%)
+        # --- STEP 5: Define age tiers from birth-year percentiles ---
+        # Calculate percentiles based on sorted unique values (bottom P_LOW and top P_HIGH)
         # Need to do this based on cases to avoid empty datasets
         unique_birth_years <- sort(unique(df_model[EVENT == 1, BIRTH_YEAR]))
-        p10 <- unique_birth_years[ceiling(length(unique_birth_years) * 0.10)]
-        p90 <- unique_birth_years[floor(length(unique_birth_years) * 0.90)]
+        p10 <- unique_birth_years[ceiling(length(unique_birth_years) * P_LOW)]
+        p90 <- unique_birth_years[floor(length(unique_birth_years) * P_HIGH)]
 
         # Create tier categories (for both cases and controls)
         df_model[, prescription_tier := fcase(
@@ -187,26 +214,28 @@ for (code in code_list) {
         cat("\nDoctors per prescription tier:\n")
         print(tier_stats)
 
-        # Stratified analysis by tier
+        # --- STEP 6: Stratified DiD - one model per age tier ---
         result_list_2 <- list()
         tiers <- levels(df_model$prescription_tier)[!is.na(levels(df_model$prescription_tier))]
 
         for (tier in tiers) {
             tryCatch({
+
             if (tier == tiers[1]) {
                 df_tier <- df_model[BIRTH_YEAR <= p10, ]
             } else {
                 df_tier <- df_model[BIRTH_YEAR >= p90, ]
             }
-            
+
             n_cases_tier <- length(unique(df_tier[EVENT == 1, DOCTOR_ID]))
             n_controls_tier <- length(unique(df_tier[EVENT == 0, DOCTOR_ID]))
 
             # prepare variables as requested by did package
-            df_tier$ID <- as.integer(factor(df_tier$DOCTOR_ID))                      
-            df_tier$G <- ifelse(is.na(df_tier$EVENT_YEAR), 0, df_tier$EVENT_YEAR)    
-            df_tier$T <- df_tier$YEAR    
+            df_tier$ID <- as.integer(factor(df_tier$DOCTOR_ID))
+            df_tier$G <- ifelse(is.na(df_tier$EVENT_YEAR), 0, df_tier$EVENT_YEAR)
+            df_tier$T <- df_tier$YEAR
             
+            set.seed(09152024)
             att_gt_res_tier <- att_gt(
                 yname = "Y",
                 tname = "T",
@@ -220,7 +249,7 @@ for (code in code_list) {
                 pl = TRUE,
                 cores = N_THREADS
             )
-            
+
             agg_dynamic <- aggte(att_gt_res_tier, type = "dynamic", na.rm = TRUE)
             results <- data.frame(
                 time = agg_dynamic$egt,
@@ -229,15 +258,15 @@ for (code in code_list) {
             )
 
             # For medications results will consider ATT and SE in a 3 year window before and after event (t=0)
-            before_idx <- results$time %in% c(-3, -2, -1)
-            after_idx <- results$time %in% c(1, 2, 3)
+            before_idx <- results$time %in% PRE_WINDOW
+            after_idx <- results$time %in% POST_WINDOW
 
             # Meta-analysis of pre-period estimates
             pre_data <- data.frame(
                 estimate = results$att[before_idx],
                 se = results$se[before_idx]
             )
-            pre_meta <- metafor::rma(yi = estimate, sei = se, data = pre_data, method = "FE")
+            pre_meta <- metafor::rma(yi = estimate, sei = se, data = pre_data, method = META_METHOD)
             avg_effect_before <- pre_meta$b[,1]
             se_pre <- pre_meta$se
             p_value_pre <- pre_meta$pval
@@ -247,7 +276,7 @@ for (code in code_list) {
                 estimate = results$att[after_idx],
                 se = results$se[after_idx]
             )
-            post_meta <- metafor::rma(yi = estimate, sei = se, data = post_data, method = "FE")
+            post_meta <- metafor::rma(yi = estimate, sei = se, data = post_data, method = META_METHOD)
             avg_effect_after <- post_meta$b[,1]
             se_post <- post_meta$se
             p_value_post <- post_meta$pval
@@ -273,9 +302,9 @@ for (code in code_list) {
             } else {
                 df_tier <- df_model[BIRTH_YEAR >= p90, ]
             }
-            n_cases_tier <- length(unique(df_tier[EVENT == 1, DOCTOR_ID]))
-            n_controls_tier <- length(unique(df_tier[EVENT == 0, DOCTOR_ID]))
-            result_list_2[[tier]] <<- data.frame(
+            n_cases_tier        <- length(unique(df_tier[EVENT == 1, DOCTOR_ID]))
+            n_controls_tier     <- length(unique(df_tier[EVENT == 0, DOCTOR_ID]))
+            result_list_2[[tier]] <- data.frame(
                 prescription_tier = tier,
                 n_cases = n_cases_tier,
                 n_controls = n_controls_tier,
@@ -295,6 +324,11 @@ for (code in code_list) {
     cat(sprintf("Error processing code %s: %s\n", code, e$message))
     })
 }
+
+
+# ==============================================================================
+# 5. COMBINE RESULTS, PIVOT TO WIDE FORMAT, TEST TIER DIFFERENCES
+# ==============================================================================
 
 # join all data into final table
 # Combine all results into one data frame
@@ -324,14 +358,14 @@ results_wide$tier_significance <- apply(results_wide, 1, function(row) {
     low_se <- as.numeric(row["Low_absolute_change_se"])
     high_est <- as.numeric(row["High_absolute_change"])
     high_se <- as.numeric(row["High_absolute_change_se"])
-    
+
     # Perform z-test if both estimates are available
     if (!is.na(low_est) && !is.na(high_est) && !is.na(low_se) && !is.na(high_se)) {
         # Calculate z-statistic: (est1 - est2) / sqrt(se1^2 + se2^2)
         z_stat <- (low_est - high_est) / sqrt(low_se^2 + high_se^2)
         # Two-tailed p-value
         p_value <- 2 * (1 - pnorm(abs(z_stat)))
-        
+
         # Return star system
         return(p_value)
     }
@@ -339,4 +373,4 @@ results_wide$tier_significance <- apply(results_wide, 1, function(row) {
 })
 
 # Save final results
-write.csv(results_wide, paste0(outdir, "Supplements_StratifiedAnalysis_Age_", DATE, ".csv"), row.names = FALSE)
+write.csv(results_wide, outfile, row.names = FALSE)

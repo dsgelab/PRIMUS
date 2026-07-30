@@ -1,30 +1,67 @@
+
+### ----------------------------------------------------------------------------
+### 0. LIBRARIES
+### ----------------------------------------------------------------------------
+
 .libPaths("/shared-directory/sd-tools/apps/R/lib/")
-
-# ============================================================================
-# LIBRARIES
-# ============================================================================
-
 library(ggplot2)
 library(dplyr)
 library(readr)
 
-# ============================================================================
-# PATHS & SETTINGS
-# ============================================================================
 
-DATE         <- "20260316"
-dataset_file <- paste0('/media/volume/Projects/DSGELabProject1/DiD_Experiments/',
-                       'DiD_Medications_', DATE, '/Results_', DATE,
-                       '/Results_ATC_', DATE, '.csv')
-OutDir       <- paste0("/media/volume/Projects/DSGELabProject1/Plots/Results_", DATE, "/")
+### ----------------------------------------------------------------------------
+### 1. PATHS
+### ----------------------------------------------------------------------------
+
+DATE_DATA <- "20260316"
+TODAY     <- format(Sys.Date(), "%Y%m%d")
+
+# --- Input ---
+dataset_file <- paste0('/media/volume/Projects/DSGELabProject1/DiD_Experiments/','DiD_Medications_', DATE_DATA, '/Results_', DATE_DATA, '/Results_ATC_', DATE_DATA, '.csv')
+
+# --- Output ---
+OutDir <- paste0("/media/volume/Projects/DSGELabProject1/Plots/ManuscriptFinal/")
 if (!dir.exists(OutDir)) dir.create(OutDir, recursive = TRUE)
 
-JITTER_RANGE <- 0.2
+BASENAME_PLOT <- paste0("Supplements_ChapterAverages_Plot_", TODAY)
+BASENAME_TABLE <- paste0("Supplements_ChapterAverages_Table_", TODAY)
 
-# ============================================================================
-# SHARED REFERENCE DATA
-# ============================================================================
+### ----------------------------------------------------------------------------
+### 2. PARAMETERS 
+### ----------------------------------------------------------------------------
 
+# --- Filtering / significance thresholds ---
+MIN_CASES   <- 300
+PADJ_METHOD <- "bonferroni"
+SIG_ALPHA   <- 0.05
+
+# --- Plot styling ---
+JITTER_RANGE    <- 0.2
+MIN_BOXPLOT_N   <- 3  # minimum number of points required to show a boxplot for a chapter
+
+# --- Plot export settings ---
+PLOT_WIDTH  <- 14
+PLOT_HEIGHT <- 10
+PLOT_DPI    <- 300
+
+# -- Helper: save a ggplot as both PNG and PDF using the same base filename --
+save_plot_png_pdf <- function(plot, dir, basename, width, height, dpi = PLOT_DPI) {
+    ggsave(filename = file.path(dir, paste0(basename, ".png")), 
+      plot = plot,
+      width = width, 
+      height = height, 
+      dpi = dpi
+    )
+    ggsave(filename = file.path(dir, paste0(basename, ".pdf")), 
+      plot = plot,
+      width = width, 
+      height = height
+    )
+}
+
+# --- Reference data: ATC chapter names and color palette ---
+
+# Full ATC chapter names keyed by single-letter code
 atc_chapter_map <- c(
     "A" = "Alimentary Tract and Metabolism",
     "B" = "Blood and Blood Forming Organs",
@@ -42,6 +79,7 @@ atc_chapter_map <- c(
     "V" = "Various"
 )
 
+# Color-blind friendly palette (one color per chapter)
 cb_palette <- c(
     "#E69F00",  # A - Alimentary Tract and Metabolism
     "#56B4E9",  # B - Blood and Blood Forming Organs
@@ -59,18 +97,16 @@ cb_palette <- c(
     "#E6AB02"   # V - Various
 )
 
-# ============================================================================
-# LOAD & PREPARE DATA
-# ============================================================================
+### ----------------------------------------------------------------------------
+### 3. LOAD & PREPARE DATA
+### ----------------------------------------------------------------------------
 
 dataset <- read_csv(dataset_file, show_col_types = FALSE)
-
-# Filter only codes with at least 300 cases
-dataset <- dataset[dataset$N_CASES >= 300, ]
+dataset <- dataset[dataset$N_CASES >= MIN_CASES, ]
 
 # Multiple test correction
-dataset$PVAL_ADJ           <- p.adjust(dataset$PVAL_ABS_CHANGE, method = "bonferroni")
-dataset$SIGNIFICANT_CHANGE <- dataset$PVAL_ADJ < 0.05
+dataset$PVAL_ADJ           <- p.adjust(dataset$PVAL_ABS_CHANGE, method = PADJ_METHOD)
+dataset$SIGNIFICANT_CHANGE <- dataset$PVAL_ADJ < SIG_ALPHA
 
 # Annotate ATC chapter — preserve original alphabetical-by-letter order
 dataset <- dataset %>%
@@ -90,36 +126,33 @@ chapter_color_map <- setNames(
     levels(dataset$CHAPTER_NAME)
 )
 
-# ============================================================================
-# JITTERED INDIVIDUAL DOTS
-# ============================================================================
-
+# Reproducible jitter positions for the individual-dot layer of the plot below
 set.seed(1)
 dataset$x_jittered <- as.numeric(dataset$CHAPTER_NAME) +
     runif(nrow(dataset), -JITTER_RANGE, JITTER_RANGE)
 
-# ============================================================================
-# PLOT (horizontal: chapters on x-axis, matching Figure 5 orientation)
-# ============================================================================
+
+### ----------------------------------------------------------------------------
+### 4. PLOT: distribution of absolute change by ATC chapter
+### ----------------------------------------------------------------------------
 
 p_supp <- ggplot(dataset, aes(x = CHAPTER_NAME, y = ABS_CHANGE, colour = CHAPTER_NAME, fill = CHAPTER_NAME)) +
-    # Reference line at 0
-    geom_hline(yintercept = 0, linetype = "dashed", colour = "grey50", linewidth = 0.5) +
     # Background: individual jittered transparent dots
     geom_point(
         aes(x = x_jittered),
         shape = 16,
         size  = 1.5,
-        alpha = 0.2
+        alpha = 0.5
     ) +
-    # Boxplot on top (transparent fill so dots show through)
-    geom_boxplot(
+    {if (any(dataset %>% count(CHAPTER_NAME) %>% pull(n) >= MIN_BOXPLOT_N)) geom_boxplot(
         aes(x = as.numeric(CHAPTER_NAME)),
-        width    = 0.45,
-        alpha    = 0.3,
-        outlier.shape = NA,   # outliers already visible as jittered dots
-        linewidth = 0.6
-    ) +
+        data = dataset %>% group_by(CHAPTER_NAME) %>% filter(n() >= MIN_BOXPLOT_N),
+        width         = 0.45,
+        alpha         = 0.3,
+        outlier.shape = NA,
+        linewidth     = 0.6
+    )} +
+    geom_hline(yintercept = 0, linetype = "dashed", colour = "grey50", linewidth = 0.5) +
     scale_x_continuous(
         breaks = seq_along(levels(dataset$CHAPTER_NAME)),
         labels = levels(dataset$CHAPTER_NAME)
@@ -128,8 +161,8 @@ p_supp <- ggplot(dataset, aes(x = CHAPTER_NAME, y = ABS_CHANGE, colour = CHAPTER
     scale_fill_manual(values = chapter_color_map, guide = "none") +
     labs(
         x     = NULL,
-        y     = "Absolute Change in Prescription Rate",
-        title = "Distribution of Absolute Change by ATC Chapter"
+        y     = "Change in Prescription Rate \n(before vs after event, 3 year window)",
+        title = "Distribution of Absolute Change, by ATC Chapter"
     ) +
     theme_minimal() +
     theme(
@@ -142,18 +175,13 @@ p_supp <- ggplot(dataset, aes(x = CHAPTER_NAME, y = ABS_CHANGE, colour = CHAPTER
         plot.margin        = margin(8, 12, 8, 8)
     )
 
-# ============================================================================
-# SAVE
-# ============================================================================
 
-ggsave(
-    filename = paste0(OutDir, "Supplements_ChapterAverages.png"),
-    plot     = p_supp,
-    width    = 14,
-    height   = 10,
-    dpi      = 300,
-    device   = "png"
-)
+### ----------------------------------------------------------------------------
+### 5. SAVE: plot and summary statistics table
+### ----------------------------------------------------------------------------
+
+# Save plot as PNG and PDF
+save_plot_png_pdf(p_supp, OutDir, BASENAME_PLOT, PLOT_WIDTH, PLOT_HEIGHT, PLOT_DPI)
 
 # Calculate summary statistics by chapter
 summary_stats <- dataset %>%
@@ -171,4 +199,4 @@ summary_stats <- dataset %>%
         .groups = "drop"
     )
 
-write_csv(summary_stats, paste0(OutDir, "Supplements_ChapterAverages_Table.csv"))
+write_csv(summary_stats, paste0(OutDir, BASENAME_TABLE, ".csv"))
