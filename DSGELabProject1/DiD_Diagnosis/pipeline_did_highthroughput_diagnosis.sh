@@ -95,7 +95,7 @@ echo "Total event codes to analyze: ${total_events}"
 
 # Initialize results file with correct header
 results_file="${results_dir}/Results_ICD_${today}.csv"
-echo "EVENT_CODE,ATT_DROP,SE_DROP,N_CASES,N_CONTROLS" > "${results_file}"
+echo "EVENT_CODE,ATT_DROP,SE_DROP,BASELINE,REL_DROP,SE_REL_DROP,N_CASES,N_CONTROLS" > "${results_file}"
 # switch to this for ratio results
 # echo "EVENT_CODE,PCT_CHANGE,PCT_LOWER,PCT_UPPER,N_CASES,N_CONTROLS" > "${results_file}"
 
