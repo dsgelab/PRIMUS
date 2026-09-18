@@ -21,7 +21,7 @@ suppressPackageStartupMessages({
 # 2. Paths 
 # ============================================================
 
-DATE_DATA <- "20260316"  
+DATE_DATA <- "20260918"  
 TODAY     <- format(Sys.Date(), "%Y%m%d") 
 
 # --- Input ---
@@ -68,26 +68,54 @@ save_plot_png_pdf <- function(plot, dir, basename, width, height, dpi = PLOT_DPI
     )
 }
 
+# -- Helper: fill gaps in doctor's follow-up 
+fill_gaps_with_0s <- function(dt) {
+  
+    # 1. Get each doctor's follow-up window
+    ranges <- dt[, .(min_year = FOLLOW_UP_START_YEAR[1], max_year = FOLLOW_UP_END_YEAR[1]), by = DOCTOR_ID]
+    # 2. Build the year skeleton for each doctor
+    skeleton <- ranges[, .(YEAR = seq(min_year, max_year)), by = DOCTOR_ID]
+    # 3. Join original data onto the skeleton
+    setkey(dt, DOCTOR_ID, YEAR)
+    setkey(skeleton, DOCTOR_ID, YEAR)
+    filled <- dt[skeleton]
+
+    # 4. Zero-fill missing values (N and Y columns)
+    filled[, N := fifelse(is.na(N), 0, N)]
+    filled[, Ni := fifelse(is.na(Ni), 0, Ni)]
+    filled[, Y := fifelse(is.na(Y), 0, Y)]
+    # 5. Carry forward "fixed" covariate columns, but not AGE
+    fixed_cols <- setdiff(names(dt), c("DOCTOR_ID", "YEAR", "N", "Ni", "Y", "AGE"))
+    if (length(fixed_cols) > 0) {
+      filled[, (fixed_cols) := lapply(.SD, function(x) {
+          val <- x[!is.na(x)][1]
+          fifelse(is.na(x), val, x)
+      }), .SDcols = fixed_cols, by = DOCTOR_ID]
+    }
+    # 6. Recompute AGE for every row
+    filled[, AGE := YEAR - BIRTH_YEAR]  
+
+  return(filled)
+}
+
 # ============================================================
 # 4. Global settings
 # ============================================================
 
-N_THREADS <- 10
+
+# -- General analysis parameters --
+MIN_CASES   <- 300           
+PADJ_METHOD <- "bonferroni"  
+SIG_ALPHA   <- 0.05          
+
+# -- Compute / data.table parameters --
+N_THREADS <- 10  
 setDTthreads(N_THREADS)
 
-MIN_N_CASES  <- 300         # minimum cases required for a medication to be considered
-PVAL_METHOD  <- "bonferroni"
-ALPHA        <- 0.05
-
-# Market entrance/exit buffer years
-BUFFER_YEARS <- 1  
-
-# Age threshold for pension (doctors older than this age are excluded from the analysis)
-PENSION_AGE  <- 60          
-
-# empirical Bayes shrinkage threshold
-N_THRESHOLD <- 5    
-
+# -- Data cleaning / eligibility windows --
+BUFFER_YEARS   <- 1   
+PENSION_AGE    <- 60     
+  
 # Medications of interest: ATC code -> readable label
 code_labels <- tibble(
     OUTCOME_CODE = c(
@@ -120,7 +148,7 @@ code_labels <- tibble(
 # ============================================================
 
 main_results <- read_csv(PATH_MAIN_RESULTS, show_col_types = FALSE)
-main_results <- main_results[main_results$N_CASES >= MIN_N_CASES, ]
+main_results <- main_results[main_results$N_CASES >= MIN_CASES, ]
 
 # Apply multiple test correction
 main_results$PVAL_ADJ <- p.adjust(main_results$PVAL_ABS_CHANGE, method = PVAL_METHOD)
@@ -145,9 +173,10 @@ covariates  <- fread(PATH_COVARIATES_FILE)
 renamed_ATC <- fread(PATH_RENAMED_ATC)
 
 covariates[, `:=`(
-    SPECIALTY  = as.character(INTERPRETATION),
+    SPECIALTY = as.character(INTERPRETATION),
     BIRTH_YEAR = as.numeric(substr(BIRTH_DATE, 1, 4)),
-    BIRTH_DATE = NULL,
+    LICENSE_START = as.Date(START_DATE),
+    LICENSE_END   = as.Date(END_DATE),
     INTERPRETATION = NULL
 )]
 
@@ -169,41 +198,79 @@ for (code in code_list) {
     events <- as.data.table(read_parquet(PATH_EVENTS_FILE))
     events[, CODE := as.character(CODE)]
 
-    # If the code is an OLD code that has since been renamed, skip it
+    # Filter events based on the event code
+    # If the code is an old code that have been modified, exit analysis
     if (event_actual_code %in% renamed_ATC$ATC_OLD) {
-        cat(paste0("Event code ", event_actual_code, " is an old code. Skipping.\n"))
-        next
+        cat(paste0("Event code ", event_actual_code, " is an old code. Exiting analysis.\n"))
+        quit(status = 0)
     }
-    # If input code is a NEW code, keep as is and rename any old codes to the new one
+    # If input code is a new code, keep as is and rename other codes to the new one
     if (event_actual_code %in% renamed_ATC$ATC_NEW) {
-        old_codes <- renamed_ATC[ATC_NEW == event_actual_code, ATC_OLD]
+        old_codes = renamed_ATC[ATC_NEW == event_actual_code, ATC_OLD]
         events[CODE %in% old_codes, CODE := event_actual_code]
         cat(paste0("Event code ", event_actual_code, " is a new code. Renaming other codes {", paste(old_codes, collapse = ", "), "} to the new one.\n"))
     }
+    # Extract events, and in case multiple exist keep only the first one
     events <- events[startsWith(CODE, event_actual_code)]
+    setorder(events, PATIENT_ID, DATE)
+    events = events[, .SD[1], by = .(PATIENT_ID)]
+    event_ids <- unique(events$PATIENT_ID)
 
     # ------------------------------------------------------------
     # 6b. Load outcomes, stacking old codes into the new one if renamed
     # ------------------------------------------------------------
 
-    if (outcome_code %in% renamed_ATC$ATC_NEW) {
-        outcome_cols <- c("DOCTOR_ID", "YEAR", "N_general", paste0("N_", outcome_code), paste0("Y_", outcome_code), paste0("first_year_", outcome_code), paste0("last_year_", outcome_code))
-        outcomes <- as.data.table(read_parquet(PATH_OUTCOMES_FILE, col_select = outcome_cols))
+    # check if outcome code is a new code that has been renamed, if so load also old codes, rename columns and merge them
+    outcome_N_col     = paste0("N_", outcome_code)
+    outcome_Y_col     = paste0("Y_", outcome_code)
+    outcome_first_col = paste0("first_year_", outcome_code)
+    outcome_last_col  = paste0("last_year_", outcome_code)
 
-        old_codes <- unique(renamed_ATC[ATC_NEW == outcome_code, ATC_OLD])
-        for (old_code in old_codes) {
-            outcome_cols_old <- c("DOCTOR_ID", "YEAR", "N_general", paste0("N_", old_code), paste0("Y_", old_code), paste0("first_year_", old_code), paste0("last_year_", old_code))
-            outcomes_old <- as.data.table(read_parquet(PATH_OUTCOMES_FILE, col_select = outcome_cols_old))
-            setnames(outcomes_old,
-                old = c(paste0("N_", old_code), paste0("Y_", old_code), paste0("first_year_", old_code), paste0("last_year_", old_code)),
-                new = c(paste0("N_", outcome_code), paste0("Y_", outcome_code), paste0("first_year_", outcome_code), paste0("last_year_", outcome_code)))
-            outcomes <- rbind(outcomes, outcomes_old)
+    if (outcome_code %in% renamed_ATC$ATC_NEW) {
+        outcome_cols1 = c("DOCTOR_ID", "YEAR", "N_general", outcome_N_col, outcome_first_col, outcome_last_col)
+        outcomes = as.data.table(read_parquet(outcomes_file, col_select = outcome_cols1))
+        # ensure numeric cols are double, not int, before rbind (parquet columns can be typed differently per source)
+        num_cols1 = c("N_general", outcome_N_col, outcome_first_col, outcome_last_col)
+        outcomes[, (num_cols1) := lapply(.SD, as.double), .SDcols = num_cols1]
+
+        old_codes = unique(renamed_ATC[ATC_NEW == outcome_code, ATC_OLD])
+        # Loop through each old code, rename its columns to match the new code, and stack
+        for(old_code in old_codes) {
+            outcome_cols2 = c("DOCTOR_ID", "YEAR", "N_general", paste0("N_", old_code), paste0("first_year_", old_code), paste0("last_year_", old_code))
+            outcomes2 = as.data.table(read_parquet(outcomes_file, col_select = outcome_cols2))     
+            # ensure numeric cols are double, not int, before rbind (parquet columns can be typed differently per source)
+            num_cols2 = c("N_general", paste0("N_", old_code), paste0("first_year_", old_code), paste0("last_year_", old_code))
+            outcomes2[, (num_cols2) := lapply(.SD, as.double), .SDcols = num_cols2]
+            setnames(outcomes2, 
+                old = c(paste0("N_", old_code), paste0("first_year_", old_code), paste0("last_year_", old_code)),
+                new = c(outcome_N_col, outcome_first_col, outcome_last_col))     
+            outcomes = rbind(outcomes, outcomes2)
         }
+
+        # Collapse the multiple medication rows into a single row per DOCTOR_ID/YEAR:
+        outcomes = outcomes[, .(
+            N_general = N_general[1], # N_general is the same for all rows of the same doctor/year
+            NEW_N     = sum(get(outcome_N_col), na.rm = TRUE),
+            NEW_FIRST = min(get(outcome_first_col), na.rm = TRUE),
+            NEW_LAST  = max(get(outcome_last_col), na.rm = TRUE)
+        ), by = .(DOCTOR_ID, YEAR)]
+
+        # Convert Inf/-Inf to NA in first/last year 
+        outcomes[is.infinite(NEW_FIRST), NEW_FIRST := NA_real_]
+        outcomes[is.infinite(NEW_LAST),  NEW_LAST  := NA_real_]
+
+        # Calculate the final medication ratio value (Y)
+        outcomes[, NEW_Y := fifelse(N_general > 0, NEW_N / N_general, NA_real_)]
+
+        # Rename the columns to match the original format
+        setnames(outcomes,
+            old = c("NEW_N", "NEW_Y", "NEW_FIRST", "NEW_LAST"),
+            new = c(outcome_N_col, outcome_Y_col, outcome_first_col, outcome_last_col))
     } else {
-        outcome_cols <- c("DOCTOR_ID", "YEAR", "N_general", paste0("N_", outcome_code), paste0("Y_", outcome_code), paste0("first_year_", outcome_code), paste0("last_year_", outcome_code))
-        outcomes <- as.data.table(read_parquet(PATH_OUTCOMES_FILE, col_select = outcome_cols))
+        outcomes_cols = c("DOCTOR_ID", "YEAR", "N_general", outcome_N_col, outcome_Y_col, outcome_first_col, outcome_last_col)
+        outcomes = as.data.table(read_parquet(outcomes_file, col_select = outcomes_cols))
     }
-    outcomes_filtered <- outcomes[DOCTOR_ID %in% doctor_ids]   # QC: only selected doctors
+    outcomes_filtered = outcomes[DOCTOR_ID %in% doctor_ids] # QC : only selected doctors
 
     # ------------------------------------------------------------
     # 6c. Merge events, outcomes and covariates
@@ -211,7 +278,7 @@ for (code in code_list) {
 
     events <- events[, .(PATIENT_ID, CODE, DATE)]
     setnames(events, "PATIENT_ID", "DOCTOR_ID")
-    # Keep only the first event per doctor, in case multiple matching codes exist
+    # Keep only the first event per DOCTOR_ID, in case multiple codes exist
     events <- events[order(DOCTOR_ID, DATE)]
     events <- events[, .SD[1], by = DOCTOR_ID]
 
@@ -221,66 +288,86 @@ for (code in code_list) {
     df_merged[, EVENT_YEAR := ifelse(!is.na(DATE), as.numeric(format(DATE, "%Y")), NA_real_)]
     df_merged[, DATE := NULL]
 
+    # Merge covariates
     df_complete <- covariates[df_merged, on = "DOCTOR_ID"]
     df_complete[, `:=`(
-        AGE          = YEAR - BIRTH_YEAR,
-        AGE_IN_2023  = 2023 - BIRTH_YEAR,
+        AGE = YEAR - BIRTH_YEAR,
+        AGE_IN_2023 = 2023 - BIRTH_YEAR,
         AGE_AT_EVENT = fifelse(is.na(EVENT_YEAR), NA_real_, EVENT_YEAR - BIRTH_YEAR)
     )]
-
     # ------------------------------------------------------------
     # 6d. Trim the medication's on-market window 
     #     (avoid bias from the drug entering/exiting the market during the study period)
     # ------------------------------------------------------------
 
+    # 1. Calculate original min and max year across all doctors in the cohort
     original_min_year <- min(df_complete[[paste0("first_year_", outcome_code)]], na.rm = TRUE)
     original_max_year <- max(df_complete[[paste0("last_year_", outcome_code)]], na.rm = TRUE)
+    # 2. Add buffer to min and max year to avoid bias
     buffered_min_year <- original_min_year + BUFFER_YEARS
     buffered_max_year <- original_max_year - BUFFER_YEARS
-    cat(sprintf("Original range of outcomes: %d-%d | Buffered range of outcomes: %d-%d\n",
-                original_min_year, original_max_year, buffered_min_year, buffered_max_year))
-
-    df_complete <- df_complete[YEAR >= buffered_min_year & YEAR <= buffered_max_year]
-    # Exclude events which happened before the first prescription of the outcome, or after the last one
+    cat(sprintf("Original range of outcomes: %d-%d | Buffered range of outcomes: %d-%d\n", original_min_year, original_max_year, buffered_min_year, buffered_max_year))
+    # Exclude events which happened before the first prescription of the outcome / or after the last one (using buffered range)
     df_complete <- df_complete[is.na(EVENT_YEAR) | (EVENT_YEAR >= buffered_min_year & EVENT_YEAR <= buffered_max_year)]
 
     # ------------------------------------------------------------
     # 6e. Model data preparation
     # ------------------------------------------------------------
 
-    # Remove doctors whose event happened after pension, and prescriptions logged after pension
-    events_after_pension <- df_complete[AGE_AT_EVENT > PENSION_AGE & !is.na(AGE_AT_EVENT), unique(DOCTOR_ID)]
-    df_complete <- df_complete[!(DOCTOR_ID %in% events_after_pension) & AGE <= PENSION_AGE]
+    # Filter out events after pension, and prescriptions after pension
+    events_after_pension = df_complete[AGE_AT_EVENT > PENSION_AGE & !is.na(AGE_AT_EVENT), unique(DOCTOR_ID)]
+    df_complete = df_complete[!(DOCTOR_ID %in% events_after_pension) & AGE <= PENSION_AGE]
 
+    # final model data
     df_model <- as.data.table(df_complete)[
         , `:=`(
             SPECIALTY = factor(SPECIALTY, levels = c("", setdiff(unique(df_complete$SPECIALTY), ""))),
-            SEX       = factor(SEX, levels = c(1, 2), labels = c("Male", "Female")),
-            Y         = get(paste0("Y_", outcome_code)),
-            Ni        = get(paste0("N_", outcome_code)),
-            N         = N_general
+            SEX = factor(SEX, levels = c(1, 2), labels = c("Male", "Female")),
+            Y = get(paste0("Y_", outcome_code)),
+            Ni = get(paste0("N_", outcome_code)),
+            N = N_general
         )
     ]
-    # Replace missing Y (prescription ratio) values with 0s
-    df_model[is.na(Y), Y := 0]
 
-    # Empirical Bayes shrinkage
-    df_model[, Y_mean := mean(Y[N >= N_THRESHOLD], na.rm = TRUE), by = DOCTOR_ID]
+    # Replace missing values within follow-up with 0s 
+    df_model[, `:=`(
+        FOLLOW_UP_START = pmax(as.Date("1998-01-01"), LICENSE_START, na.rm = TRUE),
+        FOLLOW_UP_END   = pmin(as.Date("2022-12-31"), LICENSE_END, BIRTH_DATE + 60 * 365.25, DEATH_DATE, na.rm = TRUE)
+    )]
+    df_model[, `:=`(
+        FOLLOW_UP_START_YEAR = as.integer(format(FOLLOW_UP_START, "%Y")),
+        FOLLOW_UP_END_YEAR   = as.integer(format(FOLLOW_UP_END, "%Y"))
+    )]
+    df_model = fill_gaps_with_0s(df_model)
+
+    # Remove all information outside of buffered market range
+    df_model <- df_model[YEAR >= buffered_min_year & YEAR <= buffered_max_year]
+
+    # To ensure results are robust will apply "empirical bayes shrinkage" to doctors with low total prescriptions in a given year
+    # Will shrink the ratio toward the mean from years with N >= N_THRESHOLD; if none qualify, will use all years 
+    N_THRESHOLD = 5
+    df_model[, Y_mean := {
+        eligible = (N >= N_THRESHOLD)
+        if (any(eligible)) {mean(Y[eligible], na.rm = TRUE)} 
+        else {mean(Y, na.rm = TRUE)}
+    }, by = DOCTOR_ID]
+    # Apply empirical Bayes shrinkage: adjust Y values where N < N_THRESHOLD
     df_model[, Y := fifelse(
-        N < N_THRESHOLD,
-        ((N * Y + N_THRESHOLD * Y_mean) / (N + N_THRESHOLD)),
+        (N != 0) & (N < N_THRESHOLD), 
+        ((N * Y + N_THRESHOLD * Y_mean) / (N + N_THRESHOLD)), 
         Y
     )]
     df_model[, Y_mean := NULL]
 
-    # DiD variables: numeric ID, group (first treatment year), calendar year
+    # Prepare variables as required by the 'did' package
     df_model$ID <- as.integer(factor(df_model$DOCTOR_ID))
     df_model$G  <- ifelse(is.na(df_model$EVENT_YEAR), 0, df_model$EVENT_YEAR)
     df_model$T  <- df_model$YEAR
 
+    # Calculate number of cases and controls
     n_cases    <- length(unique(df_model[df_model$EVENT == 1, DOCTOR_ID]))
     n_controls <- length(unique(df_model[df_model$EVENT == 0, DOCTOR_ID]))
-
+    
     # ------------------------------------------------------------
     # 6f. DiD model, aggregated by treatment-year cohort 
     # ------------------------------------------------------------

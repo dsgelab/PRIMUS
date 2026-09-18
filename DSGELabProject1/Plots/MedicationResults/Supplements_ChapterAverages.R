@@ -13,11 +13,11 @@ library(readr)
 ### 1. PATHS
 ### ----------------------------------------------------------------------------
 
-DATE_DATA <- "20260316"
+DATE_DATA <- "20260918"
 TODAY     <- format(Sys.Date(), "%Y%m%d")
 
 # --- Input ---
-dataset_file <- paste0('/media/volume/Projects/DSGELabProject1/DiD_Experiments/','DiD_Medications_', DATE_DATA, '/Results_', DATE_DATA, '/Results_ATC_', DATE_DATA, '.csv')
+dataset_file <- paste0('/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_', DATE_DATA, '/Results_', DATE_DATA, '/Results_ATC_', DATE_DATA, '.csv')
 
 # --- Output ---
 OutDir <- paste0("/media/volume/Projects/DSGELabProject1/Plots/ManuscriptFinal/")

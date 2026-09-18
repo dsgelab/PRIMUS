@@ -21,7 +21,7 @@ suppressPackageStartupMessages({
 # 2. Paths 
 # ============================================================
 
-DATE_DATA <- "20260316"   
+DATE_DATA <- "20260918"   
 TODAY     <- format(Sys.Date(), "%Y%m%d")
 
 # --- Input ---
@@ -86,16 +86,9 @@ MIN_N_CASES  <- 300
 PVAL_METHOD  <- "bonferroni"
 ALPHA        <- 0.05
 
-# Market entrance/exit buffer years
 BUFFER_YEARS <- 1  
-
-# Age threshold for pension (doctors older than this age are excluded from the analysis)
 PENSION_AGE  <- 60          
 
-# empirical Bayes shrinkage threshold
-N_THRESHOLD <- 5    
-
-# Medications of interest for the forest plot: ATC code -> readable label
 CODE_LABELS <- tibble(
     OUTCOME_CODE = c(
         "A06AC01",
@@ -121,6 +114,35 @@ CODE_LABELS <- tibble(
     )
 )
 
+# -- Helper: fill gaps in prescriptions during doctor's follow-up
+fill_gaps_with_0s <- function(dt) {
+  
+    # 1. Get each doctor's follow-up window
+    ranges <- dt[, .(min_year = FOLLOW_UP_START_YEAR[1], max_year = FOLLOW_UP_END_YEAR[1]), by = DOCTOR_ID]
+    # 2. Build the year skeleton for each doctor
+    skeleton <- ranges[, .(YEAR = seq(min_year, max_year)), by = DOCTOR_ID]
+    # 3. Join original data onto the skeleton
+    setkey(dt, DOCTOR_ID, YEAR)
+    setkey(skeleton, DOCTOR_ID, YEAR)
+    filled <- dt[skeleton]
+
+    # 4. Zero-fill missing values (N and Y columns)
+    filled[, N := fifelse(is.na(N), 0, N)]
+    filled[, Ni := fifelse(is.na(Ni), 0, Ni)]
+    filled[, Y := fifelse(is.na(Y), 0, Y)]
+    # 5. Carry forward "fixed" covariate columns, but not AGE
+    fixed_cols <- setdiff(names(dt), c("DOCTOR_ID", "YEAR", "N", "Ni", "Y", "AGE"))
+    if (length(fixed_cols) > 0) {
+      filled[, (fixed_cols) := lapply(.SD, function(x) {
+          val <- x[!is.na(x)][1]
+          fifelse(is.na(x), val, x)
+      }), .SDcols = fixed_cols, by = DOCTOR_ID]
+    }
+    # 6. Recompute AGE for every row
+    filled[, AGE := YEAR - BIRTH_YEAR]  
+
+  return(filled)
+}
 
 # ============================================================
 # 5. Load the main results table and identify significant medications
@@ -148,9 +170,10 @@ cat(sprintf("Significant medications to process: %d\n", length(code_list)))
 # --- Load shared reference data ---
 covariates <- fread(PATH_COVARIATES_FILE)
 covariates[, `:=`(
-    SPECIALTY  = as.character(INTERPRETATION),
+    SPECIALTY = as.character(INTERPRETATION),
     BIRTH_YEAR = as.numeric(substr(BIRTH_DATE, 1, 4)),
-    BIRTH_DATE = NULL,
+    LICENSE_START = as.Date(START_DATE),
+    LICENSE_END   = as.Date(END_DATE),
     INTERPRETATION = NULL
 )]
 doctor_ids <- fread(PATH_DOCTOR_LIST, header = FALSE)$V1
@@ -221,10 +244,7 @@ for (code in code_list) {
     original_max_year <- max(df_complete[[paste0("last_year_", outcome_code)]], na.rm = TRUE)
     buffered_min_year <- original_min_year + BUFFER_YEARS
     buffered_max_year <- original_max_year - BUFFER_YEARS
-    cat(sprintf("Original range of outcomes: %d-%d | Buffered range of outcomes: %d-%d\n",
-                original_min_year, original_max_year, buffered_min_year, buffered_max_year))
-
-    df_complete <- df_complete[YEAR >= buffered_min_year & YEAR <= buffered_max_year]
+    cat(sprintf("Original range of outcomes: %d-%d | Buffered range of outcomes: %d-%d\n",original_min_year, original_max_year, buffered_min_year, buffered_max_year))
     # Exclude events which happened before the first prescription of the outcome, or after the last one
     df_complete <- df_complete[is.na(EVENT_YEAR) | (EVENT_YEAR >= buffered_min_year & EVENT_YEAR <= buffered_max_year)]
 
@@ -232,27 +252,47 @@ for (code in code_list) {
     # 6d. Model data preparation
     # ------------------------------------------------------------
 
-    # Remove doctors whose event happened after pension, and prescriptions logged after pension
-    events_after_pension <- df_complete[AGE_AT_EVENT > PENSION_AGE & !is.na(AGE_AT_EVENT), unique(DOCTOR_ID)]
-    df_complete <- df_complete[!(DOCTOR_ID %in% events_after_pension) & AGE <= PENSION_AGE]
+    # Filter out events after pension, and prescriptions after pension
+    events_after_pension = df_complete[AGE_AT_EVENT > PENSION_AGE & !is.na(AGE_AT_EVENT), unique(DOCTOR_ID)]
+    df_complete = df_complete[!(DOCTOR_ID %in% events_after_pension) & AGE <= PENSION_AGE]
 
+    # final model data
     df_model <- as.data.table(df_complete)[
         , `:=`(
             SPECIALTY = factor(SPECIALTY, levels = c("", setdiff(unique(df_complete$SPECIALTY), ""))),
-            SEX       = factor(SEX, levels = c(1, 2), labels = c("Male", "Female")),
-            Y         = get(paste0("Y_", outcome_code)),
-            Ni        = get(paste0("N_", outcome_code)),
-            N         = N_general
+            SEX = factor(SEX, levels = c(1, 2), labels = c("Male", "Female")),
+            Y = get(paste0("Y_", outcome_code)),
+            Ni = get(paste0("N_", outcome_code)),
+            N = N_general
         )
     ]
-    # Replace missing Y (prescription ratio) values with 0s
-    df_model[is.na(Y), Y := 0]
 
-    # Empirical Bayes shrinkage
-    df_model[, Y_mean := mean(Y[N >= N_THRESHOLD], na.rm = TRUE), by = DOCTOR_ID]
+    # Replace missing values within follow-up with 0s 
+    df_model[, `:=`(
+        FOLLOW_UP_START = pmax(as.Date("1998-01-01"), LICENSE_START, na.rm = TRUE),
+        FOLLOW_UP_END   = pmin(as.Date("2022-12-31"), LICENSE_END, BIRTH_DATE + 60 * 365.25, DEATH_DATE, na.rm = TRUE)
+    )]
+    df_model[, `:=`(
+        FOLLOW_UP_START_YEAR = as.integer(format(FOLLOW_UP_START, "%Y")),
+        FOLLOW_UP_END_YEAR   = as.integer(format(FOLLOW_UP_END, "%Y"))
+    )]
+    df_model = fill_gaps_with_0s(df_model)
+
+    # Remove all information outside of buffered market range
+    df_model <- df_model[YEAR >= buffered_min_year & YEAR <= buffered_max_year]
+
+    # To ensure results are robust will apply "empirical bayes shrinkage" to doctors with low total prescriptions in a given year
+    # Will shrink the ratio toward the mean from years with N >= N_THRESHOLD; if none qualify, will use all years 
+    N_THRESHOLD = 5
+    df_model[, Y_mean := {
+        eligible = (N >= N_THRESHOLD)
+        if (any(eligible)) {mean(Y[eligible], na.rm = TRUE)} 
+        else {mean(Y, na.rm = TRUE)}
+    }, by = DOCTOR_ID]
+    # Apply empirical Bayes shrinkage: adjust Y values where N < N_THRESHOLD
     df_model[, Y := fifelse(
-        N < N_THRESHOLD,
-        ((N * Y + N_THRESHOLD * Y_mean) / (N + N_THRESHOLD)),
+        (N != 0) & (N < N_THRESHOLD), 
+        ((N * Y + N_THRESHOLD * Y_mean) / (N + N_THRESHOLD)), 
         Y
     )]
     df_model[, Y_mean := NULL]
@@ -432,13 +472,17 @@ forest_plot <- ggplot(plot_data, aes(x = absolute_change, y = y_pos, colour = gr
         aes(xmin = ci_lo, xmax = ci_hi),
         height = 0.15, linewidth = 0.65, na.rm = TRUE
     ) +
-    geom_point(size = 3, shape = 16, na.rm = TRUE) +
-    geom_text(aes(y = y_pos + 0.07, label = n_label), size = 2.5, vjust = 0, na.rm = TRUE) +
+    geom_point(size = 4, shape = 16, na.rm = TRUE) +
+    geom_text(
+        aes(y = y_pos + 0.07, label = n_label), 
+        size = 4, 
+        vjust = 0, 
+        na.rm = TRUE) +
     geom_text(
         data = star_df %>% filter(star != ""),
         aes(x = x_star, y = y_center, label = star),
         inherit.aes = FALSE,
-        size = 5,
+        size = 6,
         fontface = "bold",
         colour = "black"
     ) +
@@ -457,14 +501,14 @@ forest_plot <- ggplot(plot_data, aes(x = absolute_change, y = y_pos, colour = gr
     ) +
     THEME_BASE +
     theme(
-        axis.text.y        = element_text(size = 10, face = "bold"),
-        axis.text.x        = element_text(size = 10),
+        axis.text.y        = element_text(size = 12, face = "bold"),
+        axis.text.x        = element_text(size = 12),
         panel.grid.major.y = element_line(colour = "grey93", linewidth = 0.3),
         panel.grid.minor   = element_blank(),
         legend.position    = "right",
-        legend.title       = element_text(face = "bold", size = 10),
-        legend.text        = element_text(size = 10),
-        plot.title         = element_text(face = "bold", size = 10),
+        legend.title       = element_text(face = "bold", size = 12),
+        legend.text        = element_text(size = 12),
+        plot.title         = element_text(face = "bold", size = 12),
         plot.margin        = margin(8, 12, 8, 8)
     ) +
     guides(colour = guide_legend(override.aes = list(size = 4)))
