@@ -23,7 +23,35 @@ covariate_file = args[6]
 results_file = args[7]  
 renamed_ATC_file = args[8]
 
-#### Extra checks
+#### Functions:
+fill_gaps_with_0s <- function(dt) {
+  
+    # 1. Get each doctor's follow-up window
+    ranges <- dt[, .(min_year = FOLLOW_UP_START_YEAR[1], max_year = FOLLOW_UP_END_YEAR[1]), by = DOCTOR_ID]
+    # 2. Build the year skeleton for each doctor
+    skeleton <- ranges[, .(YEAR = seq(min_year, max_year)), by = DOCTOR_ID]
+    # 3. Join original data onto the skeleton
+    setkey(dt, DOCTOR_ID, YEAR)
+    setkey(skeleton, DOCTOR_ID, YEAR)
+    filled <- dt[skeleton]
+
+    # 4. Zero-fill missing values (N and Y columns)
+    filled[, N := fifelse(is.na(N), 0, N)]
+    filled[, Ni := fifelse(is.na(Ni), 0, Ni)]
+    filled[, Y := fifelse(is.na(Y), 0, Y)]
+    # 5. Carry forward "fixed" covariate columns, but not AGE
+    fixed_cols <- setdiff(names(dt), c("DOCTOR_ID", "YEAR", "N", "Ni", "Y", "AGE"))
+    if (length(fixed_cols) > 0) {
+      filled[, (fixed_cols) := lapply(.SD, function(x) {
+          val <- x[!is.na(x)][1]
+          fifelse(is.na(x), val, x)
+      }), .SDcols = fixed_cols, by = DOCTOR_ID]
+    }
+    # 6. Recompute AGE for every row
+    filled[, AGE := YEAR - BIRTH_YEAR]  
+
+  return(filled)
+}
 
 #### Main
 N_THREADS = 10
@@ -96,10 +124,9 @@ df_merged[, DATE := NULL]
 # Prepare covariates 
 covariates[, `:=`(
     SPECIALTY = as.character(INTERPRETATION),
-    BIRTH_YEAR = as.numeric(substr(BIRTH_DATE, 1, 4))
-)]
-covariates[, `:=`(
-    BIRTH_DATE = NULL, 
+    BIRTH_YEAR = as.numeric(substr(BIRTH_DATE, 1, 4)),
+    LICENSE_START = as.Date(START_DATE),
+    LICENSE_END   = as.Date(END_DATE),
     INTERPRETATION = NULL
 )]
 
@@ -112,7 +139,7 @@ df_complete[, `:=`(
 )]
 
 
-# # STEP 3: Process prescription timeframe to avoid bias due to medications entering or exiting the market
+# STEP 3: Process prescription timeframe to avoid bias due to medications entering or exiting the market
 
 # 1. Calculate original min and max year across all doctors in the cohort
 original_min_year <- min(df_complete[[paste0("first_year_", outcome_code)]], na.rm = TRUE)
@@ -122,8 +149,6 @@ BUFFER_YEARS = 1
 buffered_min_year <- original_min_year + BUFFER_YEARS
 buffered_max_year <- original_max_year - BUFFER_YEARS
 cat(sprintf("Original range of outcomes: %d-%d | Buffered range of outcomes: %d-%d\n", original_min_year, original_max_year, buffered_min_year, buffered_max_year))
-# Remove all information outside of buffered range
-df_complete <- df_complete[YEAR >= buffered_min_year & YEAR <= buffered_max_year]
 # Exclude events which happened before the first prescription of the outcome / or after the last one (using buffered range)
 df_complete <- df_complete[is.na(EVENT_YEAR) | (EVENT_YEAR >= buffered_min_year & EVENT_YEAR <= buffered_max_year)]
 
@@ -133,6 +158,7 @@ df_complete <- df_complete[is.na(EVENT_YEAR) | (EVENT_YEAR >= buffered_min_year 
 PENSION_AGE = 60
 events_after_pension = df_complete[AGE_AT_EVENT > PENSION_AGE & !is.na(AGE_AT_EVENT), unique(DOCTOR_ID)]
 df_complete = df_complete[!(DOCTOR_ID %in% events_after_pension) & AGE <= PENSION_AGE]
+
 # final model data
 df_model <- as.data.table(df_complete)[
     , `:=`(
@@ -143,17 +169,29 @@ df_model <- as.data.table(df_complete)[
         N = N_general
     )
 ]
-# Replace missing Y values with 0s 
-df_model[is.na(Y), Y := 0]
+
+# Replace missing values within follow-up with 0s 
+df_model[, `:=`(
+    FOLLOW_UP_START = pmax(as.Date("1998-01-01"), LICENSE_START, na.rm = TRUE),
+    FOLLOW_UP_END   = pmin(as.Date("2022-12-31"), LICENSE_END, BIRTH_DATE + 60 * 365.25, DEATH_DATE, na.rm = TRUE)
+)]
+df_model[, `:=`(
+    FOLLOW_UP_START_YEAR = as.integer(format(FOLLOW_UP_START, "%Y")),
+    FOLLOW_UP_END_YEAR   = as.integer(format(FOLLOW_UP_END, "%Y"))
+)]
+df_model = fill_gaps_with_0s(df_model)
+
+# Remove all information outside of buffered market range
+df_model <- df_model[YEAR >= buffered_min_year & YEAR <= buffered_max_year]
 
 # To ensure results are robust will apply "empirical bayes shrinkage" to doctors with low total prescriptions in a given year
 # Will shrink the ratio toward the mean within the doctor trajectory
-N_THRESHOLD = 5
+N_THRESHOLD = 10
 # Calculate mean Y for each doctor (using only observations where N >= N_THRESHOLD)
 df_model[, Y_mean := mean(Y[N >= N_THRESHOLD], na.rm = TRUE), by = DOCTOR_ID]
 # Apply empirical Bayes shrinkage: adjust Y values where N < N_THRESHOLD
 df_model[, Y := fifelse(
-    N < N_THRESHOLD, 
+    (N != 0) & (N < N_THRESHOLD), 
     ((N * Y + N_THRESHOLD * Y_mean) / (N + N_THRESHOLD)), 
     Y
 )]
@@ -223,26 +261,42 @@ avg_effect_after <- post_meta$b[,1]
 se_post <- post_meta$se
 p_value_post <- post_meta$pval
 
-# Absolute change and relative change estimates
+# Absolute change estimates
 absolute_change <- avg_effect_after - avg_effect_before
 absolute_change_se <- sqrt(se_post^2 + se_pre^2)
 score_abs <- absolute_change / absolute_change_se
 p_value_change <- 2 * (1 - pnorm(abs(score_abs)))
 
+# baseline and relative change estimates
+baseline <- df_model[EVENT == 0, mean(Y, na.rm = TRUE)]
+relative_change = (absolute_change + baseline) / baseline
+relative_change_se = abs(absolute_change_se / baseline) 
+
 # ============================================================================
 # EXPORT RESULTS TO CSV
 # ============================================================================
 
-# Append summary row to outfile
-output <- c(
-    event_code,
-    outcome_code,
-    absolute_change,
-    absolute_change_se,
-    p_value_change,
-    p_value_pre,
-    p_value_post,
-    n_cases,
-    n_controls
+# Append summary row to output file
+summary_row <- data.frame(
+  event_code             = event_code,
+  outcome_code           = outcome_code,
+  absolute_change        = absolute_change,
+  absolute_change_se     = absolute_change_se,
+  p_value_change         = p_value_change,
+  p_value_pre            = p_value_pre,
+  p_value_post           = p_value_post,
+  baseline               = baseline,
+  relative_change        = relative_change,
+  relative_change_se     = relative_change_se,
+  n_cases                = n_cases,
+  n_controls             = n_controls
 )
-cat(paste(output, collapse = ","), "\n", file = results_file, append = TRUE)
+
+write.table(
+    summary_row,
+    file      = results_file,
+    sep = ",",
+    row.names = FALSE,
+    col.names = FALSE,
+    append = TRUE
+)

@@ -20,6 +20,34 @@ outcomes_file = args[4]
 covariates_file = args[5]
 outfile = args[6]
 
+#### Functions:
+fill_gaps_with_0s <- function(dt) {
+  
+    # 1. Get each doctor's follow-up window
+    ranges <- dt[, .(min_year = FOLLOW_UP_START_YEAR[1], max_year = FOLLOW_UP_END_YEAR[1]), by = DOCTOR_ID]
+    # 2. Build the year skeleton for each doctor
+    skeleton <- ranges[, .(YEAR = seq(min_year, max_year)), by = DOCTOR_ID]
+    # 3. Join original data onto the skeleton
+    setkey(dt, DOCTOR_ID, YEAR)
+    setkey(skeleton, DOCTOR_ID, YEAR)
+    filled <- dt[skeleton]
+
+    # 4. Zero-fill missing values (N column only)
+    filled[, N := fifelse(is.na(N), 0, N)]
+    # 5. Carry forward "fixed" covariate columns, but not AGE
+    fixed_cols <- setdiff(names(dt), c("DOCTOR_ID", "YEAR", "N", "AGE"))
+    if (length(fixed_cols) > 0) {
+      filled[, (fixed_cols) := lapply(.SD, function(x) {
+          val <- x[!is.na(x)][1]
+          fifelse(is.na(x), val, x)
+      }), .SDcols = fixed_cols, by = DOCTOR_ID]
+    }
+    # 6. Recompute AGE for every row
+    filled[, AGE := YEAR - BIRTH_YEAR]  
+
+  return(filled)
+}
+
 #### Main:
 N_THREADS = 10
 setDTthreads(N_THREADS) 
@@ -59,10 +87,9 @@ df_merged[, DATE := NULL]
 # Prepare covariates 
 covariates[, `:=`(
     SPECIALTY = as.character(INTERPRETATION),
-    BIRTH_YEAR = as.numeric(substr(BIRTH_DATE, 1, 4))
-)]
-covariates[, `:=`(
-    BIRTH_DATE = NULL, 
+    BIRTH_YEAR = as.numeric(substr(BIRTH_DATE, 1, 4)),
+    LICENSE_START = as.Date(START_DATE),
+    LICENSE_END   = as.Date(END_DATE),
     INTERPRETATION = NULL
 )]
 
@@ -80,6 +107,18 @@ df_complete[, `:=`(
 PENSION_AGE = 60
 events_after_pension = df_complete[AGE_AT_EVENT > PENSION_AGE & !is.na(AGE_AT_EVENT), unique(DOCTOR_ID)]
 df_complete = df_complete[!(DOCTOR_ID %in% events_after_pension) & AGE <= PENSION_AGE]
+
+# Replace missing values within follow-up with 0s 
+df_complete[, `:=`(
+    FOLLOW_UP_START = pmax(as.Date("1998-01-01"), LICENSE_START, na.rm = TRUE),
+    FOLLOW_UP_END   = pmin(as.Date("2022-12-31"), LICENSE_END, BIRTH_DATE + 60 * 365.25, DEATH_DATE, na.rm = TRUE)
+)]
+df_complete[, `:=`(
+    FOLLOW_UP_START_YEAR = as.integer(format(FOLLOW_UP_START, "%Y")),
+    FOLLOW_UP_END_YEAR   = as.integer(format(FOLLOW_UP_END, "%Y"))
+)]
+df_complete = fill_gaps_with_0s(df_complete)
+
 # final model data
 df_model <- as.data.table(df_complete)[
     , `:=`(
@@ -87,8 +126,7 @@ df_model <- as.data.table(df_complete)[
         SEX = factor(SEX, levels = c(1, 2), labels = c("Male", "Female"))
     )
 ]
-# Replace missing N values with 0s 
-df_model[is.na(N), N := 0]
+
 # prepare variables as requested by did package
 df_model$ID <- as.integer(factor(df_model$DOCTOR_ID))                      
 df_model$G <- ifelse(is.na(df_model$EVENT_YEAR), 0, df_model$EVENT_YEAR)    
@@ -131,17 +169,25 @@ results <- data.frame(
 
 # For diagnosis results will only consider ATT and SE at event
 effect_at_event <- results$att[results$time == 0]
-se_at_event <- results$se[results$time == 0]
+se_at_event     <- results$se[results$time == 0]
+
+# Also compute (baseline) average prescription in controls, and relative drop
+baseline    <- df_model[EVENT == 0, mean(N, na.rm = TRUE)]
+rel_att     <- 100 * effect_at_event / baseline
+rel_att_se  <- 100 * se_at_event / baseline
 
 # ============================================================================
 # 3. EXPORT RESULTS TO CSV
 # ============================================================================
 
-# Append summary row to outfile
+# Append summary row to output file
 summary_row <- data.frame(
-        event_code = event_code,
+        event_code = sub("^Diag_", "", event_code),
         drop = effect_at_event,
         se = se_at_event,
+        baseline = baseline,
+        rel_drop = rel_att,
+        rel_drop_se = rel_att_se,
         n_cases = n_cases,
         n_controls = n_controls
 )
