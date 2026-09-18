@@ -82,27 +82,61 @@ if (event_actual_code %in% renamed_ATC$ATC_NEW) {
     events[CODE %in% old_codes, CODE := event_actual_code]
     cat(paste0("Event code ", event_actual_code, " is a new code. Renaming other codes {", paste(old_codes, collapse = ", "), "} to the new one.\n"))
 }
+# Extract events, and in case multiple exist keep only the first one
 events <- events[startsWith(CODE, event_actual_code)]
+setorder(events, PATIENT_ID, DATE)
+events = events[, .SD[1], by = .(PATIENT_ID)]
 event_ids <- unique(events$PATIENT_ID)
 
 # 3. outcome
 # check if outcome code is a new code that has been renamed, if so load also old codes, rename columns and merge them
+outcome_N_col     = paste0("N_", outcome_code)
+outcome_Y_col     = paste0("Y_", outcome_code)
+outcome_first_col = paste0("first_year_", outcome_code)
+outcome_last_col  = paste0("last_year_", outcome_code)
+
 if (outcome_code %in% renamed_ATC$ATC_NEW) {
-    outcome_cols1 = c("DOCTOR_ID", "YEAR", "N_general", paste0("N_", outcome_code), paste0("Y_", outcome_code), paste0("first_year_", outcome_code), paste0("last_year_", outcome_code))
+    outcome_cols1 = c("DOCTOR_ID", "YEAR", "N_general", outcome_N_col, outcome_first_col, outcome_last_col)
     outcomes = as.data.table(read_parquet(outcomes_file, col_select = outcome_cols1))
+    # ensure numeric cols are double, not int, before rbind (parquet columns can be typed differently per source)
+    num_cols1 = c("N_general", outcome_N_col, outcome_first_col, outcome_last_col)
+    outcomes[, (num_cols1) := lapply(.SD, as.double), .SDcols = num_cols1]
 
     old_codes = unique(renamed_ATC[ATC_NEW == outcome_code, ATC_OLD])
-    # Loop through each old code and stack them
+    # Loop through each old code, rename its columns to match the new code, and stack
     for(old_code in old_codes) {
-        outcome_cols2 = c("DOCTOR_ID", "YEAR", "N_general", paste0("N_", old_code), paste0("Y_", old_code), paste0("first_year_", old_code), paste0("last_year_", old_code))
+        outcome_cols2 = c("DOCTOR_ID", "YEAR", "N_general", paste0("N_", old_code), paste0("first_year_", old_code), paste0("last_year_", old_code))
         outcomes2 = as.data.table(read_parquet(outcomes_file, col_select = outcome_cols2))     
+        # ensure numeric cols are double, not int, before rbind (parquet columns can be typed differently per source)
+        num_cols2 = c("N_general", paste0("N_", old_code), paste0("first_year_", old_code), paste0("last_year_", old_code))
+        outcomes2[, (num_cols2) := lapply(.SD, as.double), .SDcols = num_cols2]
         setnames(outcomes2, 
-            old = c(paste0("N_", old_code), paste0("Y_", old_code), paste0("first_year_", old_code), paste0("last_year_", old_code)),
-            new = c(paste0("N_", outcome_code), paste0("Y_", outcome_code), paste0("first_year_", outcome_code), paste0("last_year_", outcome_code)))     
+            old = c(paste0("N_", old_code), paste0("first_year_", old_code), paste0("last_year_", old_code)),
+            new = c(outcome_N_col, outcome_first_col, outcome_last_col))     
         outcomes = rbind(outcomes, outcomes2)
     }
+
+    # Collapse the multiple medication rows into a single row per DOCTOR_ID/YEAR:
+    outcomes = outcomes[, .(
+        N_general = N_general[1], # N_general is the same for all rows of the same doctor/year
+        NEW_N     = sum(get(outcome_N_col), na.rm = TRUE),
+        NEW_FIRST = min(get(outcome_first_col), na.rm = TRUE),
+        NEW_LAST  = max(get(outcome_last_col), na.rm = TRUE)
+    ), by = .(DOCTOR_ID, YEAR)]
+
+    # Convert Inf/-Inf to NA in first/last year 
+    outcomes[is.infinite(NEW_FIRST), NEW_FIRST := NA_real_]
+    outcomes[is.infinite(NEW_LAST),  NEW_LAST  := NA_real_]
+
+    # Calculate the final medication ratio value (Y)
+    outcomes[, NEW_Y := fifelse(N_general > 0, NEW_N / N_general, NA_real_)]
+
+    # Rename the columns to match the original format
+    setnames(outcomes,
+        old = c("NEW_N", "NEW_Y", "NEW_FIRST", "NEW_LAST"),
+        new = c(outcome_N_col, outcome_Y_col, outcome_first_col, outcome_last_col))
 } else {
-    outcomes_cols = c("DOCTOR_ID", "YEAR", "N_general", paste0("N_", outcome_code), paste0("Y_", outcome_code), paste0("first_year_", outcome_code), paste0("last_year_", outcome_code))
+    outcomes_cols = c("DOCTOR_ID", "YEAR", "N_general", outcome_N_col, outcome_Y_col, outcome_first_col, outcome_last_col)
     outcomes = as.data.table(read_parquet(outcomes_file, col_select = outcomes_cols))
 }
 outcomes_filtered = outcomes[DOCTOR_ID %in% doctor_ids] # QC : only selected doctors
@@ -185,10 +219,13 @@ df_model = fill_gaps_with_0s(df_model)
 df_model <- df_model[YEAR >= buffered_min_year & YEAR <= buffered_max_year]
 
 # To ensure results are robust will apply "empirical bayes shrinkage" to doctors with low total prescriptions in a given year
-# Will shrink the ratio toward the mean within the doctor trajectory
-N_THRESHOLD = 10
-# Calculate mean Y for each doctor (using only observations where N >= N_THRESHOLD)
-df_model[, Y_mean := mean(Y[N >= N_THRESHOLD], na.rm = TRUE), by = DOCTOR_ID]
+# Will shrink the ratio toward the mean from years with N >= N_THRESHOLD; if none qualify, will use all years 
+N_THRESHOLD = 5
+df_model[, Y_mean := {
+    eligible = (N >= N_THRESHOLD)
+    if (any(eligible)) {mean(Y[eligible], na.rm = TRUE)} 
+    else {mean(Y, na.rm = TRUE)}
+}, by = DOCTOR_ID]
 # Apply empirical Bayes shrinkage: adjust Y values where N < N_THRESHOLD
 df_model[, Y := fifelse(
     (N != 0) & (N < N_THRESHOLD), 
