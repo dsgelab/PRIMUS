@@ -21,7 +21,7 @@ suppressPackageStartupMessages({
 
 # --- Date stamps used to build input file paths ---
 DATE_DATA_1 <- "20260709"   # events 
-DATE_DATA_2 <- "20260219"   # outcomes
+DATE_DATA_2 <- "20260915"   # outcomes
 TODAY       <- format(Sys.time(), "%Y%m%d")  
 
 # --- Input ---
@@ -108,7 +108,6 @@ fill_gaps_with_0s <- function(dt) {
 
   return(filled)
 }
-
 
 # ============================================================
 # 4. Phenotype definitions

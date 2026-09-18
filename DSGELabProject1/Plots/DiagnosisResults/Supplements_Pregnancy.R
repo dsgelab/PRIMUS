@@ -94,6 +94,34 @@ save_plot_png_pdf <- function(plot, dir, basename, width, height, dpi = PLOT_DPI
     )
 }
 
+# -- Helper: fill in missing years for each doctor with 0s for N, and carry forward fixed covariates --
+fill_gaps_with_0s <- function(dt) {
+  
+    # 1. Get each doctor's follow-up window
+    ranges <- dt[, .(min_year = FOLLOW_UP_START_YEAR[1], max_year = FOLLOW_UP_END_YEAR[1]), by = DOCTOR_ID]
+    # 2. Build the year skeleton for each doctor
+    skeleton <- ranges[, .(YEAR = seq(min_year, max_year)), by = DOCTOR_ID]
+    # 3. Join original data onto the skeleton
+    setkey(dt, DOCTOR_ID, YEAR)
+    setkey(skeleton, DOCTOR_ID, YEAR)
+    filled <- dt[skeleton]
+
+    # 4. Zero-fill missing values (N column only)
+    filled[, N := fifelse(is.na(N), 0, N)]
+    # 5. Carry forward "fixed" covariate columns, but not AGE
+    fixed_cols <- setdiff(names(dt), c("DOCTOR_ID", "YEAR", "N", "AGE"))
+    if (length(fixed_cols) > 0) {
+      filled[, (fixed_cols) := lapply(.SD, function(x) {
+          val <- x[!is.na(x)][1]
+          fifelse(is.na(x), val, x)
+      }), .SDcols = fixed_cols, by = DOCTOR_ID]
+    }
+    # 6. Recompute AGE for every row
+    filled[, AGE := YEAR - BIRTH_YEAR]  
+
+  return(filled)
+}
+
 
 # ============================================================
 # 4. Global settings
@@ -178,12 +206,14 @@ df_merged <- df_merged %>%
     select(-DATE)
 
 # Prepare covariates and specialty, then merge into the main dataframe
-covariates_new <- covariates %>%
-    select(DOCTOR_ID, BIRTH_DATE, SEX, INTERPRETATION) %>%
-    mutate(SPECIALTY = as.character(INTERPRETATION)) %>%   
-    mutate(BIRTH_YEAR = as.numeric(substr(BIRTH_DATE, 1, 4))) %>%   # date format is YYYY-MM-DD
-    select(-BIRTH_DATE, -INTERPRETATION)
-df_complete <- merge(df_merged, covariates_new, by = "DOCTOR_ID", how = "left")
+covariates[, `:=`(
+    SPECIALTY  = as.character(INTERPRETATION),
+    BIRTH_YEAR = as.numeric(substr(BIRTH_DATE, 1, 4)),
+    LICENSE_START = as.Date(START_DATE),
+    LICENSE_END   = as.Date(END_DATE),
+    INTERPRETATION = NULL
+)]
+df_complete <- merge(df_merged, covariates, by = "DOCTOR_ID", how = "left")
 df_complete <- df_complete %>%
     mutate(
         AGE          = YEAR - BIRTH_YEAR,
@@ -201,8 +231,16 @@ df_model <- df_complete %>%
         SEX       = factor(SEX, levels = c(1, 2), labels = c("Male", "Female"))   
     )
 
-# Replace missing N values with 0s
-df_model[is.na(N), N := 0]
+# Fill in missing years (during each doctor's follow-up period) with 0s
+df_model[, `:=`(
+    FOLLOW_UP_START = pmax(as.Date("1998-01-01"), LICENSE_START, na.rm = TRUE),
+    FOLLOW_UP_END   = pmin(as.Date("2022-12-31"), LICENSE_END, BIRTH_DATE + 60 * 365.25, DEATH_DATE, na.rm = TRUE)
+)]
+df_model[, `:=`(
+    FOLLOW_UP_START_YEAR = as.integer(format(FOLLOW_UP_START, "%Y")),
+    FOLLOW_UP_END_YEAR   = as.integer(format(FOLLOW_UP_END, "%Y"))
+)]
+df_model = fill_gaps_with_0s(df_model)
 
 # DiD variables: numeric ID, group (first treatment year), calendar year
 df_model$ID <- as.integer(factor(df_model$DOCTOR_ID))

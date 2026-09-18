@@ -4,7 +4,7 @@
 # but were not part of the main analysis:
 #   C50 = Malignant neoplasm of breast      (female doctors only)
 #   I80 = Phlebitis and thrombophlebitis    (general, no sub-phenotype breakdown)
-#   O02 = Other abnormal products of conception
+#   G43 = Migraine
 #
 # Pipeline (per diagnosis code):
 #   1. Extract events -> first occurrence per doctor
@@ -86,6 +86,34 @@ save_plot_png_pdf <- function(plot, dir, basename, width, height, dpi = PLOT_DPI
     )
 }
 
+# -- Helper: fill in missing years for each doctor with 0s for N, and carry forward fixed covariates --
+fill_gaps_with_0s <- function(dt) {
+  
+    # 1. Get each doctor's follow-up window
+    ranges <- dt[, .(min_year = FOLLOW_UP_START_YEAR[1], max_year = FOLLOW_UP_END_YEAR[1]), by = DOCTOR_ID]
+    # 2. Build the year skeleton for each doctor
+    skeleton <- ranges[, .(YEAR = seq(min_year, max_year)), by = DOCTOR_ID]
+    # 3. Join original data onto the skeleton
+    setkey(dt, DOCTOR_ID, YEAR)
+    setkey(skeleton, DOCTOR_ID, YEAR)
+    filled <- dt[skeleton]
+
+    # 4. Zero-fill missing values (N column only)
+    filled[, N := fifelse(is.na(N), 0, N)]
+    # 5. Carry forward "fixed" covariate columns, but not AGE
+    fixed_cols <- setdiff(names(dt), c("DOCTOR_ID", "YEAR", "N", "AGE"))
+    if (length(fixed_cols) > 0) {
+      filled[, (fixed_cols) := lapply(.SD, function(x) {
+          val <- x[!is.na(x)][1]
+          fifelse(is.na(x), val, x)
+      }), .SDcols = fixed_cols, by = DOCTOR_ID]
+    }
+    # 6. Recompute AGE for every row
+    filled[, AGE := YEAR - BIRTH_YEAR]  
+
+  return(filled)
+}
+
 # ============================================================
 # 4. Global settings
 # ============================================================
@@ -95,8 +123,8 @@ setDTthreads(N_THREADS)
 
 # ICD-10 codes to analyze
 EVENT_CODES <- list(
-    CODE  = c("C50", "I80", "O02"),
-    LABEL = c("Malignant neoplasm of breast", "Phlebitis and thrombophlebitis", "Other abnormal products of conception")
+    CODE  = c("C50", "I80", "G43"),
+    LABEL = c("Malignant neoplasm of breast", "Phlebitis and thrombophlebitis", "Migraine")
 )
 
 # ============================================================
@@ -110,7 +138,8 @@ covariates <- fread(PATH_COVARIATES_FILE)
 covariates[, `:=`(
     SPECIALTY  = as.character(INTERPRETATION),
     BIRTH_YEAR = as.numeric(substr(BIRTH_DATE, 1, 4)),
-    BIRTH_DATE = NULL,
+    LICENSE_START = as.Date(START_DATE),
+    LICENSE_END   = as.Date(END_DATE),
     INTERPRETATION = NULL
 )]
 covariates[SPECIALTY == "", SPECIALTY := "No specialty"]
@@ -171,8 +200,16 @@ for (code in unique(EVENT_CODES$CODE)) {
     ids_post60 <- df[AGE_AT_EVENT > 60 & !is.na(AGE_AT_EVENT), unique(DOCTOR_ID)]
     df <- df[!(DOCTOR_ID %in% ids_post60) & AGE <= 60]
 
-    # Replace missing prescription counts with 0
-    df[is.na(N), N := 0]
+    # Fill in missing years (during each doctor's follow-up period) with 0s
+    df[, `:=`(
+        FOLLOW_UP_START = pmax(as.Date("1998-01-01"), LICENSE_START, na.rm = TRUE),
+        FOLLOW_UP_END   = pmin(as.Date("2022-12-31"), LICENSE_END, BIRTH_DATE + 60 * 365.25, DEATH_DATE, na.rm = TRUE)
+    )]
+    df[, `:=`(
+        FOLLOW_UP_START_YEAR = as.integer(format(FOLLOW_UP_START, "%Y")),
+        FOLLOW_UP_END_YEAR   = as.integer(format(FOLLOW_UP_END, "%Y"))
+    )]
+    df = fill_gaps_with_0s(df)
 
     # DiD variables: numeric ID, group (first treatment year), calendar year
     df[, ID := as.integer(factor(DOCTOR_ID))]

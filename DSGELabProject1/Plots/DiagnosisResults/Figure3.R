@@ -4,14 +4,17 @@
 # Panels:
 #   A : Absolute change estimates for individual diseases, by ICD-10 chapter
 #   B : Depression and mental distress, base
-#   C : Depression and mental distress, sick leave adjusted (LOCF)
-#   D : Childbirth, female doctors vs male doctors
+#   C : Childbirth — female doctors vs male doctors 
+#   D : Depression and mental distress, sick leave adjusted (LOCF)
 #   E : Phlebitis and thrombophlebitis, by subcode
+#
+# Also produced:
+#   Supplementary figure — chapter-level boxplot of the Panel A estimates
 #
 # Layout:
 #   Row 1 : A (full width)
-#   Row 2 : B | C   (both depression / mental distress)
-#   Row 3 : D | E   (childbirth | phlebitis)
+#   Row 2 : B | C
+#   Row 3 : D | E
 #
 # ============================================================
 
@@ -24,61 +27,39 @@
 suppressPackageStartupMessages({
     library(data.table)
     library(dplyr)
-    library(tibble)
+    library(tidyr)
+    library(lubridate)
     library(ggplot2)
     library(patchwork)
+    library(arrow)
+    library(stringr)
+    library(did)
+    library(scales)
     library(ggrepel)
     library(readr)
+    library(viridis)
 })
+
 
 # ============================================================
 # 2. File paths and output directory
 # ============================================================
 
 # ---- Extraction / run dates of the input result files ----
+DATE_3A  <- "20260915"   # Panel A  
+DATE_3B  <- "20260709"   # Panel B  
+DATE_3C  <- "20260716"   # Panel C 
 
-DATE_3A <- "20260219"   # Panel A, DiD_Diagnosis high-throughput run
-DATE_3B <- "20260728"   # Panel B 
-DATE_3C <- "20260728"   # Panel C 
-DATE_3D <- "20260728"   # Panel D 
-DATE_3E <- "20260728"   # Panel E 
+# ---- Input files (one per panel) ----
+results_3A_file  <- paste0('/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Diagnosis_', DATE_3A, '/Results_', DATE_3A, '/Results_ICD_', DATE_3A, '.csv')
+results_3B_file  <- paste0('/media/volume/Projects/DSGELabProject1/Plots/Supplements/Supplements_Distress_', DATE_3B, '/Supplements_DepressionBurnout_PhenotypeComparison_V1_', DATE_3B, '.csv')
+results_3C_file  <- paste0('/media/volume/Projects/mattferr/notes/note_20260715_depression_sick_leave_V2/Results_LOCF_MultiPhenotype_', DATE_3C, '/PhenotypeComparison_LOCF_', DATE_3C, '.csv')
 
-# ---- Directories ----
-DIR_RESULTS <- "/media/volume/Projects/DSGELabProject1/Plots/ManuscriptFinal/"  
-DIR_DID     <- "/media/volume/Projects/DSGELabProject1/DiD_Experiments/"         
-DIR_OUT     <- "/media/volume/Projects/DSGELabProject1/Plots/ManuscriptFinal/" 
+# ---- Output directory ----
+TODAY  <- format(Sys.Date(), "%Y%m%d")
+outdir <- "/media/volume/Projects/DSGELabProject1/Plots/ManuscriptFinal/"
 
-# ---- Input files ----
-results_3A_file  <- file.path(DIR_DID, paste0("DiD_Diagnosis_", DATE_3A), paste0("Results_", DATE_3A), paste0("Results_ICD_", DATE_3A, ".csv"))
-results_3B_file  <- file.path(DIR_RESULTS, paste0("Supplements_DepressionDistress_PhenotypeComparison_", DATE_3B, ".csv"))
-results_3C_file  <- file.path(DIR_RESULTS, paste0("Supplements_DepressionDistress_SickLeave_PhenotypeComparison_", DATE_3C, ".csv"))
-results_3D_file <- file.path(DIR_RESULTS, paste0("Supplements_Pregnancy_ByYears_", DATE_3D, ".csv"))
-results_3E_file  <- file.path(DIR_RESULTS, paste0("Supplements_Phlebitis_Subcodes_", DATE_3E, ".csv"))
-
-# ---- Output file names ----
-TODAY <- format(Sys.Date(), "%Y%m%d")
-
-FILE_FIG_MAIN_BASENAME  <- paste0("Figure3_ABCDE_", TODAY)                        
-FILE_FIG_SUPP_BASENAME  <- paste0("Figure3_Supplements_Chapter_Distribution_", TODAY)   
-FILE_CSV_PANEL_A        <- paste0("Figure3_PanelA_Data_", TODAY, ".csv")
-FILE_CSV_PANEL_A_LABELS <- paste0("Figure3_PanelA_LabelledCodes_", TODAY, ".csv")
-FILE_CSV_SUPP           <- paste0("Figure3_Supplements_Chapter_Distribution_Summary_", TODAY, ".csv")
-FILE_CSV_PANELS_BCDE    <- paste0("Figure3_PanelsBCDE_Data_", TODAY, ".csv")
-
-
-# ---- Check if all input files exist ----
-input_files <- c(
-    "Panel A"        = results_3A_file,
-    "Panel B"        = results_3B_file,
-    "Panel C"        = results_3C_file,
-    "Panel D"        = results_3D_file,
-    "Panel E"        = results_3E_file
-)
-missing_files <- input_files[!file.exists(input_files)]
-if (length(missing_files) > 0) {
-    stop("Input file(s) not found — check the DATE_3* constants in section 2:\n",
-         paste0("  - ", names(missing_files), ": ", missing_files, collapse = "\n"))
-}
+if (!dir.exists(outdir)) dir.create(outdir, recursive = TRUE)
 
 # ============================================================
 # 3. Parameters
@@ -90,10 +71,10 @@ setDTthreads(N_THREADS)
 SEED <- 1                    # only used for the Panel A jitter
 
 # ---- Analysis ----
-WIN           <- 3           # years either side of the event shown in panels B-E
-MIN_N_CASES   <- 300         # Panel A: minimum cases for a code to be plotted
-FDR_ALPHA     <- 0.05        # Panel A: significance threshold after FDR correction
-CI_MULT       <- 1.96        # 95% CI multiplier applied to all SEs
+WIN          <- 3            # years either side of the event shown in panels B, C
+MIN_N_CASES  <- 300          # Panel A: minimum cases for a code to be plotted
+FDR_ALPHA    <- 0.05         # Panel A: significance threshold after FDR correction
+CI_MULT      <- 1.96         # 95% CI multiplier applied to all SEs
 MIN_N_BOXPLOT <- 3           # Supplementary: min codes per chapter to draw a box
 
 # ---- Panel A point styling ----
@@ -103,7 +84,7 @@ POINT_SIZE_NOT_SIG <- 2
 ALPHA_SIG          <- 1
 ALPHA_NOT_SIG      <- 0.2
 
-# ---- DiD panel (B-E) styling ----
+# ---- DiD panel (B-C) styling ----
 LINEWIDTH_MAIN  <- 0.5
 POINT_SIZE_MAIN <- 2
 ERRORBAR_WIDTH  <- 0.2
@@ -127,34 +108,13 @@ FIG_SUPP_WIDTH  <- 14
 FIG_SUPP_HEIGHT <- 8
 FIG_DPI         <- 300
 
-# ---- Shared axis labels ----
+# ---- Shared axis label used by every DiD panel ----
 Y_LAB_DID <- "Change in Total Number of Prescriptions\n(compared to controls)"
 Y_LAB_A   <- "Change in Total Number of Prescriptions\n(within the event year)"
 
 
 # ============================================================
-# 4. Helper functions
-# ============================================================
-
-# Save a ggplot as both PNG and PDF using the same base filename
-save_plot_png_pdf <- function(plot, dir, basename, width, height, dpi = FIG_DPI) {
-    ggsave(
-        filename = file.path(dir, paste0(basename, ".png")),
-        plot     = plot,
-        width    = width,
-        height   = height,
-        dpi      = dpi
-    )
-    ggsave(
-        filename = file.path(dir, paste0(basename, ".pdf")),
-        plot     = plot,
-        width    = width,
-        height   = height
-    )
-}
-
-# ============================================================
-# 5. Shared styling — palettes, colour helper, theme
+# 4. Shared styling — palettes, colour helper, theme
 # ============================================================
 
 # Colourblind-friendly palette used for the ICD-10 chapters in Panel A
@@ -163,7 +123,7 @@ cb_palette <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2",
                 "#7570B3", "#66A61E", "#E7298A", "#A6761D", "#666666",
                 "#1B9E77", "#D95F02", "#7570B3", "#E7298A", "#66A61E", "#E6AB02")
 
-# Palette for phenotype comparisons (Panels B and C)
+# palette for phenotype comparisons 
 PALETTE_PHENOTYPE <- c(
     "#1f77b4", "#d62728", "#2ca02c", "#ff7f0e", "#9467bd", "#8c564b"
 )
@@ -173,7 +133,6 @@ PHENOTYPE_COLORS_FIXED <- c(
     "Distress"                      = "#2ca02c"
 )
 
-# Assign the fixed colours where the phenotype is known, spare palette colours otherwise
 make_phenotype_colors <- function(ph_names) {
     ph_names <- as.character(unique(ph_names))
     cols <- unname(PHENOTYPE_COLORS_FIXED[ph_names])
@@ -187,25 +146,10 @@ make_phenotype_colors <- function(ph_names) {
     cols
 }
 
-# ---- Panels B and C: legend order (phenotype names come from the supplement scripts) ----
-PHENOTYPE_ORDER_BC <- c("Recurrent depressive disorder",
-                        "Single depressive episode",
-                        "Distress")
-
-# ---- Panel D: doctor sex groups ----
-DOCTOR_SEX_LABELS <- c(
-    female = "Female doctors \n(who had a childbirth event)",
-    male   = "Male doctors \n(whose spouse had a childbirth event)"
-)
-DOCTOR_SEX_COLORS <- setNames(c("#2ca02c", "#1f77b4"), DOCTOR_SEX_LABELS)
-
-# ---- Panel E: I80 subcodes (raw level -> plot label -> colour) ----
-PANEL_E_LEVELS <- c("Unspecified", "Superficial", "Deep", "Other")
-PANEL_E_LABELS <- c("Unspecified \n(lower extremities)",
-                    "Superficial \n(lower extremities)",
-                    "Deep \n(lower extremities)",
-                    "Other")
-PHENOTYPE_COLORS_E <- setNames(c("#000000", "#ff7f0e", "#2ca02c", "#9467bd"), PANEL_E_LABELS)
+# ---- Panel C: legend order (phenotypes come from note5.R) ----
+PANEL_C_PHENOTYPE_ORDER <- c("Recurrent depressive disorder",
+                             "Single depressive episode",
+                             "Distress")
 
 # Common theme layer added on top of theme_minimal() for every panel
 shared_theme <- theme_minimal() +
@@ -222,7 +166,7 @@ shared_theme <- theme_minimal() +
 
 
 # ============================================================
-# 6. Lookup tables (Panel A)
+# 5. Lookup tables (Panel A)
 # ============================================================
 
 icd10_chapter_map <- c(
@@ -257,29 +201,33 @@ icd10_chapter_map <- c(
 code_labels <- tibble(
     EVENT_CODE = c(
         "C50",
+        "F32",
         "F33",
+        "F43",
+        "G43",
         "I80",
         "O80",
         "O82",
-        "O02",
         "Z34",
-        "Z36"),
+        "Z36"
+    ),
     LABEL = c(
         "Malignant neoplasm of breast",
+        "Single depressive episode",
         "Recurrent depressive disorder",
+        "Severe stress and adjustment disorders",
+        "Migraine",
         "Phlebitis and thrombophlebitis",
         "Single spontaneous delivery",
         "Single delivery by caesarean section",
-        "Other abnormal products of conception",
         "Supervision of normal pregnancy",
-        "Antenatal screening"
+        "Antenatal screening"    
     )
 )
 
 
 # ============================================================
-# 7. PANEL A — data preparation
-#    (shared by Panel A and by the supplementary chapter figure)
+# 6. PANEL A — Individual disease scatter (+ supplementary figure)
 # ============================================================
 
 # ---- Load and filter ----
@@ -288,19 +236,19 @@ results_A <- results_A[results_A$N_CASES >= MIN_N_CASES, ]
 
 # ---- Multiple testing correction ----
 # Note: FDR correction, not as conservative as Bonferroni
-results_A$SE              <- results_A$SE_DROP
-results_A$PVAL            <- 2 * (1 - pnorm(abs(results_A$ATT_DROP / results_A$SE)))
-results_A$PVAL_ADJ_FDR    <- p.adjust(results_A$PVAL, method = "fdr")
-results_A$SIGNIFICANT_FDR <- results_A$PVAL_ADJ_FDR < FDR_ALPHA
+results_A$SE               <- results_A$SE_DROP
+results_A$PVAL             <- 2 * (1 - pnorm(abs(results_A$ATT_DROP / results_A$SE)))
+results_A$PVAL_ADJ_FDR     <- p.adjust(results_A$PVAL, method = "fdr")
+results_A$SIGNIFICANT_FDR  <- results_A$PVAL_ADJ_FDR < FDR_ALPHA
 results_A$SIG_TYPE <- factor(
     ifelse(results_A$SIGNIFICANT_FDR, "Significant", "Not Significant"),
     levels = c("Significant", "Not Significant")
 )
 
 # ---- Map codes to ICD-10 chapters ----
-results_A$EVENT_CODE   <- substr(sub(".*_", "", results_A$EVENT_CODE), 1, 3)
-results_A              <- results_A %>% mutate(MED_CHAPTER = substr(EVENT_CODE, 1, 1))
-results_A$MED_CHAPTER  <- factor(results_A$MED_CHAPTER, levels = sort(unique(results_A$MED_CHAPTER)))
+results_A$EVENT_CODE  <- substr(sub(".*_", "", results_A$EVENT_CODE), 1, 3)
+results_A             <- results_A %>% mutate(MED_CHAPTER = substr(EVENT_CODE, 1, 1))
+results_A$MED_CHAPTER <- factor(results_A$MED_CHAPTER, levels = sort(unique(results_A$MED_CHAPTER)))
 results_A$CHAPTER_NAME <- factor(
     icd10_chapter_map[as.character(results_A$MED_CHAPTER)],
     levels = icd10_chapter_map[sort(unique(as.character(results_A$MED_CHAPTER)))]
@@ -311,43 +259,14 @@ set.seed(SEED)
 results_A$x_jittered <- as.numeric(results_A$CHAPTER_NAME) +
     runif(nrow(results_A), -JITTER_RANGE, JITTER_RANGE)
 
-# ---- Highlighted codes ----
+# ---- Highlighted codes, placed on the same jittered coordinates ----
 robust_result_labels <- results_A %>% inner_join(code_labels, by = "EVENT_CODE")
+robust_result_labels$x_jittered <- results_A$x_jittered[
+    match(interaction(robust_result_labels$CHAPTER_NAME, robust_result_labels$EVENT_CODE),
+          interaction(results_A$CHAPTER_NAME,            results_A$EVENT_CODE))
+]
 
-# ---- Chapter-level counts, used by the supplementary figure ----
-# Boxes are only drawn for chapters with enough codes to be meaningful
-chapter_counts <- results_A %>%
-    group_by(CHAPTER_NAME) %>%
-    summarise(
-        n_codes  = n(),
-        median   = median(ATT_DROP, na.rm = TRUE),
-        q25      = quantile(ATT_DROP, 0.25, na.rm = TRUE),
-        q75      = quantile(ATT_DROP, 0.75, na.rm = TRUE),
-        .groups  = "drop"
-    ) %>%
-    mutate(has_boxplot = n_codes >= MIN_N_BOXPLOT)
-
-results_A <- results_A %>%
-    left_join(chapter_counts %>% select(CHAPTER_NAME, has_boxplot), by = "CHAPTER_NAME")
-
-
-# ============================================================
-# 8. CHECKPOINT — save the data used for plotting
-# ============================================================
-
-# Panel A: one row per ICD-10 code, including chapter, and FDR significance
-write.csv(results_A, file.path(DIR_OUT, FILE_CSV_PANEL_A), row.names = FALSE)
-
-# Panel A: the subset of codes labelled directly on the figure
-write.csv(robust_result_labels, file.path(DIR_OUT, FILE_CSV_PANEL_A_LABELS), row.names = FALSE)
-
-# Supplementary figure: chapter-level summary (the point-level data is the Panel A file above)
-write.csv(chapter_counts, file.path(DIR_OUT, FILE_CSV_SUPP), row.names = FALSE)
-
-# ============================================================
-# 9. PANEL A — Individual disease scatter, by ICD-10 chapter
-# ============================================================
-
+# ---- Panel A plot ----
 p_A_main <- ggplot(results_A, aes(x = x_jittered, y = ATT_DROP, color = CHAPTER_NAME)) +
     geom_point(aes(shape = SIG_TYPE, size = SIG_TYPE, alpha = SIG_TYPE)) +
     geom_text_repel(data = robust_result_labels,
@@ -379,10 +298,15 @@ p_A_main <- ggplot(results_A, aes(x = x_jittered, y = ATT_DROP, color = CHAPTER_
         legend.position = "none"
     )
 
-# ============================================================
-# 10. SUPPLEMENTARY FIGURE 
-#     chapter-level distribution of the Panel A estimates
-# ============================================================
+# ---- Supplementary figure: chapter-level distribution of the same estimates ----
+# Boxes are only drawn for chapters with enough codes to be meaningful
+chapter_counts <- results_A %>%
+    group_by(CHAPTER_NAME) %>%
+    summarise(n = n(), .groups = "drop") %>%
+    mutate(has_boxplot = n >= MIN_N_BOXPLOT)
+
+results_A <- results_A %>%
+    left_join(chapter_counts %>% select(CHAPTER_NAME, has_boxplot), by = "CHAPTER_NAME")
 
 p_supp <- ggplot(results_A, aes(x = CHAPTER_NAME, y = ATT_DROP, colour = CHAPTER_NAME, fill = CHAPTER_NAME)) +
     geom_hline(yintercept = 0, linetype = HLINE_TYPE, colour = HLINE_COLOR, linewidth = 0.5) +
@@ -390,7 +314,7 @@ p_supp <- ggplot(results_A, aes(x = CHAPTER_NAME, y = ATT_DROP, colour = CHAPTER
         aes(x = x_jittered),
         shape = 16,
         size  = 1.5,
-        alpha = 0.5
+        alpha = 0.2
     ) +
     {if (any(results_A$has_boxplot)) geom_boxplot(
         aes(x = as.numeric(CHAPTER_NAME)),
@@ -421,18 +345,13 @@ p_supp <- ggplot(results_A, aes(x = CHAPTER_NAME, y = ATT_DROP, colour = CHAPTER
 
 
 # ============================================================
-# 11. PANEL B — Depression and mental distress (base)
+# 7. PANEL B — Depression and mental distress (all doctors)
 # ============================================================
 
 results_B <- fread(results_3B_file)
 results_B <- results_B[time >= -WIN & time <= WIN]
 
-# Keep the phenotypes in a fixed legend order, unknown ones appended at the end
-levels_B <- c(intersect(PHENOTYPE_ORDER_BC, unique(results_B$phenotype)),
-              setdiff(unique(results_B$phenotype), PHENOTYPE_ORDER_BC))
-results_B[, phenotype := factor(phenotype, levels = levels_B)]
-
-phenotype_colors_B <- make_phenotype_colors(levels(results_B$phenotype))
+phenotype_colors_B <- make_phenotype_colors(results_B$phenotype)
 
 p_B <- ggplot(results_B, aes(x = time, y = att, color = phenotype, group = phenotype)) +
     geom_line(linewidth = LINEWIDTH_MAIN, position = position_dodge(width = DODGE_WIDTH)) +
@@ -455,14 +374,14 @@ p_B <- ggplot(results_B, aes(x = time, y = att, color = phenotype, group = pheno
 
 
 # ============================================================
-# 12. PANEL C — Depression and mental distress, sick leave adjusted (LOCF)
+# 8. PANEL C — Depression and mental distress, sick leave adjusted
 # ============================================================
 
 results_C <- fread(results_3C_file)
 results_C <- results_C[time >= -WIN & time <= WIN]
 
-levels_C <- c(intersect(PHENOTYPE_ORDER_BC, unique(results_C$phenotype)),
-              setdiff(unique(results_C$phenotype), PHENOTYPE_ORDER_BC))
+levels_C <- c(intersect(PANEL_C_PHENOTYPE_ORDER, unique(results_C$phenotype)),
+              setdiff(unique(results_C$phenotype), PANEL_C_PHENOTYPE_ORDER))
 results_C[, phenotype := factor(phenotype, levels = levels_C)]
 
 phenotype_colors_C <- make_phenotype_colors(levels(results_C$phenotype))
@@ -488,103 +407,29 @@ p_C <- ggplot(results_C, aes(x = time, y = att, color = phenotype, group = pheno
 
 
 # ============================================================
-# 13. PANEL D — Childbirth (female doctors vs male doctors' spouses)
-# ============================================================
-
-results_D <- fread(results_3D_file)
-results_D <- results_D[time >= -WIN & time <= WIN]
-results_D[, phenotype := factor(group, levels = c("Female", "Male"), labels = DOCTOR_SEX_LABELS)]
-
-p_D <- ggplot(results_D, aes(x = time, y = att, color = phenotype, group = phenotype)) +
-    geom_line(linewidth = LINEWIDTH_MAIN, position = position_dodge(width = DODGE_WIDTH)) +
-    geom_point(size = POINT_SIZE_MAIN, position = position_dodge(width = DODGE_WIDTH)) +
-    geom_errorbar(
-        aes(ymin = att - CI_MULT * se, ymax = att + CI_MULT * se),
-        width = ERRORBAR_WIDTH, position = position_dodge(width = DODGE_WIDTH)
-    ) +
-    geom_hline(yintercept = 0, linetype = HLINE_TYPE, color = HLINE_COLOR) +
-    geom_vline(xintercept = 0, linetype = VLINE_TYPE, color = VLINE_COLOR) +
-    scale_color_manual(values = DOCTOR_SEX_COLORS) +
-    scale_x_continuous(breaks = -WIN:WIN) +
-    labs(
-        title = expression(bold("D. Childbirth")),
-        x     = "Years from Event",
-        y     = Y_LAB_DID,
-        color = NULL
-    ) +
-    shared_theme
-
-
-# ============================================================
-# 14. PANEL E — Phlebitis and thrombophlebitis, by subcode
-# ============================================================
-
-results_E <- fread(results_3E_file)
-results_E <- results_E[time >= -WIN & time <= WIN]
-results_E[, phenotype := factor(phenotype, levels = PANEL_E_LEVELS, labels = PANEL_E_LABELS)]
-
-p_E <- ggplot(results_E, aes(x = time, y = att, color = phenotype, group = phenotype)) +
-    geom_line(linewidth = LINEWIDTH_MAIN, position = position_dodge(width = DODGE_WIDTH)) +
-    geom_point(size = POINT_SIZE_MAIN, position = position_dodge(width = DODGE_WIDTH)) +
-    geom_errorbar(
-        aes(ymin = att - CI_MULT * se, ymax = att + CI_MULT * se),
-        width = ERRORBAR_WIDTH, position = position_dodge(width = DODGE_WIDTH)
-    ) +
-    geom_hline(yintercept = 0, linetype = HLINE_TYPE, color = HLINE_COLOR) +
-    geom_vline(xintercept = 0, linetype = VLINE_TYPE, color = VLINE_COLOR) +
-    scale_color_manual(values = PHENOTYPE_COLORS_E) +
-    scale_x_continuous(breaks = -WIN:WIN) +
-    labs(
-        title = expression(bold("E. Phlebitis and Thrombophlebitis")),
-        x     = "Years from Event",
-        y     = Y_LAB_DID,
-        color = "Phenotype"
-    ) +
-    shared_theme
-
-
-# ============================================================
-# 15. CHECKPOINT — save the plotting data of panels B-E
-# ============================================================
-
-plot_data_BCDE <- rbindlist(list(
-    copy(results_B)[, `:=`(panel = "B. Depression and mental distress")],
-    copy(results_C)[, `:=`(panel = "C. Depression and mental distress, sick leave adjusted")],
-    copy(results_D)[, `:=`(panel = "D. Childbirth")],
-    copy(results_E)[, `:=`(panel = "E. Phlebitis and thrombophlebitis")]
-), fill = TRUE)
-
-write.csv(plot_data_BCDE, file.path(DIR_OUT, FILE_CSV_PANELS_BCDE), row.names = FALSE)
-
-
-# ============================================================
-# 16. Assemble and save outputs (PNG + PDF)
+# 11. Assemble and save outputs
 #   Row 1 : Panel A  (full width)
 #   Row 2 : Panel B | Panel C
-#   Row 3 : Panel D | Panel E
 # ============================================================
 
 p_combined_full <- (
     p_A_main /
-    (p_B | p_C) /
-    (p_D | p_E)
+    (p_B | p_C)
 ) +
-plot_layout(heights = c(1.4, 1, 1))
+plot_layout(heights = c(1, 1))
 
-# Main figure
-save_plot_png_pdf(
+ggsave(
+    filename = file.path(outdir, paste0("Figure3_ABC_", TODAY, ".png")),
     plot     = p_combined_full,
-    dir      = DIR_OUT,
-    basename = FILE_FIG_MAIN_BASENAME,
     width    = FIG_MAIN_WIDTH,
-    height   = FIG_MAIN_HEIGHT
+    height   = FIG_MAIN_HEIGHT,
+    dpi      = FIG_DPI
 )
 
-# Supplementary figure
-save_plot_png_pdf(
+ggsave(
+    filename = file.path(outdir, paste0("Supplementary_Chapter_Distribution_", TODAY, ".png")),
     plot     = p_supp,
-    dir      = DIR_OUT,
-    basename = FILE_FIG_SUPP_BASENAME,
     width    = FIG_SUPP_WIDTH,
-    height   = FIG_SUPP_HEIGHT
+    height   = FIG_SUPP_HEIGHT,
+    dpi      = FIG_DPI
 )

@@ -96,6 +96,34 @@ save_plot_png_pdf <- function(plot, dir, basename, width, height, dpi = PLOT_DPI
     )
 }
 
+# -- Helper: fill in missing years for each doctor with 0s for N, and carry forward fixed covariates --
+fill_gaps_with_0s <- function(dt) {
+  
+    # 1. Get each doctor's follow-up window
+    ranges <- dt[, .(min_year = FOLLOW_UP_START_YEAR[1], max_year = FOLLOW_UP_END_YEAR[1]), by = DOCTOR_ID]
+    # 2. Build the year skeleton for each doctor
+    skeleton <- ranges[, .(YEAR = seq(min_year, max_year)), by = DOCTOR_ID]
+    # 3. Join original data onto the skeleton
+    setkey(dt, DOCTOR_ID, YEAR)
+    setkey(skeleton, DOCTOR_ID, YEAR)
+    filled <- dt[skeleton]
+
+    # 4. Zero-fill missing values (N column only)
+    filled[, N := fifelse(is.na(N), 0, N)]
+    # 5. Carry forward "fixed" covariate columns, but not AGE
+    fixed_cols <- setdiff(names(dt), c("DOCTOR_ID", "YEAR", "N", "AGE"))
+    if (length(fixed_cols) > 0) {
+      filled[, (fixed_cols) := lapply(.SD, function(x) {
+          val <- x[!is.na(x)][1]
+          fifelse(is.na(x), val, x)
+      }), .SDcols = fixed_cols, by = DOCTOR_ID]
+    }
+    # 6. Recompute AGE for every row
+    filled[, AGE := YEAR - BIRTH_YEAR]  
+
+  return(filled)
+}
+
 
 # ============================================================
 # 4. Phenotype definitions
@@ -154,7 +182,8 @@ covariates <- fread(PATH_COVARIATES_FILE)
 covariates[, `:=`(
     SPECIALTY  = as.character(INTERPRETATION),
     BIRTH_YEAR = as.numeric(substr(BIRTH_DATE, 1, 4)),
-    BIRTH_DATE = NULL,
+    LICENSE_START = as.Date(START_DATE),
+    LICENSE_END   = as.Date(END_DATE),
     INTERPRETATION = NULL
 )]
 covariates[SPECIALTY == "", SPECIALTY := "No specialty"]
@@ -186,8 +215,6 @@ sl[, MONTH_END   := (as.numeric(format(DATE_END,   "%Y")) - 1998) * 12 +
                      as.numeric(format(DATE_END,   "%m"))]
 sl_periods <- sl[!is.na(MONTH_START) & !is.na(MONTH_END), .(DOCTOR_ID, MONTH_START, MONTH_END)]
 sl_periods <- sl_periods[order(DOCTOR_ID, MONTH_START)]
-
-
 
 cat("Sick leave periods loaded:", nrow(sl_periods), "periods across", uniqueN(sl_periods$DOCTOR_ID), "doctors\n")
 
@@ -247,9 +274,6 @@ run_phenotype_locf_did <- function(PHENOTYPE, outcomes_raw, events_all, covariat
     ids_post60  <- df_complete[AGE_AT_EVENT > 60 & !is.na(AGE_AT_EVENT), unique(DOCTOR_ID)]
     df_complete <- df_complete[!(DOCTOR_ID %in% ids_post60) & AGE <= 60]
 
-    # Replace missing monthly prescription counts with 0
-    df_complete[is.na(N), N := 0]
-
     df_complete[, `:=`(
         SPECIALTY = factor(SPECIALTY),
         SEX       = factor(SEX, levels = c(1, 2), labels = c("Male", "Female"))
@@ -297,15 +321,30 @@ run_phenotype_locf_did <- function(PHENOTYPE, outcomes_raw, events_all, covariat
     # 6d. Aggregate to YEAR level and build DiD variables
     # ----------------------------------------------------------
 
-    df_did <- df_complete[, .(DOCTOR_ID, YEAR, MONTH, N, EVENT, EVENT_YEAR, SEX, BIRTH_YEAR, SPECIALTY)]
+    df_did <- df_complete[, .(DOCTOR_ID, YEAR, MONTH, N, EVENT, EVENT_YEAR, SEX, BIRTH_YEAR, SPECIALTY, LICENSE_START, LICENSE_END, BIRTH_DATE, DEATH_DATE)]
     df_did <- df_did[, .(
         N          = sum(N, na.rm = TRUE),
         EVENT      = first(EVENT),
         EVENT_YEAR = first(EVENT_YEAR),
         SEX        = first(SEX),
         BIRTH_YEAR = first(BIRTH_YEAR),
-        SPECIALTY  = first(SPECIALTY)
+        SPECIALTY  = first(SPECIALTY),
+        LICENSE_START = first(LICENSE_START),
+        LICENSE_END = first(LICENSE_END),
+        BIRTH_DATE = first(BIRTH_DATE),
+        DEATH_DATE = first(DEATH_DATE)
     ), by = .(DOCTOR_ID, YEAR)]
+
+    # Fill in missing years (during each doctor's follow-up period) with 0s
+    df_did[, `:=`(
+        FOLLOW_UP_START = pmax(as.Date("1998-01-01"), LICENSE_START, na.rm = TRUE),
+        FOLLOW_UP_END   = pmin(as.Date("2022-12-31"), LICENSE_END, BIRTH_DATE + 60 * 365.25, DEATH_DATE, na.rm = TRUE)
+    )]
+    df_did[, `:=`(
+        FOLLOW_UP_START_YEAR = as.integer(format(FOLLOW_UP_START, "%Y")),
+        FOLLOW_UP_END_YEAR   = as.integer(format(FOLLOW_UP_END, "%Y"))
+    )]
+    df_did = fill_gaps_with_0s(df_did)
 
     df_did$ID <- as.integer(factor(df_did$DOCTOR_ID))
     df_did$G  <- ifelse(is.na(df_did$EVENT_YEAR), 0, df_did$EVENT_YEAR)  
