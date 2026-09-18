@@ -229,29 +229,24 @@ data[, SPECIALTY := fifelse(INTERPRETATION == "", "No specialty", INTERPRETATION
 # Assigns human-readable labels, defines custom renderers for categorical vs. continuous variables, and builds the table1 object.
 
 label(data$SEX_LABEL)                  <- "Sex"
-label(data$AGE_IN_1998)                <- "Age in 1998 (years)"
+label(data$BIRTH_YEAR)                 <- "Birth Year"
 label(data$FOLLOW_UP)                  <- "Follow-up (years)"
-label(data$AVG_PRESCRIPTIONS)          <- "Yearly prescriptions"
-label(data$SELF_PRESCRIPTION_RATE_OUT) <- "Self-prescription rate \n(written to self / all written)"
-label(data$SELF_PRESCRIPTION_RATE_IN)  <- "Self-prescription rate \n(written to self / all received)"
+label(data$AVG_PRESCRIPTIONS)          <- "Annual Prescription Count (per doctor)"
 
 # All categorical: N (%)
 render_cat <- function(x, ...) {
-  c("", sapply(stats.apply.rounding(stats.default(x), ...), function(y)
-    sprintf("%s (%.1f)", format(y[["FREQ"]], big.mark = ","), as.numeric(y[["PCT"]]))))
+  rendered <- sapply(stats.apply.rounding(stats.default(x), ...), function(y)
+    sprintf("%s (%.1f %%)", format(y[["FREQ"]], big.mark = ","), as.numeric(y[["PCT"]])))
+  names(rendered) <- paste0(names(rendered), " (%)")
+  c("", rendered)
 }
 
 # All continuous: Mean (SD) on first line, Median (Min, Max) on second.
-# Self-prescription rate variables are percentages, so append a "%" suffix.
 render_cont <- function(x, ...) {
-  lab <- attr(x, "label")
-  is_pct <- !is.null(lab) && grepl("Self-prescription", lab, ignore.case = TRUE)
-  pct_suffix <- if (is_pct) "%%" else ""
-
   c("",
-    "Mean (SD)"         = sprintf(paste0("%.2f", pct_suffix, " (%.2f", pct_suffix, ")"),
+    "Mean (SD)"         = sprintf("%.0f (%.0f)",
                             mean(x, na.rm = TRUE), sd(x, na.rm = TRUE)),
-    "Median (Min, Max)" = sprintf(paste0("%.2f", pct_suffix, " (%.2f", pct_suffix, ", %.2f", pct_suffix, ")"),
+    "Median (Min, Max)" = sprintf("%.0f (%.0f, %.0f)",
                             median(x, na.rm = TRUE),
                             min(x, na.rm = TRUE),
                             max(x, na.rm = TRUE)))
@@ -259,16 +254,16 @@ render_cont <- function(x, ...) {
 
 # Build table
 tbl <- table1(
-  ~ SEX_LABEL + AGE_IN_1998 + FOLLOW_UP + AVG_PRESCRIPTIONS + SELF_PRESCRIPTION_RATE_OUT + SELF_PRESCRIPTION_RATE_IN,
+  ~ SEX_LABEL + BIRTH_YEAR + FOLLOW_UP + AVG_PRESCRIPTIONS,
   data               = data,
   caption            = "Table 1. Characteristics of doctors.",
   render.continuous  = render_cont,
   render.categorical = render_cat,
-  rowlabelhead       = "Characteristic"
+  rowlabelhead       = ""
 )
 
 
-## 6. Export: Table 1 --------------------------------------------------------------
+## 6. Export: Table 1 ------------------------------------------------
 
 # CSV
 tbl_csv <- as.data.frame(tbl)
@@ -333,7 +328,7 @@ pC <- ggplot(data, aes(x = factor(SPECIALTY, levels = specialty_freqs$SPECIALTY)
   ) +
   labs(
     x = "Specialty",
-    y = "Average yearly prescriptions"
+    y = "Average Annual Prescription Count"
   ) +
   theme_minimal() +
   theme_common +
@@ -415,7 +410,7 @@ dev.off()
 supp_table <- data[, .(
   N                                       = .N,
   Pct_Female                              = sprintf("%.2f%%", 100 * mean(SEX == 2, na.rm = TRUE)),
-  Age_1998_Mean_SD                        = sprintf("%.2f (%.2f)", mean(AGE_IN_1998, na.rm = TRUE), sd(AGE_IN_1998, na.rm = TRUE)),
+  Birth_Year_Mean_SD                      = sprintf("%.0f (%.0f)", mean(BIRTH_YEAR, na.rm = TRUE), sd(BIRTH_YEAR, na.rm = TRUE)),
   FollowUp_Mean_SD                        = sprintf("%.2f (%.2f)", mean(FOLLOW_UP, na.rm = TRUE), sd(FOLLOW_UP, na.rm = TRUE)),
   Avg_Presc_Mean_SD                       = sprintf("%.2f (%.2f)", mean(AVG_PRESCRIPTIONS, na.rm = TRUE), sd(AVG_PRESCRIPTIONS, na.rm = TRUE)),
   Total_Presc_Out                         = sum(TOTAL_PRESCRIPTIONS_OUT, na.rm = TRUE),
@@ -428,7 +423,7 @@ supp_table_total <- data[, .(
   SPECIALTY                                = "Total",
   N                                        = .N,
   Pct_Female                               = sprintf("%.2f%%", 100 * mean(SEX == 2, na.rm = TRUE)),
-  Age_1998_Mean_SD                         = sprintf("%.2f (%.2f)", mean(AGE_IN_1998, na.rm = TRUE), sd(AGE_IN_1998, na.rm = TRUE)),
+  Birth_Year_Mean_SD                         = sprintf("%.0f (%.0f)", mean(BIRTH_YEAR, na.rm = TRUE), sd(BIRTH_YEAR, na.rm = TRUE)),
   FollowUp_Mean_SD                         = sprintf("%.2f (%.2f)", mean(FOLLOW_UP, na.rm = TRUE), sd(FOLLOW_UP, na.rm = TRUE)),
   Avg_Presc_Mean_SD                        = sprintf("%.2f (%.2f)", mean(AVG_PRESCRIPTIONS, na.rm = TRUE), sd(AVG_PRESCRIPTIONS, na.rm = TRUE)),
   Total_Presc_Out                          = sum(TOTAL_PRESCRIPTIONS_OUT, na.rm = TRUE),
@@ -442,9 +437,9 @@ setnames(supp_table, c(
   "SPECIALTY",
   "N",
   "Female (%)",
-  "Mean Age in 1998 (SD)",
+  "Mean Birth Year (SD)",
   "Mean Follow-up (SD)",
-  "Mean Yearly Prescriptions (SD)",
+  "Mean Annual Prescription count (SD)",
   "Total Prescriptions",
   "Total Self-Prescriptions",
   "Self-Prescription Rate (written to self / all written)",
