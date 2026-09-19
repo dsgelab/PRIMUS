@@ -83,37 +83,31 @@ cb_palette <- c(
 # Medications of interest: ATC code -> readable label
 code_labels <- tibble(
     OUTCOME_CODE = c(
-        "A06AC01",
         "C10AA07",
+        "J01FA09",
         "M01AH05",
-        "N02CC07",
+        "N02BE01",
         "N05CF02",
-        "N06AX26",
         "R01AD12",
-        "R01AD58",
-        "R03AK10"
+        "R01AD58"
     ),
     LABEL = c(
-        "psylla seeds",
         "rosuvastatin",
+        "clarithromycin",
         "etoricoxib",
-        "frovatriptan",
+        "paracetamol",
         "zolpidem",
-        "vortioxetine",
         "fluticasone furoate",
-        "fluticasone, combinations",
-        "vilanterol and fluticasone furoate"
+        "fluticasone, combinations"
     ),
     LABEL_WITH_INDICATION = c(
-        "psylla seeds \n(constipation)",
         "rosuvastatin \n(CVD, hypercholesterolemia)",
+        "clarithromycin \n(antibiotic)",
         "etoricoxib \n(acute pain, arthritis)",
-        "frovatriptan \n(migraine)",
+        "paracetamol \n(pain, fever)",
         "zolpidem \n(insomnia)",
-        "vortioxetine \n(depression)",
         "fluticasone furoate \n(allergic rhinitis)",
-        "fluticasone, combinations \n(allergic rhinitis)",
-        "vilanterol and fluticasone furoate \n(COPD, asthma)"
+        "fluticasone, combinations \n(allergic rhinitis)"
     )
 )
 
@@ -122,8 +116,8 @@ code_labels <- tibble(
 ### 2. PATHS
 ### ----------------------------------------------------------------------------
 
-DATE_DATA_1  <- "20260316"                    
-DATE_DATA_2  <- "20260729"                    
+DATE_DATA_1  <- "20260918"                    
+DATE_DATA_2  <- "20260919"                    
 TODAY        <- format(Sys.Date(), "%Y%m%d") 
 
 # --- Inputs ---

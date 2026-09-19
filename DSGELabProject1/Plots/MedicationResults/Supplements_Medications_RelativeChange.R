@@ -34,9 +34,8 @@ PATH_DOCTOR_LIST     <- "/media/volume/Projects/DSGELabProject1/doctors_20250424
 DIR_OUT <- "/media/volume/Projects/DSGELabProject1/Plots/ManuscriptFinal/"
 if (!dir.exists(DIR_OUT)) dir.create(DIR_OUT, recursive = TRUE)
 
-BASENAME_EVOLUTION_PLOT         <- paste0("Supplements_RelativeChange_BaselinePrescription_", TODAY)
-BASENAME_RELCHANGE_PLOT1        <- paste0("Supplements_RelativeChange_V1_", TODAY)
-BASENAME_RELCHANGE_PLOT2        <- paste0("Supplements_RelativeChange_V2_", TODAY)
+
+BASENAME_RELCHANGE_PLOT        <- paste0("Supplements_RelativeChange_Plot_", TODAY)
 FILE_RELCHANGE_ESTIMATES_CSV    <- paste0("Supplements_RelativeChange_Estimates_", TODAY, ".csv")
 
 
@@ -141,7 +140,7 @@ p <- ggplot(dataset, aes(y = reorder(OUTCOME_CODE, REL_CHANGE))) +
     THEME_BASE +
     theme(axis.text.y = element_text(size = 8), legend.position = "bottom")
 
-save_plot_png_pdf(p, DIR_OUT, BASENAME_RELCHANGE_PLOT2, PLOT_WIDTH_RELCHANGE, PLOT_HEIGHT_RELCHANGE)
+save_plot_png_pdf(p, DIR_OUT, BASENAME_RELCHANGE_PLOT, PLOT_WIDTH_RELCHANGE, PLOT_HEIGHT_RELCHANGE)
 
 
 # ============================================================

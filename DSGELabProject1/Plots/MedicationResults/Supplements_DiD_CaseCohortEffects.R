@@ -119,26 +119,22 @@ PENSION_AGE    <- 60
 # Medications of interest: ATC code -> readable label
 code_labels <- tibble(
     OUTCOME_CODE = c(
-        "A06AC01",
         "C10AA07",
+        "J01FA09",
         "M01AH05",
-        "N02CC07",
+        "N02BE01",
         "N05CF02",
-        "N06AX26",
         "R01AD12",
-        "R01AD58",
-        "R03AK10"
+        "R01AD58"
     ),
     LABEL = c(
-        "Ispaghula (psylla seeds)",
-        "Rosuvastatin",
-        "Etoricoxib",
-        "Frovatriptan",
-        "Zolpidem",
-        "Vortioxetine",
-        "Fluticasone furoate",
-        "Fluticasone, combinations",
-        "Vilanterol and fluticasone furoate"
+        "rosuvastatin",
+        "clarithromycin",
+        "etoricoxib",
+        "paracetamol",
+        "zolpidem",
+        "fluticasone furoate",
+        "fluticasone, combinations"
     )
 )
 

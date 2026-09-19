@@ -5,11 +5,11 @@
 
 list_of_files=(
     # general / technical results
-    "Supplements_ChapterAverages.R"
+    "Supplements_Medications_ChapterAverages.R"
     "Supplements_DiD_LongitudinalEstimates.R"
-    "Supplements_DiD_RelativeChange.R"
+    "Supplements_Medications_RelativeChange.R"
     "Supplements_ExperimentComparison.R"
-    "Supplements_CaseCohortEffects.R"
+    "Supplements_DiD_CaseCohortEffects.R"
     # stratified results, pt.1
     "Supplements_StratifiedAnalysis_Sex.R"
     "Supplements_StratifiedAnalysis_Age.R"

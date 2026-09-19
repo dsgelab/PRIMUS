@@ -67,29 +67,25 @@ PLOT_WIDTH  <- 10
 PLOT_HEIGHT <- 10
 PLOT_DPI    <- 300
 
-# -- Medication labels for the forest plot: ATC code -> readable name --
+# Medications of interest: ATC code -> readable label
 code_labels <- tibble(
     OUTCOME_CODE = c(
-        "A06AC01",
         "C10AA07",
+        "J01FA09",
         "M01AH05",
-        "N02CC07",
+        "N02BE01",
         "N05CF02",
-        "N06AX26",
         "R01AD12",
-        "R01AD58",
-        "R03AK10"
+        "R01AD58"
     ),
     LABEL = c(
-        "ispaghula (psylla seeds)",
         "rosuvastatin",
+        "clarithromycin",
         "etoricoxib",
-        "frovatriptan",
+        "paracetamol",
         "zolpidem",
-        "vortioxetine",
         "fluticasone furoate",
-        "fluticasone, combinations",
-        "vilanterol and fluticasone furoate"
+        "fluticasone, combinations"
     )
 )
 
