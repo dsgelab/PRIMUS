@@ -21,7 +21,7 @@ suppressPackageStartupMessages({
 # ============================================================
 
 # --- Date stamps used to build input file paths ---
-DATE_DATA_YEARLY  <- "20260219"   # yearly-resolution outcomes extraction date 
+DATE_DATA_YEARLY  <- "20260915"   # yearly-resolution outcomes extraction date 
 DATE_DATA_MONTHLY <- "20250926"   # month-resolution outcomes extraction date 
 TODAY             <- format(Sys.time(), "%Y%m%d")   
 
@@ -143,6 +143,16 @@ covariates <- fread(PATH_COVARIATES_FILE)
 events     <- fread(PATH_PREGNANCIES_FILE)
 relatives  <- fread(PATH_RELATIVES_FILE)
 
+# Prepare covariates and specialty
+covariates[, `:=`(
+    SPECIALTY  = as.character(INTERPRETATION),
+    BIRTH_YEAR = as.numeric(substr(BIRTH_DATE, 1, 4)),
+    LICENSE_START = as.Date(START_DATE),
+    LICENSE_END   = as.Date(END_DATE),
+    INTERPRETATION = NULL
+)]
+covariates[SPECIALTY == "", SPECIALTY := "No specialty"]
+
 # filter spouses of doctors
 spouse_ids <- relatives %>% filter(RELATIVE_TYPE == "SPOUSE") %>% pull(RELATIVE_ID) %>% unique()
 
@@ -196,51 +206,36 @@ spouse_events <- relatives %>%
 # ============================================================
 
 # Merge events with outcomes
-events <- events %>% filter(PATIENT_ID %in% pregnancy_all) %>% rename(DOCTOR_ID = PATIENT_ID, DATE = EVENT_DATE)
-df_merged <- left_join(outcomes, events, by = "DOCTOR_ID")
-df_merged <- df_merged %>%
+events <- events %>% filter(PATIENT_ID %in% pregnancy_all) %>% rename(DOCTOR_ID = PATIENT_ID)
+df <- left_join(outcomes, events, by = "DOCTOR_ID") %>%
     mutate(
-        EVENT      = if_else(!is.na(DATE), 1, 0),
-        EVENT_YEAR = if_else(!is.na(DATE), as.numeric(format(DATE, "%Y")), NA_real_),
+        EVENT      = if_else(!is.na(EVENT_DATE), 1L, 0L),
+        EVENT_YEAR = if_else(!is.na(EVENT_DATE), as.numeric(format(EVENT_DATE, "%Y")), NA_real_)
     ) %>%
-    select(-DATE)
+    select(-EVENT_DATE) %>%
+    as.data.table()
 
-# Prepare covariates and specialty, then merge into the main dataframe
-covariates[, `:=`(
-    SPECIALTY  = as.character(INTERPRETATION),
-    BIRTH_YEAR = as.numeric(substr(BIRTH_DATE, 1, 4)),
-    LICENSE_START = as.Date(START_DATE),
-    LICENSE_END   = as.Date(END_DATE),
-    INTERPRETATION = NULL
+# Merge covariates
+df <- covariates[df, on = "DOCTOR_ID"]
+df[, `:=`(
+    AGE          = YEAR - BIRTH_YEAR,
+    AGE_AT_EVENT = fifelse(is.na(EVENT_YEAR), NA_real_, EVENT_YEAR - BIRTH_YEAR)
 )]
-df_complete <- merge(df_merged, covariates, by = "DOCTOR_ID", how = "left")
-df_complete <- df_complete %>%
-    mutate(
-        AGE          = YEAR - BIRTH_YEAR,
-        AGE_IN_2023  = 2023 - BIRTH_YEAR,
-        AGE_AT_EVENT = if_else(is.na(EVENT_YEAR), NA_real_, EVENT_YEAR - BIRTH_YEAR)
-    )
-events_after60 <- df_complete %>% filter(AGE_AT_EVENT > 60) %>% pull(DOCTOR_ID) %>% unique()
-df_complete <- df_complete %>%
-    filter(!(DOCTOR_ID %in% events_after60)) %>%   # remove doctors who experienced the event after pension (age 60)
-    filter(AGE <= 60)                              # remove all prescriptions logged after pension (age 60)
 
-df_model <- df_complete %>%
-    mutate(
-        SPECIALTY = factor(SPECIALTY),  
-        SEX       = factor(SEX, levels = c(1, 2), labels = c("Male", "Female"))   
-    )
+# Remove doctors whose event occurred after pension age (60)
+ids_post60 <- df[AGE_AT_EVENT > 60 & !is.na(AGE_AT_EVENT), unique(DOCTOR_ID)]
+df <- df[!(DOCTOR_ID %in% ids_post60) & AGE <= 60]
 
 # Fill in missing years (during each doctor's follow-up period) with 0s
-df_model[, `:=`(
+df[, `:=`(
     FOLLOW_UP_START = pmax(as.Date("1998-01-01"), LICENSE_START, na.rm = TRUE),
     FOLLOW_UP_END   = pmin(as.Date("2022-12-31"), LICENSE_END, BIRTH_DATE + 60 * 365.25, DEATH_DATE, na.rm = TRUE)
 )]
-df_model[, `:=`(
+df[, `:=`(
     FOLLOW_UP_START_YEAR = as.integer(format(FOLLOW_UP_START, "%Y")),
     FOLLOW_UP_END_YEAR   = as.integer(format(FOLLOW_UP_END, "%Y"))
 )]
-df_model = fill_gaps_with_0s(df_model)
+df = fill_gaps_with_0s(df)
 
 # DiD variables: numeric ID, group (first treatment year), calendar year
 df_model$ID <- as.integer(factor(df_model$DOCTOR_ID))
