@@ -27,7 +27,7 @@ for file in "${list_of_files[@]}"; do
 
     # plotting scripts are located in the same directory as this script
     path="./$file"
-    printf 'Running %s...\n' "$file"
+    printf '\n\nRunning %s...\n' "$file"
     start_time=$(date +%s)
 
     if Rscript --vanilla "$path"; then
