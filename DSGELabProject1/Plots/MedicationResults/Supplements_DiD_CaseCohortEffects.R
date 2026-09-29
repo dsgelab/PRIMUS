@@ -45,7 +45,7 @@ FILE_PLOT_BASENAME <- paste0("Supplements_DiD_CaseCohortEffects_Plot_", TODAY)
 
 # -- Export settings --
 PLOT_DPI    <- 300
-PLOT_NCOL   <- 5     # number of panels per row in the combined figure
+PLOT_NCOL   <- 4     # number of panels per row in the combined figure
 PLOT_WIDTH  <- 30
 PLOT_HEIGHT <- 15
 
@@ -224,7 +224,7 @@ for (code in code_list) {
 
     if (outcome_code %in% renamed_ATC$ATC_NEW) {
         outcome_cols1 = c("DOCTOR_ID", "YEAR", "N_general", outcome_N_col, outcome_first_col, outcome_last_col)
-        outcomes = as.data.table(read_parquet(outcomes_file, col_select = outcome_cols1))
+        outcomes = as.data.table(read_parquet(PATH_OUTCOMES_FILE, col_select = outcome_cols1))
         # ensure numeric cols are double, not int, before rbind (parquet columns can be typed differently per source)
         num_cols1 = c("N_general", outcome_N_col, outcome_first_col, outcome_last_col)
         outcomes[, (num_cols1) := lapply(.SD, as.double), .SDcols = num_cols1]
@@ -233,7 +233,7 @@ for (code in code_list) {
         # Loop through each old code, rename its columns to match the new code, and stack
         for(old_code in old_codes) {
             outcome_cols2 = c("DOCTOR_ID", "YEAR", "N_general", paste0("N_", old_code), paste0("first_year_", old_code), paste0("last_year_", old_code))
-            outcomes2 = as.data.table(read_parquet(outcomes_file, col_select = outcome_cols2))     
+            outcomes2 = as.data.table(read_parquet(PATH_OUTCOMES_FILE, col_select = outcome_cols2))     
             # ensure numeric cols are double, not int, before rbind (parquet columns can be typed differently per source)
             num_cols2 = c("N_general", paste0("N_", old_code), paste0("first_year_", old_code), paste0("last_year_", old_code))
             outcomes2[, (num_cols2) := lapply(.SD, as.double), .SDcols = num_cols2]
@@ -264,7 +264,7 @@ for (code in code_list) {
             new = c(outcome_N_col, outcome_Y_col, outcome_first_col, outcome_last_col))
     } else {
         outcomes_cols = c("DOCTOR_ID", "YEAR", "N_general", outcome_N_col, outcome_Y_col, outcome_first_col, outcome_last_col)
-        outcomes = as.data.table(read_parquet(outcomes_file, col_select = outcomes_cols))
+        outcomes = as.data.table(read_parquet(PATH_OUTCOMES_FILE, col_select = outcomes_cols))
     }
     outcomes_filtered = outcomes[DOCTOR_ID %in% doctor_ids] # QC : only selected doctors
 

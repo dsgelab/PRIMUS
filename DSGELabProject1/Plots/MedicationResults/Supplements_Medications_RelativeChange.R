@@ -81,25 +81,7 @@ save_plot_png_pdf <- function(plot, dir, basename, width, height, dpi = PLOT_DPI
 # 4. Load the results table and process it
 # ============================================================
 
-dataset <- read_csv(PATH_MAIN_RESULTS, show_col_types = FALSE) %>%
-    select(
-        outcome_code,
-        absolute_change,
-        absolute_change_se,
-        p_value_change,
-        baseline,
-        relative_change,
-        n_cases
-    ) %>%
-    rename(
-        OUTCOME_CODE    = outcome_code,
-        ABS_CHANGE      = absolute_change,
-        ABS_CHANGE_SE   = absolute_change_se,
-        PVAL_ABS_CHANGE = p_value_change,
-        BASELINE_MEAN   = baseline,
-        REL_CHANGE      = relative_change,
-        N_CASES         = n_cases
-    )
+dataset <- read_csv(PATH_MAIN_RESULTS, show_col_types = FALSE) 
 dataset <- dataset[dataset$N_CASES >= MIN_N_CASES, ]
 
 # Apply multiple test correction (on the overall abs-change p-value)
@@ -120,7 +102,7 @@ code_list <- dataset %>%
 dataset <- dataset %>%
     filter(OUTCOME_CODE %in% code_list) %>%
     mutate(
-        REL_CHANGE_SE     = abs(ABS_CHANGE_SE / BASELINE_MEAN),
+        REL_CHANGE_SE     = abs(ABS_CHANGE_SE / BASELINE),
         REL_CHANGE_CI_LOW = REL_CHANGE - 1.96 * REL_CHANGE_SE,
         REL_CHANGE_CI_UP  = REL_CHANGE + 1.96 * REL_CHANGE_SE,
         PVAL_REL_CHANGE   = 2 * (1 - pnorm(abs((REL_CHANGE - 1) / REL_CHANGE_SE)))
@@ -147,13 +129,13 @@ save_plot_png_pdf(p, DIR_OUT, BASENAME_RELCHANGE_PLOT, PLOT_WIDTH_RELCHANGE, PLO
 # 5. Save final combined results (single CSV)
 # ============================================================
 
-dataset_with_baseline <- dataset_with_baseline %>%
+dataset <- dataset %>%
     mutate(
         ABS_CHANGE_CI_LOW = ABS_CHANGE - 1.96 * ABS_CHANGE_SE,
         ABS_CHANGE_CI_UP  = ABS_CHANGE + 1.96 * ABS_CHANGE_SE
     ) %>%
     select(
-        OUTCOME_CODE, BASELINE_MEAN,
+        OUTCOME_CODE, BASELINE,
         ABS_CHANGE, REL_CHANGE,
         ABS_CHANGE_SE, REL_CHANGE_SE,
         ABS_CHANGE_CI_LOW, ABS_CHANGE_CI_UP,
@@ -161,4 +143,4 @@ dataset_with_baseline <- dataset_with_baseline %>%
         PVAL_ABS_CHANGE, PVAL_REL_CHANGE
     )
 
-write_csv(dataset_with_baseline, file.path(DIR_OUT, FILE_RELCHANGE_ESTIMATES_CSV))
+write_csv(dataset, file.path(DIR_OUT, FILE_RELCHANGE_ESTIMATES_CSV))

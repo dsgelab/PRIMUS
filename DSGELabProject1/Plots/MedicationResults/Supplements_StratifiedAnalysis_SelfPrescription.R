@@ -381,7 +381,7 @@ for (code in code_list) {
 # ============================================================
 
 combined_results <- do.call(rbind, results_by_code) %>%
-    rownames_to_column("code") %>%
+    tibble::rownames_to_column("code") %>%
     separate(code, into = c("code", "row"), sep = "\\.", extra = "drop") %>%
     select(-row)
 

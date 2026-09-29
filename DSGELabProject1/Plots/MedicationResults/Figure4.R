@@ -1,4 +1,3 @@
-
 ### ----------------------------------------------------------------------------
 ### 0. LIBRARIES
 ### ----------------------------------------------------------------------------
@@ -383,7 +382,7 @@ p_ratio_combined <- ggplot(
         height = 0.2, linewidth = 0.8
     ) +
     scale_color_manual(values = chapter_color_map, name = "ATC Chapter") +
-    xlim(1, 8) +
+    xlim(1, 4) +
     labs(x = "Relative Change", y = "") +
     scale_y_discrete(position = "right") +
     theme_minimal() +
@@ -461,16 +460,15 @@ for (code in sort(unique(val_data$code), decreasing = TRUE)) {
 ### 8. PANEL B — PLOTS: longitudinal DiD plots, sorted by absolute change
 ### ----------------------------------------------------------------------------
 
-# Only plots 1 and 6 get y axis title
+# 2x4 grid (7 plots + Panel C in the 8th cell): only plots 1 and 5
+# (i.e. the first plot of each row) get the y axis title
 lp1  <- make_longitudinal_plot(sorted_codes[1],  data_plot_all, chapter_color_map, code_labels, show_y_title = TRUE)
 lp2  <- make_longitudinal_plot(sorted_codes[2],  data_plot_all, chapter_color_map, code_labels, show_y_title = FALSE)
 lp3  <- make_longitudinal_plot(sorted_codes[3],  data_plot_all, chapter_color_map, code_labels, show_y_title = FALSE)
 lp4  <- make_longitudinal_plot(sorted_codes[4],  data_plot_all, chapter_color_map, code_labels, show_y_title = FALSE)
-lp5  <- make_longitudinal_plot(sorted_codes[5],  data_plot_all, chapter_color_map, code_labels, show_y_title = FALSE)
-lp6  <- make_longitudinal_plot(sorted_codes[6],  data_plot_all, chapter_color_map, code_labels, show_y_title = TRUE)
+lp5  <- make_longitudinal_plot(sorted_codes[5],  data_plot_all, chapter_color_map, code_labels, show_y_title = TRUE)
+lp6  <- make_longitudinal_plot(sorted_codes[6],  data_plot_all, chapter_color_map, code_labels, show_y_title = FALSE)
 lp7  <- make_longitudinal_plot(sorted_codes[7],  data_plot_all, chapter_color_map, code_labels, show_y_title = FALSE)
-lp8  <- make_longitudinal_plot(sorted_codes[8],  data_plot_all, chapter_color_map, code_labels, show_y_title = FALSE)
-lp9  <- make_longitudinal_plot(sorted_codes[9],  data_plot_all, chapter_color_map, code_labels, show_y_title = FALSE)
 
 
 ### ----------------------------------------------------------------------------
@@ -515,15 +513,15 @@ panel_C <- arrangeGrob(
     heights = unit(c(1, 9), "null")
 )
 
-# --- Panel B: 2x5 grid of longitudinal plots (Panel C occupies the last cell) ---
+# --- Panel B: 2x4 grid of longitudinal plots (Panel C occupies the last cell) ---
 panel_BC <- arrangeGrob(
     b_title_grob,
-    lp1, lp2, lp3, lp4, lp5,
-    lp6, lp7, lp8, lp9, panel_C,
+    lp1, lp2, lp3, lp4,
+    lp5, lp6, lp7, panel_C,
     layout_matrix = rbind(
-        c(1, 1, 1, 1, 1),
-        c(2, 3, 4, 5, 6),
-        c(7, 8, 9, 10, 11)
+        c(1, 1, 1, 1),
+        c(2, 3, 4, 5),
+        c(6, 7, 8, 9)
     ),
     heights = unit(c(1, 9, 9), "null")
 )

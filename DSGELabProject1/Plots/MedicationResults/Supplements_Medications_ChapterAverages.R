@@ -1,4 +1,3 @@
-
 ### ----------------------------------------------------------------------------
 ### 0. LIBRARIES
 ### ----------------------------------------------------------------------------
@@ -7,13 +6,14 @@
 library(ggplot2)
 library(dplyr)
 library(readr)
+library(metafor)
 
 
 ### ----------------------------------------------------------------------------
 ### 1. PATHS
 ### ----------------------------------------------------------------------------
 
-DATE_DATA <- "20260918"
+DATE_DATA <- "20260920"
 TODAY     <- format(Sys.Date(), "%Y%m%d")
 
 # --- Input ---
@@ -24,7 +24,6 @@ OutDir <- paste0("/media/volume/Projects/DSGELabProject1/Plots/ManuscriptFinal/"
 if (!dir.exists(OutDir)) dir.create(OutDir, recursive = TRUE)
 
 BASENAME_PLOT <- paste0("Supplements_ChapterAverages_Plot_", TODAY)
-BASENAME_TABLE <- paste0("Supplements_ChapterAverages_Table_", TODAY)
 
 ### ----------------------------------------------------------------------------
 ### 2. PARAMETERS 
@@ -176,27 +175,74 @@ p_supp <- ggplot(dataset, aes(x = CHAPTER_NAME, y = ABS_CHANGE, colour = CHAPTER
     )
 
 
-### ----------------------------------------------------------------------------
-### 5. SAVE: plot and summary statistics table
-### ----------------------------------------------------------------------------
-
 # Save plot as PNG and PDF
 save_plot_png_pdf(p_supp, OutDir, BASENAME_PLOT, PLOT_WIDTH, PLOT_HEIGHT, PLOT_DPI)
 
-# Calculate summary statistics by chapter
-summary_stats <- dataset %>%
-    group_by(CHAPTER_NAME) %>%
-    summarise(
-        N = n(),
-        Mean = mean(ABS_CHANGE, na.rm = TRUE),
-        Median = median(ABS_CHANGE, na.rm = TRUE),
-        SD = sd(ABS_CHANGE, na.rm = TRUE),
-        Q1 = quantile(ABS_CHANGE, 0.25, na.rm = TRUE),
-        Q3 = quantile(ABS_CHANGE, 0.75, na.rm = TRUE),
-        IQR = Q3 - Q1,
-        Min = min(ABS_CHANGE, na.rm = TRUE),
-        Max = max(ABS_CHANGE, na.rm = TRUE),
-        .groups = "drop"
-    )
 
-write_csv(summary_stats, paste0(OutDir, BASENAME_TABLE, ".csv"))
+### ----------------------------------------------------------------------------
+# 5. AVERAGE EFFECT: 
+#   (A) summary statistics              (across ALL chapters and WITHIN each chapter)
+#   (B) random-effects meta-analysis    (across ALL chapters only)
+### ----------------------------------------------------------------------------
+
+MA_METHOD <- "REML"   
+
+BASENAME_AVG_SUMMARY <- paste0("Supplements_AverageEffect_SummaryStats_", TODAY)
+BASENAME_AVG_META    <- paste0("Supplements_AverageEffect_MetaAnalysis_", TODAY)
+
+### ---- A. Summary statistics -------------------------------------------------
+
+summarise_effect <- function(df) {
+    df %>% summarise(
+        N      = n(),
+        Mean   = mean(ABS_CHANGE, na.rm = TRUE),
+        SD     = sd(ABS_CHANGE, na.rm = TRUE),
+        Median = median(ABS_CHANGE, na.rm = TRUE),
+        Q1     = quantile(ABS_CHANGE, 0.25, na.rm = TRUE),
+        Q3     = quantile(ABS_CHANGE, 0.75, na.rm = TRUE),
+    )
+}
+
+summary_all <- dataset %>% summarise_effect() %>% mutate(CHAPTER_NAME = "All chapters", .before = 1)
+summary_by_chapter <- dataset %>%
+    group_by(CHAPTER_NAME) %>%
+    summarise_effect() %>%
+    mutate(CHAPTER_NAME = as.character(CHAPTER_NAME))
+
+avg_summary_table <- bind_rows(summary_all, summary_by_chapter)
+write_csv(avg_summary_table, paste0(OutDir, BASENAME_AVG_SUMMARY, ".csv"))
+
+### ---- B. Random-effects meta-analysis (metafor), all chapters ---------------
+
+# Drop rows that cannot enter a meta-analysis (missing / non-positive SE)
+ma_data <- dataset %>% filter(is.finite(ABS_CHANGE), is.finite(ABS_CHANGE_SE), ABS_CHANGE_SE > 0)
+if (nrow(ma_data) < nrow(dataset)) {
+    warning(nrow(dataset) - nrow(ma_data), " medication(s) dropped from the meta-analysis (missing or zero SE).")
+}
+
+fit <- rma(yi = ABS_CHANGE, sei = ABS_CHANGE_SE, data = ma_data, method = MA_METHOD)
+pred <- predict(fit)                  
+ci   <- confint(fit)$random           
+
+meta_table <- tibble(
+    Statistic = c(
+        "K (number of medications)",
+        "Average effect (mu)",
+        "Prediction interval",
+        "tau^2 (between-medication variance)",
+        "tau (between-medication SD)",
+        "I^2 (% of variability due to heterogeneity)",
+        "H^2 (total / sampling variance)",
+        "Cochran's Q test of heterogeneity"
+    ),
+    Estimate = c(fit$k, as.numeric(fit$beta), NA, ci["tau^2", "estimate"], ci["tau", "estimate"],
+                 ci["I^2(%)", "estimate"], ci["H^2", "estimate"], fit$QE),
+    SE       = c(NA, fit$se, NA, fit$se.tau2, NA, NA, NA, NA),
+    CI_LB    = c(NA, fit$ci.lb, pred$pi.lb, ci["tau^2", "ci.lb"], ci["tau", "ci.lb"],
+                 ci["I^2(%)", "ci.lb"], ci["H^2", "ci.lb"], NA),
+    CI_UB    = c(NA, fit$ci.ub, pred$pi.ub, ci["tau^2", "ci.ub"], ci["tau", "ci.ub"],
+                 ci["I^2(%)", "ci.ub"], ci["H^2", "ci.ub"], NA),
+    P_VALUE  = c(NA, fit$pval, NA, NA, NA, NA, NA, fit$QEp),
+)
+
+write_csv(meta_table, paste0(OutDir, BASENAME_AVG_META, ".csv"))

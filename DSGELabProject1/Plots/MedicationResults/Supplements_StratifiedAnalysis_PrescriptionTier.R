@@ -523,7 +523,7 @@ forest_plot <- ggplot(plot_data, aes(x = absolute_change, y = y_pos, colour = gr
     geom_point(size = 4 , shape = 16, na.rm = TRUE) +
     geom_text(
         aes(y = y_pos + 0.07, label = n_label), 
-        size = 6, 
+        size = 4, 
         vjust = 0, 
         na.rm = TRUE) +
     geom_text(

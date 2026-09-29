@@ -1,4 +1,3 @@
-
 # ==============================================================================
 # 0. LIBRARIES
 # ==============================================================================
@@ -23,7 +22,7 @@ suppressPackageStartupMessages({
 # 1. PATHS
 # ==============================================================================
 
-DATE_DATA <- "20260918"
+DATE_DATA <- "20260920"
 TODAY     <- format(Sys.Date(), "%Y%m%d")
 
 # --- Inputs ---
@@ -56,9 +55,9 @@ SIG_ALPHA   <- 0.05
 BUFFER_YEARS   <- 1     # market entrance/exit buffer years
 PENSION_AGE    <- 60    
 
-# --- Age-tier definition (percentiles of birth year, computed on cases) ---
-P_LOW  <- 0.10   # bottom percentile cutoff
-P_HIGH <- 0.90   # top percentile cutoff
+# --- Age-tier definition (fixed birth-year cutoffs) ---
+LOW_BEFORE_YEAR <- 1958   # Low tier: born before this year
+HIGH_AFTER_YEAR <- 1978   # High tier: born after this year
 
 # --- Event-time windows used for the pre/post fixed-effects meta-analysis ---
 PRE_WINDOW  <- c(-3, -2, -1)
@@ -233,24 +232,18 @@ for (code in code_list) {
         )]
         df_model[, Y_mean := NULL]
 
-        # --- STEP 5: Define age tiers from birth-year percentiles ---
-        # Calculate percentiles based on sorted unique values (bottom P_LOW and top P_HIGH)
-        # Need to do this based on cases to avoid empty datasets
-        unique_birth_years <- sort(unique(df_model[EVENT == 1, BIRTH_YEAR]))
-        p10 <- unique_birth_years[ceiling(length(unique_birth_years) * P_LOW)]
-        p90 <- unique_birth_years[floor(length(unique_birth_years) * P_HIGH)]
-
+        # --- STEP 5: Define age tiers from fixed birth-year cutoffs ---
         # Create tier categories (for both cases and controls)
         df_model[, prescription_tier := fcase(
-            BIRTH_YEAR <= p10, paste0("Low (<=", p10, ")"),
-            BIRTH_YEAR >= p90, paste0("High (>=", p90, ")"),
+            BIRTH_YEAR < LOW_BEFORE_YEAR, paste0("Low (<", LOW_BEFORE_YEAR, ")"),
+            BIRTH_YEAR > HIGH_AFTER_YEAR, paste0("High (>", HIGH_AFTER_YEAR, ")"),
             default = NA_character_
         )]
 
         # Convert prescription_tier to a factor with ordered levels
         df_model[, prescription_tier := factor(prescription_tier, levels = c(
-            paste0("Low (<=", p10, ")"),
-            paste0("High (>=", p90, ")")
+            paste0("Low (<", LOW_BEFORE_YEAR, ")"),
+            paste0("High (>", HIGH_AFTER_YEAR, ")")
         ))]
 
         # Report statistics on doctors per tier
@@ -266,9 +259,9 @@ for (code in code_list) {
             tryCatch({
 
             if (tier == tiers[1]) {
-                df_tier <- df_model[BIRTH_YEAR <= p10, ]
+                df_tier <- df_model[BIRTH_YEAR < LOW_BEFORE_YEAR, ]
             } else {
-                df_tier <- df_model[BIRTH_YEAR >= p90, ]
+                df_tier <- df_model[BIRTH_YEAR > HIGH_AFTER_YEAR, ]
             }
 
             n_cases_tier <- length(unique(df_tier[EVENT == 1, DOCTOR_ID]))
@@ -342,9 +335,9 @@ for (code in code_list) {
 
             }, error = function(e) {
             if (tier == tiers[1]) {
-                df_tier <- df_model[BIRTH_YEAR <= p10, ]
+                df_tier <- df_model[BIRTH_YEAR < LOW_BEFORE_YEAR, ]
             } else {
-                df_tier <- df_model[BIRTH_YEAR >= p90, ]
+                df_tier <- df_model[BIRTH_YEAR > HIGH_AFTER_YEAR, ]
             }
             n_cases_tier        <- length(unique(df_tier[EVENT == 1, DOCTOR_ID]))
             n_controls_tier     <- length(unique(df_tier[EVENT == 0, DOCTOR_ID]))
