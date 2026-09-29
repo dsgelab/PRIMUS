@@ -214,35 +214,65 @@ write_csv(avg_summary_table, paste0(OutDir, BASENAME_AVG_SUMMARY, ".csv"))
 
 ### ---- B. Random-effects meta-analysis (metafor), all chapters ---------------
 
-# Drop rows that cannot enter a meta-analysis (missing / non-positive SE)
-ma_data <- dataset %>% filter(is.finite(ABS_CHANGE), is.finite(ABS_CHANGE_SE), ABS_CHANGE_SE > 0)
-if (nrow(ma_data) < nrow(dataset)) {
-    warning(nrow(dataset) - nrow(ma_data), " medication(s) dropped from the meta-analysis (missing or zero SE).")
+# Part 1: meta-analysis of absolute change estimate
+abs_data <- dataset %>%
+    filter(is.finite(ABS_CHANGE), is.finite(ABS_CHANGE_SE), ABS_CHANGE_SE > 0)
+if (nrow(abs_data) < nrow(dataset)) {
+    warning(nrow(dataset) - nrow(abs_data)," medication(s) dropped from the ABS_CHANGE meta-analysis (missing or zero SE).")
 }
+abs_fit <- rma(yi = abs_data$ABS_CHANGE, sei = abs_data$ABS_CHANGE_SE, method = MA_METHOD)
+abs_ci <- confint(abs_fit)$random
 
-fit <- rma(yi = ABS_CHANGE, sei = ABS_CHANGE_SE, data = ma_data, method = MA_METHOD)
-pred <- predict(fit)                  
-ci   <- confint(fit)$random           
+# Part 2: meta-analysis of relative change estimate
+rel_data <- dataset %>%
+    filter(is.finite(REL_CHANGE), is.finite(REL_CHANGE_SE), REL_CHANGE_SE > 0)
+if (nrow(rel_data) < nrow(dataset)) {
+    warning(nrow(dataset) - nrow(rel_data), " medication(s) dropped from the REL_CHANGE meta-analysis (missing or zero SE).")
+}
+rel_fit <- rma(yi = rel_data$REL_CHANGE, sei = rel_data$REL_CHANGE_SE, method = MA_METHOD)
+rel_ci <- confint(rel_fit)$random
 
-meta_table <- tibble(
-    Statistic = c(
-        "K (number of medications)",
-        "Average effect (mu)",
-        "Prediction interval",
-        "tau^2 (between-medication variance)",
-        "tau (between-medication SD)",
-        "I^2 (% of variability due to heterogeneity)",
-        "H^2 (total / sampling variance)",
-        "Cochran's Q test of heterogeneity"
+meta_table <- bind_rows(
+    tibble(
+        Change_Type = "Absolute Change",
+        Statistic = c(
+            "K (number of medications)", 
+            "Average effect (mu)",
+            "tau^2 (between-medication variance)",
+            "I^2 (% of variability due to heterogeneity)",
+            "H^2 (total / sampling variance)",
+            "Cochran's Q test of heterogeneity"),
+        Estimate = c(
+            abs_fit$k, 
+            as.numeric(abs_fit$beta),
+            abs_ci["tau^2", "estimate"],
+            abs_ci["I^2(%)", "estimate"], 
+            abs_ci["H^2", "estimate"], 
+            abs_fit$QE
+        ),
+        SE = c(NA, abs_fit$se, NA, abs_fit$se.tau2, NA, NA),
+        P_VALUE = c(NA, abs_fit$pval, NA, NA, NA, abs_fit$QEp)
     ),
-    Estimate = c(fit$k, as.numeric(fit$beta), NA, ci["tau^2", "estimate"], ci["tau", "estimate"],
-                 ci["I^2(%)", "estimate"], ci["H^2", "estimate"], fit$QE),
-    SE       = c(NA, fit$se, NA, fit$se.tau2, NA, NA, NA, NA),
-    CI_LB    = c(NA, fit$ci.lb, pred$pi.lb, ci["tau^2", "ci.lb"], ci["tau", "ci.lb"],
-                 ci["I^2(%)", "ci.lb"], ci["H^2", "ci.lb"], NA),
-    CI_UB    = c(NA, fit$ci.ub, pred$pi.ub, ci["tau^2", "ci.ub"], ci["tau", "ci.ub"],
-                 ci["I^2(%)", "ci.ub"], ci["H^2", "ci.ub"], NA),
-    P_VALUE  = c(NA, fit$pval, NA, NA, NA, NA, NA, fit$QEp),
+    tibble(
+        Change_Type = "Relative Change",
+        Statistic = c(
+            "K (number of medications)",
+            "Average effect (mu)",
+            "tau^2 (between-medication variance)",
+            "I^2 (% of variability due to heterogeneity)",
+            "H^2 (total / sampling variance)",
+            "Cochran's Q test of heterogeneity"),
+        Estimate = c(
+            rel_fit$k,
+            as.numeric(rel_fit$beta),
+            rel_ci["tau^2", "estimate"],
+            rel_ci["I^2(%)", "estimate"],
+            rel_ci["H^2", "estimate"],
+            rel_fit$QE
+        ),
+        SE = c(NA, rel_fit$se, NA, rel_fit$se.tau2, NA, NA),
+        P_VALUE = c(NA, rel_fit$pval, NA, NA, NA, rel_fit$QEp)
+    )
 )
 
 write_csv(meta_table, paste0(OutDir, BASENAME_AVG_META, ".csv"))
