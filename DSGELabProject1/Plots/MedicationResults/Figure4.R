@@ -63,13 +63,13 @@ atc_chapter_map <- c(
 
 # Color-blind friendly palette (one color per chapter)
 cb_palette <- c(
-    "#E69F00",  # A - Alimentary Tract and Metabolism
+    "#F0E442",  # A - Alimentary Tract and Metabolism
     "#56B4E9",  # B - Blood and Blood Forming Organs
     "#009E73",  # C - Cardiovascular System
     "#D55E00",  # D - Dermatologicals
     "#CC79A7",  # G - Genito Urinary System and Sex Hormones
     "#0072B2",  # H - Systemic Hormonal Preparations
-    "#F0E442",  # J - Antiinfectives for Systemic Use
+    "#E69F00",  # J - Antiinfectives for Systemic Use
     "#999999",  # L - Antineoplastic and Immunomodulating Agents
     "#E7298A",  # M - Musculo-Skeletal System
     "#7570B3",  # N - Nervous System
