@@ -15,10 +15,10 @@ DSGELabProject1/
 ├── Data_Processing_Scripts/
 ├── DiD_Diagnosis/
 ├── DiD_Medication/
-├──Plots/
+├── Plots/
 ├── ── DiadnosisResults/
 ├── ── MedicationResults/
-├──jg_scripts/
+├── jg_scripts/
 └── ml_scripts/
 
 ```
