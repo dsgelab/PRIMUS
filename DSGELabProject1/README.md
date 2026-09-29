@@ -23,8 +23,8 @@ DSGELabProject1/
 
 ```
 
-All processing scripts (in random order) used to prepare and dataset used in the project can be found in folder _Data\_Processing\_Scripts//_. 
-Some extra processing performed by collaborators Jakob German and Mikael Lenander can be found in _ml\_scripts//_ and _jg\_script//_
-Staggered Difference in Difference (DiD) method pipelines can be found in _DiD\_Diagnosis_ and _DiD\_Medication_ folder. 
-All plotting scripts, including those for manuscript figures, can be found in _Plots_ folder, and are split by analsysis focus
+All processing scripts (in random order) used to prepare and dataset used in the project can be found in folder _Data\_Processing\_Scripts/_. <br>
+Some extra processing performed by collaborators Jakob German and Mikael Lenander can be found in _ml\_scripts/_ and _jg\_script/_.<br>
+Staggered Difference in Difference (DiD) method pipelines can be found in _DiD\_Diagnosis/_ and _DiD\_Medication/_ folder. <br>
+All plotting scripts, including those for manuscript figures, can be found in _Plots/_ folder, and are split by analsysis focus.<br>
 
