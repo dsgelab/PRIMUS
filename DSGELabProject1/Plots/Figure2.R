@@ -251,6 +251,35 @@ medi_plot <- compare_IRs_crude(
   mult     = 1000
 )
 
+# For each modality, identify codes that have not significantly different, higher, and lower IRs in doctors versus the general population.
+diag_irr_counts <- diag_plot %>%
+  summarise(
+    total_codes = n(),
+    not_significantly_different = sum(log10_p_IRR >= log10(0.05), na.rm = TRUE),
+    higher = sum(log10_p_IRR < log10(0.05) & IRR > 1, na.rm = TRUE),
+    lower = sum(log10_p_IRR < log10(0.05) & IRR < 1, na.rm = TRUE)
+  ) %>%
+  mutate(
+    not_significantly_different_relative = not_significantly_different / total_codes,
+    higher_relative = higher / total_codes,
+    lower_relative = lower / total_codes
+  )
+print(diag_irr_counts)
+
+medi_irr_counts <- medi_plot %>%
+  summarise(
+    total_codes = n(),
+    not_significantly_different = sum(log10_p_IRR >= log10(0.05), na.rm = TRUE),
+    higher = sum(log10_p_IRR < log10(0.05) & IRR > 1, na.rm = TRUE),
+    lower = sum(log10_p_IRR < log10(0.05) & IRR < 1, na.rm = TRUE)
+  ) %>%
+  mutate(
+    not_significantly_different_relative = not_significantly_different / total_codes,
+    higher_relative = higher / total_codes,
+    lower_relative = lower / total_codes
+  )
+print(medi_irr_counts)
+
 
 # =============================================================================
 # 6. SAVE & RELOAD FINALIZED DATA (checkpoint before plotting)
