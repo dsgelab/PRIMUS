@@ -267,7 +267,7 @@ att_gt_res <- att_gt(
     cores = N_THREADS
 )
 
-agg_dynamic <- aggte(att_gt_res, type = "dynamic", na.rm = TRUE)
+agg_dynamic <- aggte(att_gt_res, type = "dynamic", min_e = -3, max_e = 3, na.rm = TRUE)
 results <- data.frame(
     time = agg_dynamic$egt,
     att = agg_dynamic$att.egt,
