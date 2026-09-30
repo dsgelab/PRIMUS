@@ -466,8 +466,8 @@ for (code in code_list) {
                         absolute_change_se = NA_real_,
                         relative_change    = NA_real_,
                         p_value            = NA_real_,
-                        n_cases            = n_cases_spec,
-                        n_controls         = n_controls_spec
+                        n_cases            = if (n_cases_spec < N_MIN) "<15" else as.character(n_cases_spec),
+                        n_controls         = if (n_controls_spec < N_MIN) "<15" else as.character(n_controls_spec)
                     )
                     next
                 }
