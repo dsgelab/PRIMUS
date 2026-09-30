@@ -31,8 +31,10 @@ TODAY   <- format(Sys.time(), "%Y%m%d")
 OutDir <- "/media/volume/Projects/DSGELabProject1/Plots/ManuscriptFinal/"
 
 # -- Outputs --
-outfile_fig2_png      <- paste0(OutDir, "Figure2_", TODAY, ".png")
-outfile_fig2_pdf      <- paste0(OutDir, "Figure2_", TODAY, ".pdf")
+outfile_fig2A_png      <- paste0(OutDir, "Figure2A_", TODAY, ".png")
+outfile_fig2B_png      <- paste0(OutDir, "Figure2B_", TODAY, ".png")
+outfile_fig2A_pdf      <- paste0(OutDir, "Figure2A_", TODAY, ".pdf")
+outfile_fig2B_pdf      <- paste0(OutDir, "Figure2B_", TODAY, ".pdf")
 outfile_results_csv   <- paste0(OutDir, "Figure2_all_results_", TODAY, ".csv")
 
 # -- Checkpoint data files (saved after Section 6, reloaded in Sections 7-8 for plotting) --: 
@@ -123,8 +125,8 @@ LEGEND_JUST          <- c(0, 1)           # anchor: left-top corner of the legen
 LEGEND_KEY_SIZE      <- unit(0.5, "lines")
 LEGEND_DOT_SIZE      <- 1.5               # dot size inside legend keys
 LEGEND_BG_FILL       <- alpha("white", 0.75)   # semi-transparent white background
-LEGEND_NROW_MEDI     <- 5                 # rows in Panel A (ATC)
-LEGEND_NROW_DIAG     <- 7                 # rows in Panel B (ICD-10)
+LEGEND_NROW_MEDI     <- 3                 # rows in Panel A (ATC)
+LEGEND_NROW_DIAG     <- 4                 # rows in Panel B (ICD-10)
 
 # --- Reference line styling (identity line + zero lines), shared by both panels
 REFLINE_DIAG_COLOR     <- "gray50"   # dashed y = x identity line
@@ -490,8 +492,7 @@ fig_2A_new <- ggplot(
         plot.subtitle     = element_text(size = TEXT_SIZE_SUBTITLE),
         legend.text       = element_text(size = TEXT_SIZE_LEGEND),
         legend.title      = element_text(size = TEXT_SIZE_LEGEND, face = "bold"),
-        legend.position   = c(LEGEND_POS_X, LEGEND_POS_Y),
-        legend.justification = LEGEND_JUST,
+        legend.position   = "bottom",
         legend.direction  = "vertical",
         legend.key.size   = LEGEND_KEY_SIZE,
         legend.background = element_rect(fill = LEGEND_BG_FILL, color = NA),
@@ -688,8 +689,7 @@ fig_2B_new <- ggplot(
         plot.subtitle     = element_text(size = TEXT_SIZE_SUBTITLE),
         legend.text       = element_text(size = TEXT_SIZE_LEGEND),
         legend.title      = element_text(size = TEXT_SIZE_LEGEND, face = "bold"),
-        legend.position   = c(LEGEND_POS_X, LEGEND_POS_Y),
-        legend.justification = LEGEND_JUST,
+        legend.position   = "bottom",
         legend.direction  = "vertical",
         legend.key.size   = LEGEND_KEY_SIZE,
         legend.background = element_rect(fill = LEGEND_BG_FILL, color = NA),
@@ -705,45 +705,49 @@ fig_2B_new <- ggplot(
 
 
 # =============================================================================
-# EXPORT: Figure 2 – combined panels A and B with grid panel labels
+# EXPORT: Figure 2 – separate panels A and B with grid panel labels
 # =============================================================================
 
-add_panel_label <- function(plot, label) {
-  # Wraps a ggplot in a grob with a bold panel label in the top-left corner
-  g <- ggplotGrob(plot)
-  grid.arrange(
-    g,
-    top = textGrob(
-      label,
-      x    = unit(0, "npc"),
-      just = "left",
-      gp   = gpar(fontsize = PANEL_LABEL_SIZE, fontface = "bold")
-    )
-  )
-}
-
-# Build labelled grobs
-grob_A <- add_panel_label(fig_2A_new, "A.")
-grob_B <- add_panel_label(fig_2B_new, "B.")
+# Export the plots unchanged, retaining their legends.
+grob_A <- ggplotGrob(fig_2A_new)
+grob_B <- ggplotGrob(fig_2B_new)
 
 # --- PNG export --------------------------------------------------------------
 png(
-  filename = outfile_fig2_png,
+  filename = outfile_fig2A_png,
   width    = WIDTH,
   height   = HEIGHT,
   units    = "in",
   res      = RES
 )
-grid.arrange(grob_A, grob_B, ncol = 2)
+grid.draw(grob_A)
+dev.off()
+
+png(
+  filename = outfile_fig2B_png,
+  width    = WIDTH,
+  height   = HEIGHT,
+  units    = "in",
+  res      = RES
+)
+grid.draw(grob_B)
 dev.off()
 
 # --- PDF export --------------------------------------------------------------
 pdf(
-  file   = outfile_fig2_pdf,
+  file   = outfile_fig2A_pdf,
   width  = WIDTH,
   height = HEIGHT
 )
-grid.arrange(grob_A, grob_B, ncol = 2)
+grid.draw(grob_A)
+dev.off()
+
+pdf(
+  file   = outfile_fig2B_pdf,
+  width  = WIDTH,
+  height = HEIGHT
+)
+grid.draw(grob_B)
 dev.off()
 
 # =============================================================================
