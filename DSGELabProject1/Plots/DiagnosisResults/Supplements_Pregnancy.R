@@ -216,32 +216,32 @@ df <- left_join(outcomes, events, by = "DOCTOR_ID") %>%
     as.data.table()
 
 # Merge covariates
-df <- covariates[df, on = "DOCTOR_ID"]
-df[, `:=`(
+df_model <- covariates[df, on = "DOCTOR_ID"]
+df_model[, `:=`(
     AGE          = YEAR - BIRTH_YEAR,
     AGE_AT_EVENT = fifelse(is.na(EVENT_YEAR), NA_real_, EVENT_YEAR - BIRTH_YEAR)
 )]
 
 # Remove doctors whose event occurred after pension age (60)
-ids_post60 <- df[AGE_AT_EVENT > 60 & !is.na(AGE_AT_EVENT), unique(DOCTOR_ID)]
-df <- df[!(DOCTOR_ID %in% ids_post60) & AGE <= 60]
+ids_post60 <- df_model[AGE_AT_EVENT > 60 & !is.na(AGE_AT_EVENT), unique(DOCTOR_ID)]
+df_model <- df_model[!(DOCTOR_ID %in% ids_post60) & AGE <= 60]
 
 # Fill in missing years (during each doctor's follow-up period) with 0s
-df[, `:=`(
+df_model[, `:=`(
     FOLLOW_UP_START = pmax(as.Date("1998-01-01"), LICENSE_START, na.rm = TRUE),
     FOLLOW_UP_END   = pmin(as.Date("2022-12-31"), LICENSE_END, BIRTH_DATE + 60 * 365.25, DEATH_DATE, na.rm = TRUE)
 )]
-df[, `:=`(
+df_model[, `:=`(
     FOLLOW_UP_START_YEAR = as.integer(format(FOLLOW_UP_START, "%Y")),
     FOLLOW_UP_END_YEAR   = as.integer(format(FOLLOW_UP_END, "%Y"))
 )]
-df = fill_gaps_with_0s(df)
+df_model = fill_gaps_with_0s(df_model)
 
 # DiD variables: numeric ID, group (first treatment year), calendar year
 df_model$ID <- as.integer(factor(df_model$DOCTOR_ID))
 df_model$G  <- ifelse(is.na(df_model$EVENT_YEAR), 0, df_model$EVENT_YEAR)   # 0 = never-treated
 df_model$T  <- df_model$YEAR
-
+df_model$SEX <- ifelse(df_model$SEX == 1, "Male", "Female")
 
 # ============================================================
 # 7. Female DiD (own pregnancy, yearly resolution)
@@ -251,6 +251,14 @@ df_model$T  <- df_model$YEAR
 df_model_female <- df_model %>%
     filter(SEX == "Female") %>%
     filter(EVENT == 0 | (EVENT == 1 & DOCTOR_ID %in% pregnancy_females))
+
+# For doctors with multiple event years, keep only rows from the earliest event year.
+df_model_female <- df_model_female %>%
+    group_by(DOCTOR_ID) %>%
+    filter(EVENT == 0 | EVENT_YEAR == min(EVENT_YEAR[EVENT == 1], na.rm = TRUE)) %>%
+    ungroup() %>%
+    as.data.table()
+
 
 n_cases_female    <- df_model_female %>% filter(EVENT == 1) %>% pull(DOCTOR_ID) %>% unique() %>% length()
 n_controls_female <- df_model_female %>% filter(EVENT == 0) %>% pull(DOCTOR_ID) %>% unique() %>% length()
@@ -287,6 +295,17 @@ results_female <- results_female %>%
     mutate(
         rel_att    = round(100 * att / baseline, 5),
         rel_att_se = round(100 * se / baseline, 5)
+    )
+
+# Calculate p-values and confidence intervals
+results_female <- results_female %>%
+    mutate(
+        z_score = att / se,
+        p_value = 2 * (1 - pnorm(abs(z_score))),
+        ci_lower = att - 1.96 * se,
+        ci_upper = att + 1.96 * se,
+        rel_ci_lower = rel_att - 1.96 * rel_att_se,
+        rel_ci_upper = rel_att + 1.96 * rel_att_se
     )
 
 # Save female long results
@@ -351,6 +370,13 @@ df_model_male <- df_model %>%
     ) %>%
     select(-SPOUSE_EVENT_YEAR)
 
+# For doctors with multiple event years, keep only rows from the earliest event year.
+df_model_male <- df_model_male %>%
+    group_by(DOCTOR_ID) %>%
+    filter(EVENT == 0 | EVENT_YEAR == min(EVENT_YEAR[EVENT == 1], na.rm = TRUE)) %>%
+    ungroup() %>%
+    as.data.table()
+
 n_cases_male    <- df_model_male %>% filter(EVENT == 1) %>% pull(DOCTOR_ID) %>% unique() %>% length()
 n_controls_male <- df_model_male %>% filter(EVENT == 0) %>% pull(DOCTOR_ID) %>% unique() %>% length()
 events_per_year_male <- df_model_male[df_model_male$EVENT == 1, .(N = uniqueN(DOCTOR_ID)), by = EVENT_YEAR][order(EVENT_YEAR)]
@@ -386,6 +412,17 @@ results_male <- results_male %>%
     mutate(
         rel_att    = round(100 * att / baseline, 5),
         rel_att_se = round(100 * se / baseline, 5)
+    )
+
+# Calculate p-values and confidence intervals
+results_male <- results_male %>%
+    mutate(
+        z_score = att / se,
+        p_value = 2 * (1 - pnorm(abs(z_score))),
+        ci_lower = att - 1.96 * se,
+        ci_upper = att + 1.96 * se,
+        rel_ci_lower = rel_att - 1.96 * rel_att_se,
+        rel_ci_upper = rel_att + 1.96 * rel_att_se
     )
 
 # Save male long results
@@ -435,8 +472,8 @@ p_combined_alt <- ggplot(data_plot_combined, aes(x = time, y = att, color = grou
     ) +
     geom_hline(yintercept = 0, linetype = "dashed", color = COLOR_ZERO_LINE) +
     labs(
-        title = "Effect of Pregnancy on Overall Prescriptions - Female vs Male Doctors",
-        subtitle = paste0("Female cases: ", n_cases_female, ", Female controls: ", n_controls_female, "\nMale cases: ", n_cases_male, ", Male controls: ", n_controls_male),
+        # title = "Effect of Pregnancy on Overall Prescriptions - Female vs Male Doctors",
+        #subtitle = paste0("Female cases: ", n_cases_female, ", Female controls: ", n_controls_female, "\nMale cases: ", n_cases_male, ", Male controls: ", n_controls_male),
         x = "Years from Event",
         y = "Change in Total Number of Prescriptions \n(compared to controls)",
         color = "Group"
