@@ -25,7 +25,7 @@ suppressPackageStartupMessages({
 # ==============================================================================
 
 # --- Run identifiers ---
-DATE_DATA   <- "20260918"
+DATE_DATA   <- "20260920"
 TODAY       <- format(Sys.Date(), "%Y%m%d")
 
 # --- Inputs ---
@@ -605,7 +605,9 @@ write.csv(combined_results,
 combined_results <- read_csv(paste0(outdir, BASENAME_TABLE, ".csv"), show_col_types = FALSE)
 
 # Remove specialties below sample threshold
-combined_results <- combined_results %>% filter(n_cases >= N_MIN & n_controls >= N_MIN) 
+combined_results <- combined_results %>%
+  filter(n_cases != "<15", n_controls != "<15") %>%
+  mutate(n_cases    = as.numeric(n_cases), n_controls = as.numeric(n_controls))
 
 # Apply multiple-testing correction within each medication (code) separately
 combined_results <- combined_results %>%

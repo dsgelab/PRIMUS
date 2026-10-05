@@ -17,6 +17,8 @@ list_of_files=(
     # stratified results, pt.2
     "Supplements_StratifiedAnalysis_PrescriptionTier.R"
     "Supplements_StratifiedAnalysis_SelfPrescription.R"
+    # extra
+    "Supplements_RosuvastatinValidations.R"
     # main figure
     "Figure4.R"
 )

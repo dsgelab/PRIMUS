@@ -25,9 +25,9 @@ TODAY <- format(Sys.Date(), "%Y%m%d")
 
 # --- Input result files, one per experiment specification ---
 PATH_FILES <- list(
-    "Base"                       = "/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_20260129_FE_MetaAnalysis/Results_20260129/Results_ATC_20260129.csv",
-    "5 Year Window"              = "/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_20260219_5years_window/Results_20260219/Results_ATC_20260219.csv",
-    "Empirical Bayes Shrinkage"  = "/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_20260918/Results_20260918/Results_ATC_20260918.csv"
+    "Empirical Bayes Shrinkage" = "/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_20260920/Results_20260920/Results_ATC_20260920.csv",
+    "5 Year Window"             = "/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_20260929_5YearWindow/Results_20260929/Results_ATC_20260929.csv",
+    "Baseline"                  = "/media/volume/Projects/DSGELabProject1/DiD_Experiments/DiD_Medications_20260930_NoBayesShrinkage/Results_20260930/Results_ATC_20260930.csv"
 )
 
 REPORTED_EXPERIMENT <- "Empirical Bayes Shrinkage"

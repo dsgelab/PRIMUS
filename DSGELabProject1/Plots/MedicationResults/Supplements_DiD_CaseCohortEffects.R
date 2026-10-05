@@ -21,7 +21,7 @@ suppressPackageStartupMessages({
 # 2. Paths 
 # ============================================================
 
-DATE_DATA <- "20260918"  
+DATE_DATA <- "20260920"  
 TODAY     <- format(Sys.Date(), "%Y%m%d") 
 
 # --- Input ---

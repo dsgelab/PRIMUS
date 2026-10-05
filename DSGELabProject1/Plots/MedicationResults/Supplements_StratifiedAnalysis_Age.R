@@ -56,8 +56,8 @@ BUFFER_YEARS   <- 1     # market entrance/exit buffer years
 PENSION_AGE    <- 60    
 
 # --- Age-tier definition (fixed birth-year cutoffs) ---
-LOW_BEFORE_YEAR <- 1958   # Low tier: born before this year
-HIGH_AFTER_YEAR <- 1978   # High tier: born after this year
+LOW_BEFORE_YEAR <- 1972   # Low tier: born before this year
+HIGH_AFTER_YEAR <- 1972   # High tier: born after this year
 
 # --- Event-time windows used for the pre/post fixed-effects meta-analysis ---
 PRE_WINDOW  <- c(-3, -2, -1)
