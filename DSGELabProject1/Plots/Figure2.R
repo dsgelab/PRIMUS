@@ -253,36 +253,6 @@ medi_plot <- compare_IRs_crude(
   mult     = 1000
 )
 
-# For each modality, identify codes that have not significantly different, higher, and lower IRs in doctors versus the general population.
-diag_irr_counts <- diag_plot %>%
-  summarise(
-    total_codes = n(),
-    not_significantly_different = sum(log10_p_IRR >= log10(0.05), na.rm = TRUE),
-    higher = sum(log10_p_IRR < log10(0.05) & IRR > 1, na.rm = TRUE),
-    lower = sum(log10_p_IRR < log10(0.05) & IRR < 1, na.rm = TRUE)
-  ) %>%
-  mutate(
-    not_significantly_different_relative = not_significantly_different / total_codes,
-    higher_relative = higher / total_codes,
-    lower_relative = lower / total_codes
-  )
-print(diag_irr_counts)
-
-medi_irr_counts <- medi_plot %>%
-  summarise(
-    total_codes = n(),
-    not_significantly_different = sum(log10_p_IRR >= log10(0.05), na.rm = TRUE),
-    higher = sum(log10_p_IRR < log10(0.05) & IRR > 1, na.rm = TRUE),
-    lower = sum(log10_p_IRR < log10(0.05) & IRR < 1, na.rm = TRUE)
-  ) %>%
-  mutate(
-    not_significantly_different_relative = not_significantly_different / total_codes,
-    higher_relative = higher / total_codes,
-    lower_relative = lower / total_codes
-  )
-print(medi_irr_counts)
-
-
 # =============================================================================
 # 6. SAVE & RELOAD FINALIZED DATA (checkpoint before plotting)
 # =============================================================================
@@ -837,3 +807,38 @@ write_csv(
   all_results_csv,
   outfile_results_csv
 )
+
+
+# --- Summary ------------------------------------------------------
+# For each modality, summarise results for codes with a significant difference after mutliple testing correction
+
+diag_total_codes <- nrow(diag_plot)
+diag_irr_counts <- diag_plot %>%
+  filter(sig_bonf) %>%
+  summarise(
+    total_codes = diag_total_codes,
+    significant = n(),
+    higher = sum(IRR > 1, na.rm = TRUE),
+    lower = sum(IRR < 1, na.rm = TRUE)
+  ) %>%
+  mutate(
+    higher_relative = higher / total_codes,
+    lower_relative = lower / total_codes
+  )
+print(diag_irr_counts)
+
+medi_total_codes <- nrow(medi_plot)
+
+medi_irr_counts <- medi_plot %>%
+  filter(sig_bonf) %>%
+  summarise(
+    total_codes = medi_total_codes,
+    significant = n(),
+    higher = sum(IRR > 1, na.rm = TRUE),
+    lower = sum(IRR < 1, na.rm = TRUE)
+  ) %>%
+  mutate(
+    higher_relative = higher / total_codes,
+    lower_relative = lower / total_codes
+  )
+print(medi_irr_counts)
