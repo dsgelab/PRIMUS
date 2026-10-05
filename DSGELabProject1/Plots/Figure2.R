@@ -519,7 +519,7 @@ code_labels_extreme <- tibble(
     "Retinal detachments and breaks",
     "Disorders of vitreous body",
     "Neoplasm of uncertain or\nunknown behaviour",
-    "Need for prophylactic vaccination",
+    "Need for immunization against other single viral diseases",
     "Cutaneous abscess, furuncle\nand carbuncle",
     "Mental and behavioural disorders\ndue to use of alcohol",
     "Cystitis",
