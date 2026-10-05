@@ -35,8 +35,8 @@ suppressPackageStartupMessages({
 # ---- Extraction / run dates of the input result files ----
 
 DATE_3A <- "20260915"   
-DATE_3B <- "20260919"   
-DATE_3D <- "20260919"   
+DATE_3B <- "20261005"   
+DATE_3D <- "20261005"   
 
 # ---- Directories ----
 DIR_RESULTS <- "/media/volume/Projects/DSGELabProject1/Plots/ManuscriptFinal/"  

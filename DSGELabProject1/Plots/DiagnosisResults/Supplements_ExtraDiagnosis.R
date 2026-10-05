@@ -39,7 +39,7 @@ suppressPackageStartupMessages({
 # ============================================================
 
 # --- Date stamp used to build input file paths ---
-DATE_DATA <- "20260427"
+DATE_DATA <- "20260915"
 TODAY     <- format(Sys.time(), "%Y%m%d")   
 
 # --- Input ---
@@ -263,6 +263,17 @@ for (code in unique(EVENT_CODES$CODE)) {
         mutate(
             rel_att    = round(100 * att / baseline, 5),
             rel_att_se = round(100 * se / baseline, 5)
+        )
+
+    # Calculate p-values and confidence intervals
+    results <- results %>%
+        mutate(
+            z_score = att / se,
+            p_value = 2 * (1 - pnorm(abs(z_score))),
+            ci_lower = att - 1.96 * se,
+            ci_upper = att + 1.96 * se,
+            rel_ci_lower = rel_att - 1.96 * rel_att_se,
+            rel_ci_upper = rel_att + 1.96 * rel_att_se
         )
 
     # Tag with diagnosis code/label and restrict to the plotting event window before collecting 

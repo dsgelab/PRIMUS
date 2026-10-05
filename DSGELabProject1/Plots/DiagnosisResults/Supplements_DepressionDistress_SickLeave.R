@@ -393,6 +393,17 @@ run_phenotype_locf_did <- function(PHENOTYPE, outcomes_raw, events_all, covariat
             rel_att_se = round(100 * se / baseline, 5)
         )
 
+    # Calculate p-values and confidence intervals
+    results <- results %>%
+        mutate(
+            z_score = att / se,
+            p_value = 2 * (1 - pnorm(abs(z_score))),
+            ci_lower = att - 1.96 * se,
+            ci_upper = att + 1.96 * se,
+            rel_ci_lower = rel_att - 1.96 * rel_att_se,
+            rel_ci_upper = rel_att + 1.96 * rel_att_se
+        )
+
     # ----------------------------------------------------------
     # 6f. Save this phenotype's results + plot (PNG + PDF)
     # ----------------------------------------------------------
@@ -498,8 +509,8 @@ if (length(comparison_list) > 0) {
         geom_vline(xintercept = 0, linetype = "dashed", color = COLOR_REF_LINE_CMP) +
         scale_color_manual(values = phenotype_colors) +
         labs(
-            title    = "Phenotype comparison, Sick leave-adjusted (LOCF)",
-            subtitle = subtitle_text,
+            # title    = "Phenotype comparison, Sick leave-adjusted (LOCF)",
+            # subtitle = subtitle_text,
             x        = "Years from Event",
             y        = "Change in Total Number of Prescriptions \n(compared to controls)",
             color    = "Phenotype"

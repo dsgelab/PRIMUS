@@ -306,6 +306,17 @@ for (el in PHENOTYPES) {
             rel_att    = round(100 * att / baseline, 5),
             rel_att_se = round(100 * se / baseline, 5)
         )
+    
+    # Calculate p-values and confidence intervals
+    results <- results %>%
+        mutate(
+            z_score = att / se,
+            p_value = 2 * (1 - pnorm(abs(z_score))),
+            ci_lower = att - 1.96 * se,
+            ci_upper = att + 1.96 * se,
+            rel_ci_lower = rel_att - 1.96 * rel_att_se,
+            rel_ci_upper = rel_att + 1.96 * rel_att_se
+        )
 
     # Save DiD results
     out_long_file <- file.path(subdir, FILE_LONG_RESULTS)
@@ -389,8 +400,8 @@ p <- ggplot(data_plot, aes(x = time, y = att, color = phenotype, group = phenoty
     geom_vline(xintercept = 0, linetype = "dashed", color = COLOR_REF_LINE_CMP) +
     scale_color_manual(values = phenotype_colors) +
     labs(
-        title    = "Phenotype comparison",
-        subtitle = subtitle_text,
+        # title    = "Phenotype comparison",
+        # subtitle = subtitle_text,
         x        = "Years from Event",
         y        = "Change in Total Number of Prescriptions \n(compared to controls)",
         color    = "Phenotype"
