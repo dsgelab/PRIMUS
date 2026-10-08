@@ -18,6 +18,9 @@ library(ggplot2)
 InDir  <- "/media/volume/Projects/DSGELabProject1/"
 OutDir <- "/media/volume/Projects/DSGELabProject1/Plots/ManuscriptFinal/"
 
+TODAY  <- format(Sys.Date(), "%Y%m%d") 
+
+
 if (!dir.exists(OutDir)) dir.create(OutDir, recursive = TRUE)
 
 # -- Inputs --
@@ -25,8 +28,8 @@ coc_file        <- paste0(InDir, "patient_COC_info_20250226.csv")
 doctor_ids_file <- paste0(InDir, "doctors_20250424.csv")
 
 # -- Outputs --
-outfile_supp_fig2_png   <- paste0(OutDir, "Supplementary_Figure2_COC_histogram_20250226.png")
-outfile_supp_fig2_pdf   <- paste0(OutDir, "Supplementary_Figure2_COC_histogram_20250226.pdf")
+outfile_png   <- paste0(OutDir, "Supplementary_Figure_COC_histogram_", TODAY, ".png")
+outfile_pdf   <- paste0(OutDir, "Supplementary_Figure_COC_histogram_", TODAY, ".pdf")
 
 ## 3. Shared plotting parameters ---------------------------------------------------
 
@@ -70,5 +73,5 @@ theme_common
 ## 6. Export --------------------------------------------------------------------------
 
 # Suppl. Figure 2
-ggsave(filename = outfile_supp_fig2_png, plot = p1, device = "png", units = "in", width = PNG_WIDTH, height = PNG_HEIGHT, dpi = PNG_RES)
-ggsave(filename = outfile_supp_fig2_pdf, plot = p1, device = "pdf", width = PDF_WIDTH, height = PDF_HEIGHT)
+ggsave(filename = outfile_png, plot = p1, device = "png", units = "in", width = PNG_WIDTH, height = PNG_HEIGHT, dpi = PNG_RES)
+ggsave(filename = outfile_pdf, plot = p1, device = "pdf", width = PDF_WIDTH, height = PDF_HEIGHT)
