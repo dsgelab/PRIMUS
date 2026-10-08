@@ -128,7 +128,8 @@ validation_data_file  <- paste0("/media/volume/Projects/DSGELabProject1/Plots/Ma
 OutDir <- "/media/volume/Projects/DSGELabProject1/Plots/ManuscriptFinal/"
 if (!dir.exists(OutDir)) dir.create(OutDir, recursive = TRUE)
 
-BASENAME_PLOT <- paste0("Figure4_", TODAY)
+BASENAME_PLOT       <- paste0("Figure4_", TODAY)
+FILE_CSV_PANEL_A    <- paste0("Figure4_PanelA_Data_", TODAY, ".csv")
 
 # -- Helper: save a ggplot as both PNG and PDF using the same base filename --
 save_plot_png_pdf <- function(plot, dir, basename, width, height, dpi = PLOT_DPI) {
@@ -279,6 +280,9 @@ chapter_color_map <- setNames(
     cb_palette[1:nlevels(dataset$CHAPTER_NAME)],
     levels(dataset$CHAPTER_NAME)
 )
+
+# export the Panel A dataset for reference table in the manuscript
+write_csv(dataset, file.path(OutDir, FILE_CSV_PANEL_A))
 
 # Pull out the labeled medication rows for text annotations in p1
 robust_result_labels <- dataset %>% inner_join(code_labels, by = "OUTCOME_CODE")
