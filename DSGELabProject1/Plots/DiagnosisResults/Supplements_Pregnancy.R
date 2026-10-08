@@ -284,6 +284,8 @@ att_gt_res_female <- att_gt(
 
 agg_dynamic_female <- aggte(att_gt_res_female, type = "dynamic", na.rm = TRUE)
 results_female <- data.frame(
+    cases    = n_cases_female,
+    controls = n_controls_female,
     time     = agg_dynamic_female$egt,
     att      = agg_dynamic_female$att.egt,
     se       = agg_dynamic_female$se.egt,
@@ -401,6 +403,8 @@ att_gt_res_male <- att_gt(
 
 agg_dynamic_male <- aggte(att_gt_res_male, type = "dynamic", na.rm = TRUE)
 results_male <- data.frame(
+    cases    = n_cases_male,
+    controls = n_controls_male,
     time     = agg_dynamic_male$egt,
     att      = agg_dynamic_male$att.egt,
     se       = agg_dynamic_male$se.egt,
